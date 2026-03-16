@@ -9,9 +9,9 @@ Provides simplified runners for:
 from __future__ import annotations
 
 import numpy as np
-from sklearn.linear_model import SGDClassifier
 
 from ..drift_generator import DriftDataset, GeneratorConfig, generate_drift_dataset
+from ..models import TorchLinearClassifier
 from ..evaluation.metrics import (
     compute_prequential_accuracy,
     compute_concept_tracking_accuracy,
@@ -50,12 +50,15 @@ def run_local_only(
     gc = config.generator_config
     K, T = gc.K, gc.T
 
+    n_features = _infer_n_features(gc.generator_type)
     acc_matrix = np.zeros((K, T), dtype=np.float64)
     predicted_matrix = np.zeros((K, T), dtype=np.int32)
 
     for k in range(K):
-        model = SGDClassifier(loss="log_loss", random_state=42)
-        initialized = False
+        model = TorchLinearClassifier(
+            n_features=n_features, n_classes=2,
+            lr=0.1, n_epochs=1, seed=42 + k,
+        )
 
         for t in range(T):
             X, y = dataset.data[(k, t)]
@@ -63,16 +66,12 @@ def run_local_only(
             X_test, y_test = X[:mid], y[:mid]
             X_train, y_train = X[mid:], y[mid:]
 
-            if initialized:
-                y_pred = model.predict(X_test)
-            else:
-                y_pred = np.zeros(len(y_test), dtype=np.int32)
+            y_pred = model.predict(X_test)
 
             acc_matrix[k, t] = float(np.mean(y_pred == y_test))
             predicted_matrix[k, t] = 0  # no concept tracking
 
-            model.partial_fit(X_train, y_train, classes=[0, 1])
-            initialized = True
+            model.partial_fit(X_train, y_train)
 
     return ExperimentResult(
         config=config,
@@ -117,13 +116,22 @@ def run_fedavg_baseline(
     acc_matrix = np.zeros((K, T), dtype=np.float64)
     predicted_matrix = np.zeros((K, T), dtype=np.int32)
 
-    # Shared global model params
-    global_coef = np.zeros((1, n_features), dtype=np.float64)
-    global_intercept = np.zeros(1, dtype=np.float64)
+    # Global model on GPU
+    global_model = TorchLinearClassifier(
+        n_features=n_features, n_classes=2,
+        lr=0.1, n_epochs=1, seed=42,
+    )
+    # Per-client local models on GPU
+    client_models = [
+        TorchLinearClassifier(
+            n_features=n_features, n_classes=2,
+            lr=0.1, n_epochs=1, seed=42 + k,
+        )
+        for k in range(K)
+    ]
 
     for t in range(T):
-        client_coefs = []
-        client_intercepts = []
+        client_params_list = []
 
         for k in range(K):
             X, y = dataset.data[(k, t)]
@@ -132,27 +140,24 @@ def run_fedavg_baseline(
             X_train, y_train = X[mid:], y[mid:]
 
             # Predict with global model
-            if t > 0:
-                scores = X_test @ global_coef.T + global_intercept
-                y_pred = (scores.ravel() > 0).astype(np.int32)
-            else:
-                y_pred = np.zeros(len(y_test), dtype=np.int32)
-
+            y_pred = global_model.predict(X_test)
             acc_matrix[k, t] = float(np.mean(y_pred == y_test))
 
             # Train local model from global init
-            model = SGDClassifier(loss="log_loss", random_state=42)
-            model.partial_fit(X_train, y_train, classes=[0, 1])
             if t > 0:
-                model.coef_ = 0.5 * global_coef + 0.5 * model.coef_
-                model.intercept_ = 0.5 * global_intercept + 0.5 * model.intercept_
+                client_models[k].set_params(global_model.get_params())
+            client_models[k].partial_fit(X_train, y_train)
+            if t > 0:
+                client_models[k].blend_params(global_model.get_params(), alpha=0.5)
 
-            client_coefs.append(model.coef_.copy())
-            client_intercepts.append(model.intercept_.copy())
+            client_params_list.append(client_models[k].get_params())
 
         # Aggregate: simple average
-        global_coef = np.mean(client_coefs, axis=0)
-        global_intercept = np.mean(client_intercepts, axis=0)
+        global_params: dict[str, np.ndarray] = {}
+        for key in client_params_list[0]:
+            stacked = np.stack([p[key] for p in client_params_list])
+            global_params[key] = np.mean(stacked, axis=0)
+        global_model.set_params(global_params)
 
     return ExperimentResult(
         config=config,
@@ -193,11 +198,12 @@ def run_oracle_baseline(
     gc = config.generator_config
     K, T = gc.K, gc.T
 
+    n_features = _infer_n_features(gc.generator_type)
     acc_matrix = np.zeros((K, T), dtype=np.float64)
     predicted_matrix = dataset.concept_matrix.copy()
 
-    # Per-concept models for each client
-    client_models: dict[tuple[int, int], SGDClassifier] = {}
+    # Per-concept models for each client (on GPU)
+    client_models: dict[tuple[int, int], TorchLinearClassifier] = {}
 
     for t in range(T):
         for k in range(K):
@@ -216,8 +222,11 @@ def run_oracle_baseline(
             acc_matrix[k, t] = float(np.mean(y_pred == y_test))
 
             if key not in client_models:
-                client_models[key] = SGDClassifier(loss="log_loss", random_state=42)
-            client_models[key].partial_fit(X_train, y_train, classes=[0, 1])
+                client_models[key] = TorchLinearClassifier(
+                    n_features=n_features, n_classes=2,
+                    lr=0.1, n_epochs=1, seed=42 + k,
+                )
+            client_models[key].partial_fit(X_train, y_train)
 
     return ExperimentResult(
         config=config,

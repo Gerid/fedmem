@@ -10,7 +10,7 @@ each concept gets its own model trajectory, and the server groups
 clients that share the same current concept.
 
 Simplifications vs. the full FedDrift paper:
-- Uses LogisticRegression instead of neural networks.
+- Uses a PyTorch linear classifier instead of neural networks.
 - Clustering is based on cosine similarity of model parameter vectors.
 - Concept re-identification uses a simple nearest-model heuristic.
 """
@@ -18,10 +18,10 @@ Simplifications vs. the full FedDrift paper:
 from dataclasses import dataclass
 
 import numpy as np
-from sklearn.linear_model import LogisticRegression
 
 from ..drift_detector import ADWINDetector
 from ..federation.aggregator import FedAvgAggregator
+from ..models import TorchLinearClassifier
 from .comm_tracker import model_bytes
 
 
@@ -87,14 +87,17 @@ class FedDriftClient:
         self.similarity_threshold = similarity_threshold
         self._seed = seed
 
-        # Per-concept models: concept_id -> (model, params_dict)
-        self._models: dict[int, tuple[LogisticRegression, dict[str, np.ndarray]]] = {}
+        # Per-concept models: concept_id -> params dict
+        self._model_params_store: dict[int, dict[str, np.ndarray]] = {}
         self._active_concept: int = 0
         self._next_concept_id: int = 1
 
         self._drift_detector = ADWINDetector()
         self._n_samples: int = 0
-        self._current_model: LogisticRegression | None = None
+        self._model = TorchLinearClassifier(
+            n_features=n_features, n_classes=n_classes,
+            lr=0.01, n_epochs=5, seed=seed,
+        )
         self._current_params: dict[str, np.ndarray] = {}
 
     # ------------------------------------------------------------------
@@ -118,27 +121,15 @@ class FedDriftClient:
 
     def _fit_model(
         self, X: np.ndarray, y: np.ndarray,
-    ) -> tuple[LogisticRegression, dict[str, np.ndarray]]:
-        """Fit a fresh LogisticRegression and return (model, params)."""
-        classes = np.arange(self.n_classes)
-        if len(np.unique(y)) < self.n_classes:
-            missing = [c for c in classes if c not in np.unique(y)]
-            X_aug = np.vstack([X] + [X[[0]] * 0.0 for _ in missing])
-            y_aug = np.concatenate([y, np.array(missing, dtype=y.dtype)])
-        else:
-            X_aug, y_aug = X, y
-
-        model = LogisticRegression(
-            max_iter=200,
-            random_state=self._seed + self._active_concept,
-            solver="lbfgs",
+    ) -> dict[str, np.ndarray]:
+        """Fit a fresh model on GPU and return params."""
+        fresh = TorchLinearClassifier(
+            n_features=self.n_features, n_classes=self.n_classes,
+            lr=0.01, n_epochs=5,
+            seed=self._seed + self._active_concept,
         )
-        model.fit(X_aug, y_aug)
-        params = {
-            "coef": model.coef_.flatten().copy(),
-            "intercept": model.intercept_.flatten().copy(),
-        }
-        return model, params
+        fresh.fit(X, y)
+        return fresh.get_params()
 
     # ------------------------------------------------------------------
     # Training
@@ -156,8 +147,8 @@ class FedDriftClient:
         drift_detected = False
 
         # Detect drift
-        if self._current_model is not None:
-            preds = self._current_model.predict(X)
+        if self._model._fitted:
+            preds = self._model.predict(X)
             errors = (preds != y).astype(float)
             for err in errors:
                 result = self._drift_detector.update(err)
@@ -167,19 +158,17 @@ class FedDriftClient:
 
         if drift_detected:
             # Save current model under its concept
-            if self._current_model is not None:
-                self._models[self._active_concept] = (
-                    self._current_model, self._current_params,
-                )
+            if self._model._fitted:
+                self._model_params_store[self._active_concept] = self._current_params.copy()
 
             # Train a fresh model on new data
-            new_model, new_params = self._fit_model(X, y)
+            new_params = self._fit_model(X, y)
             new_vec = self._params_to_vector(new_params)
 
             # Try to re-identify an existing concept
             best_concept = -1
             best_sim = -1.0
-            for cid, (_, cparams) in self._models.items():
+            for cid, cparams in self._model_params_store.items():
                 cvec = self._params_to_vector(cparams)
                 sim = self._cosine_sim(new_vec, cvec)
                 if sim > best_sim:
@@ -189,24 +178,24 @@ class FedDriftClient:
             if best_concept >= 0 and best_sim >= self.similarity_threshold:
                 # Re-use existing concept
                 self._active_concept = best_concept
-                # Re-train existing concept model with new data
-                self._current_model, self._current_params = self._fit_model(X, y)
+                new_params = self._fit_model(X, y)
             else:
                 # Spawn new concept
                 self._active_concept = self._next_concept_id
                 self._next_concept_id += 1
-                self._current_model = new_model
-                self._current_params = new_params
 
+            self._current_params = new_params
+            self._model.set_params(new_params)
             self._drift_detector.reset()
         else:
             # No drift — train current model
-            self._current_model, self._current_params = self._fit_model(X, y)
+            self._model.fit(X, y)
+            self._current_params = self._model.get_params()
 
         # Update stored model
-        self._models[self._active_concept] = (
-            self._current_model, self._current_params,
-        )
+        self._model_params_store[self._active_concept] = {
+            k: v.copy() for k, v in self._current_params.items()
+        }
 
     # ------------------------------------------------------------------
     # Prediction
@@ -223,9 +212,7 @@ class FedDriftClient:
         -------
         np.ndarray of shape (n_samples,)
         """
-        if self._current_model is None:
-            return np.zeros(len(X), dtype=np.int64)
-        return self._current_model.predict(X).astype(np.int64)
+        return self._model.predict(X)
 
     @property
     def active_concept_id(self) -> int:
@@ -243,27 +230,11 @@ class FedDriftClient:
         ----------
         params : dict[str, np.ndarray]
         """
-        coef = params["coef"]
-        intercept = params["intercept"]
-        expected_rows = 1 if self.n_classes == 2 else self.n_classes
-        coef_2d = coef.reshape(expected_rows, self.n_features)
-
-        if self._current_model is None:
-            model = LogisticRegression(
-                max_iter=200, random_state=self._seed, solver="lbfgs",
-            )
-            model.classes_ = np.arange(self.n_classes)
-            model.coef_ = coef_2d.copy()
-            model.intercept_ = intercept.copy()
-            self._current_model = model
-        else:
-            self._current_model.coef_ = coef_2d.copy()
-            self._current_model.intercept_ = intercept.copy()
-
-        self._current_params = {"coef": coef.copy(), "intercept": intercept.copy()}
-        self._models[self._active_concept] = (
-            self._current_model, self._current_params,
-        )
+        self._model.set_params(params)
+        self._current_params = {k: v.copy() for k, v in params.items()}
+        self._model_params_store[self._active_concept] = {
+            k: v.copy() for k, v in params.items()
+        }
 
     def get_upload(self) -> FedDriftUpload:
         """Package active model parameters for upload.

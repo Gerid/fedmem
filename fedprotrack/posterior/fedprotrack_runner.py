@@ -12,12 +12,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
-from sklearn.linear_model import SGDClassifier
 
 from ..concept_tracker.fingerprint import ConceptFingerprint
 from ..drift_detector import BaseDriftDetector
 from ..drift_generator import DriftDataset
 from ..metrics.experiment_log import ExperimentLog
+from ..models import TorchLinearClassifier
 from .two_phase_protocol import TwoPhaseConfig, TwoPhaseFedProTrack
 
 
@@ -164,6 +164,16 @@ class FedProTrackRunner:
 
         # Per-client state
         detectors = [_make_detector(self.detector_name) for _ in range(K)]
+        models = [
+            TorchLinearClassifier(
+                n_features=n_features,
+                n_classes=2,
+                lr=0.1,
+                n_epochs=1,
+                seed=self.seed + k * T + 10000,
+            )
+            for k in range(K)
+        ]
         model_params: list[dict[str, np.ndarray]] = [{}] * K
 
         # Results
@@ -188,17 +198,8 @@ class FedProTrackRunner:
                 X_test, y_test = X[:mid], y[:mid]
                 X_train, y_train = X[mid:], y[mid:]
 
-                # 1. Prequential prediction
-                if model_params[k]:
-                    coef = model_params[k].get("coef")
-                    intercept = model_params[k].get("intercept")
-                    if coef is not None and intercept is not None:
-                        scores = X_test @ coef.T + intercept
-                        y_pred = (scores.ravel() > 0).astype(np.int32)
-                    else:
-                        y_pred = np.zeros(len(y_test), dtype=np.int32)
-                else:
-                    y_pred = np.zeros(len(y_test), dtype=np.int32)
+                # 1. Prequential prediction (on GPU via TorchLinearClassifier)
+                y_pred = models[k].predict(X_test)
 
                 acc = float(np.mean(y_pred == y_test)) if len(y_test) > 0 else 0.0
                 accuracy_matrix[k, t] = acc
@@ -216,24 +217,14 @@ class FedProTrackRunner:
                 # 3. Build per-step fingerprint (fresh, no accumulation)
                 step_fingerprints[k].update(X_train, y_train)
 
-                # 4. Local SGD training
-                model = SGDClassifier(
-                    loss="log_loss",
-                    random_state=self.seed + k * T + t + 10000,
-                )
-                model.partial_fit(X_train, y_train, classes=[0, 1])
+                # 4. Local training on GPU
+                models[k].partial_fit(X_train, y_train)
 
                 if not is_drift and model_params[k].get("coef") is not None:
                     # Warm-start with momentum only when no drift detected
-                    old_coef = model_params[k]["coef"]
-                    old_int = model_params[k]["intercept"]
-                    model.coef_ = 0.5 * old_coef + 0.5 * model.coef_
-                    model.intercept_ = 0.5 * old_int + 0.5 * model.intercept_
+                    models[k].blend_params(model_params[k], alpha=0.5)
 
-                model_params[k] = {
-                    "coef": model.coef_.copy(),
-                    "intercept": model.intercept_.copy(),
-                }
+                model_params[k] = models[k].get_params()
 
             # --- Federation ---
             if (t + 1) % self.federation_every == 0:
@@ -260,14 +251,15 @@ class FedProTrackRunner:
                     b_result = protocol.phase_b(client_p, a_result.assignments)
                     phase_b_bytes += b_result.total_bytes
 
-                    # Distribute aggregated models
+                    # Distribute aggregated models (load back to GPU)
                     for k in range(K):
                         cid = a_result.assignments.get(k)
                         if cid is not None and cid in b_result.aggregated_params:
+                            agg_p = b_result.aggregated_params[cid]
                             model_params[k] = {
-                                key: arr.copy()
-                                for key, arr in b_result.aggregated_params[cid].items()
+                                key: arr.copy() for key, arr in agg_p.items()
                             }
+                            models[k].set_params(model_params[k])
             else:
                 # No federation this step — carry forward previous assignments
                 if prev_assignments:

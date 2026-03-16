@@ -12,16 +12,16 @@ explicitly track concept identity over time — instead it relies on
 loss-based cluster selection each round.
 
 Simplifications vs. the full IFCA paper:
-- Uses LogisticRegression instead of neural networks.
-- Loss is cross-entropy (log-loss) evaluated on the local batch.
+- Uses a PyTorch linear classifier instead of neural networks.
+- Loss is cross-entropy evaluated on the local batch.
 - No random restarts or multi-init; deterministic initialisation.
 """
 
 from dataclasses import dataclass
 
 import numpy as np
-from sklearn.linear_model import LogisticRegression
 
+from ..models import TorchLinearClassifier
 from .comm_tracker import model_bytes
 
 
@@ -80,7 +80,10 @@ class IFCAClient:
         # Cluster models received from server
         self._cluster_models: list[dict[str, np.ndarray]] = []
         self._selected_cluster: int = 0
-        self._model: LogisticRegression | None = None
+        self._model = TorchLinearClassifier(
+            n_features=n_features, n_classes=n_classes,
+            lr=0.01, n_epochs=5, seed=seed,
+        )
         self._model_params: dict[str, np.ndarray] = {}
         self._n_samples: int = 0
 
@@ -107,31 +110,13 @@ class IFCAClient:
         if not params:
             return float("inf")
 
-        expected_rows = 1 if self.n_classes == 2 else self.n_classes
-        coef = params["coef"].reshape(expected_rows, self.n_features)
-        intercept = params["intercept"]
-
-        # Compute logits
-        logits = X @ coef.T + intercept
-        if self.n_classes == 2:
-            # Binary: sigmoid
-            probs = 1.0 / (1.0 + np.exp(-np.clip(logits, -500, 500)))
-            probs = probs.ravel()
-            eps = 1e-15
-            probs = np.clip(probs, eps, 1 - eps)
-            loss = -np.mean(
-                y * np.log(probs) + (1 - y) * np.log(1 - probs),
-            )
-        else:
-            # Multiclass: softmax
-            logits = logits - logits.max(axis=1, keepdims=True)
-            exp_logits = np.exp(logits)
-            probs = exp_logits / exp_logits.sum(axis=1, keepdims=True)
-            eps = 1e-15
-            probs = np.clip(probs, eps, 1 - eps)
-            loss = -np.mean(np.log(probs[np.arange(len(y)), y.astype(int)]))
-
-        return float(loss)
+        # Use a temporary model to evaluate
+        temp = TorchLinearClassifier(
+            n_features=self.n_features, n_classes=self.n_classes,
+            seed=self._seed,
+        )
+        temp.set_params(params)
+        return temp.predict_loss(X, y)
 
     def select_cluster(self, X: np.ndarray, y: np.ndarray) -> int:
         """Select the best cluster model based on loss.
@@ -177,50 +162,19 @@ class IFCAClient:
         if self._cluster_models and self._selected_cluster < len(self._cluster_models):
             selected_params = self._cluster_models[self._selected_cluster]
             if selected_params:
-                self._init_model_from_params(selected_params)
+                old_params = {k: v.copy() for k, v in selected_params.items()}
+                self._model.set_params(selected_params)
 
-        # Train locally
-        classes = np.arange(self.n_classes)
-        if len(np.unique(y)) < self.n_classes:
-            missing = [c for c in classes if c not in np.unique(y)]
-            X_aug = np.vstack([X] + [X[[0]] * 0.0 for _ in missing])
-            y_aug = np.concatenate([y, np.array(missing, dtype=y.dtype)])
-        else:
-            X_aug, y_aug = X, y
+        # Train locally on GPU
+        self._model.fit(X, y)
 
-        model = LogisticRegression(
-            max_iter=200,
-            random_state=self._seed,
-            solver="lbfgs",
-        )
-        # Warm-start from cluster model if available
-        if self._model is not None:
-            model.fit(X_aug, y_aug)
-            # Blend with cluster model for stability
-            model.coef_ = 0.5 * model.coef_ + 0.5 * self._model.coef_
-            model.intercept_ = 0.5 * model.intercept_ + 0.5 * self._model.intercept_
-        else:
-            model.fit(X_aug, y_aug)
+        # Blend with cluster model for stability
+        if self._cluster_models and self._selected_cluster < len(self._cluster_models):
+            selected_params = self._cluster_models[self._selected_cluster]
+            if selected_params:
+                self._model.blend_params(selected_params, alpha=0.5)
 
-        self._model = model
-        self._model_params = {
-            "coef": model.coef_.flatten().copy(),
-            "intercept": model.intercept_.flatten().copy(),
-        }
-
-    def _init_model_from_params(self, params: dict[str, np.ndarray]) -> None:
-        """Initialise the internal model from parameter dict."""
-        expected_rows = 1 if self.n_classes == 2 else self.n_classes
-        coef_2d = params["coef"].reshape(expected_rows, self.n_features)
-
-        model = LogisticRegression(
-            max_iter=200, random_state=self._seed, solver="lbfgs",
-        )
-        model.classes_ = np.arange(self.n_classes)
-        model.coef_ = coef_2d.copy()
-        model.intercept_ = params["intercept"].copy()
-        self._model = model
-        self._model_params = {k: v.copy() for k, v in params.items()}
+        self._model_params = self._model.get_params()
 
     # ------------------------------------------------------------------
     # Prediction
@@ -237,9 +191,7 @@ class IFCAClient:
         -------
         np.ndarray of shape (n_samples,)
         """
-        if self._model is None:
-            return np.zeros(len(X), dtype=np.int64)
-        return self._model.predict(X).astype(np.int64)
+        return self._model.predict(X)
 
     # ------------------------------------------------------------------
     # Federation interface
@@ -263,7 +215,7 @@ class IFCAClient:
             and self._selected_cluster < len(self._cluster_models)
             and self._cluster_models[self._selected_cluster]
         ):
-            self._init_model_from_params(
+            self._model.set_params(
                 self._cluster_models[self._selected_cluster],
             )
 

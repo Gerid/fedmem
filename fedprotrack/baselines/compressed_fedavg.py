@@ -20,9 +20,9 @@ Stich et al. (2018) / Alistarh et al. (2018).
 from dataclasses import dataclass
 
 import numpy as np
-from sklearn.linear_model import LogisticRegression
 
 from ..federation.aggregator import FedAvgAggregator
+from ..models import TorchLinearClassifier
 from .comm_tracker import model_bytes
 
 
@@ -54,7 +54,7 @@ class CompressedUpload:
 class CompressedFedAvgClient:
     """Client for the CompressedFedAvg baseline.
 
-    Trains a local LogisticRegression, computes delta from global model,
+    Trains a local PyTorch linear model, computes delta from global model,
     applies top-k sparsification with error feedback, uploads the sparse
     delta.
 
@@ -91,7 +91,10 @@ class CompressedFedAvgClient:
         self.topk_fraction = topk_fraction
         self._seed = seed
 
-        self._model: LogisticRegression | None = None
+        self._model = TorchLinearClassifier(
+            n_features=n_features, n_classes=n_classes,
+            lr=0.01, n_epochs=5, seed=seed,
+        )
         self._model_params: dict[str, np.ndarray] = {}
         # Global model params (received from server)
         self._global_params: dict[str, np.ndarray] = {}
@@ -112,26 +115,8 @@ class CompressedFedAvgClient:
         y : np.ndarray of shape (n_samples,)
         """
         self._n_samples += len(X)
-
-        classes = np.arange(self.n_classes)
-        if len(np.unique(y)) < self.n_classes:
-            missing = [c for c in classes if c not in np.unique(y)]
-            X_aug = np.vstack([X] + [X[[0]] * 0.0 for _ in missing])
-            y_aug = np.concatenate([y, np.array(missing, dtype=y.dtype)])
-        else:
-            X_aug, y_aug = X, y
-
-        model = LogisticRegression(
-            max_iter=200,
-            random_state=self._seed,
-            solver="lbfgs",
-        )
-        model.fit(X_aug, y_aug)
-        self._model = model
-        self._model_params = {
-            "coef": model.coef_.flatten().copy(),
-            "intercept": model.intercept_.flatten().copy(),
-        }
+        self._model.fit(X, y)
+        self._model_params = self._model.get_params()
 
     # ------------------------------------------------------------------
     # Prediction
@@ -148,9 +133,7 @@ class CompressedFedAvgClient:
         -------
         np.ndarray
         """
-        if self._model is None:
-            return np.zeros(len(X), dtype=np.int64)
-        return self._model.predict(X).astype(np.int64)
+        return self._model.predict(X)
 
     # ------------------------------------------------------------------
     # Compression
@@ -191,7 +174,6 @@ class CompressedFedAvgClient:
         if k >= n_total:
             threshold = 0.0
         else:
-            # Use partition for efficiency
             partition_idx = n_total - k
             threshold = float(np.partition(abs_vals, partition_idx)[partition_idx])
 
@@ -204,7 +186,6 @@ class CompressedFedAvgClient:
             sparse = np.where(mask, arr, 0.0)
             sparse_delta[key] = sparse
             n_nonzero += int(np.count_nonzero(sparse))
-            # Error feedback: accumulate what was NOT sent
             self._error_buffer[key] = arr - sparse
 
         return sparse_delta, n_nonzero, n_total
@@ -220,25 +201,9 @@ class CompressedFedAvgClient:
         ----------
         params : dict[str, np.ndarray]
         """
-        coef = params["coef"]
-        intercept = params["intercept"]
-        expected_rows = 1 if self.n_classes == 2 else self.n_classes
-        coef_2d = coef.reshape(expected_rows, self.n_features)
-
-        if self._model is None:
-            model = LogisticRegression(
-                max_iter=200, random_state=self._seed, solver="lbfgs",
-            )
-            model.classes_ = np.arange(self.n_classes)
-            model.coef_ = coef_2d.copy()
-            model.intercept_ = intercept.copy()
-            self._model = model
-        else:
-            self._model.coef_ = coef_2d.copy()
-            self._model.intercept_ = intercept.copy()
-
-        self._model_params = {"coef": coef.copy(), "intercept": intercept.copy()}
-        self._global_params = {"coef": coef.copy(), "intercept": intercept.copy()}
+        self._model.set_params(params)
+        self._model_params = {k: v.copy() for k, v in params.items()}
+        self._global_params = {k: v.copy() for k, v in params.items()}
 
     def get_upload(self) -> CompressedUpload:
         """Compute sparse delta and package for upload.
@@ -276,10 +241,6 @@ class CompressedFedAvgClient:
     def upload_bytes(self, precision_bits: int = 32) -> float:
         """Estimate bytes for the compressed upload without mutating state.
 
-        Computes the expected byte count from the stored model parameters
-        and ``topk_fraction`` without calling ``get_upload()`` (which would
-        mutate the error feedback buffer).
-
         Parameters
         ----------
         precision_bits : int
@@ -293,7 +254,7 @@ class CompressedFedAvgClient:
         n_total = sum(arr.size for arr in self._model_params.values())
         n_nonzero = max(1, int(np.ceil(n_total * self.topk_fraction)))
         value_bytes = n_nonzero * precision_bits / 8
-        index_bytes = n_nonzero * 4  # 32-bit index
+        index_bytes = n_nonzero * 4
         return float(value_bytes + index_bytes)
 
     def upload_bytes_from_upload(
@@ -360,7 +321,6 @@ class CompressedFedAvgServer:
         if not valid:
             return self.global_params
 
-        # Average the sparse deltas
         weights = [float(max(u.n_samples, 1)) for u in valid]
         total_w = sum(weights)
         if total_w == 0:
@@ -373,7 +333,6 @@ class CompressedFedAvgServer:
             w_arr = np.array(weights, dtype=np.float64) / total_w
             avg_delta[key] = np.tensordot(w_arr, stacked, axes=([0], [0]))
 
-        # Apply averaged delta to global model
         for key in avg_delta:
             if key in self.global_params:
                 self.global_params[key] = self.global_params[key] + avg_delta[key]
@@ -388,8 +347,6 @@ class CompressedFedAvgServer:
         precision_bits: int = 32,
     ) -> float:
         """Compute bytes to broadcast global model.
-
-        The server sends the *full* global model (no compression on downlink).
 
         Parameters
         ----------
