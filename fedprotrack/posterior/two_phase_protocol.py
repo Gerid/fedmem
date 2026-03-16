@@ -336,6 +336,8 @@ class TwoPhaseFedProTrack:
                 self.memory_bank.maybe_merge()
                 # Remap any assignments whose concept was merged away
                 self._remap_merged_assignments(assignments)
+                # Also remap assigned_clients in case their concepts were merged
+                self._remap_merged_assignments(assigned_clients)
 
         # --- Pass 3: absorb assigned clients into their MAP concepts ---
         for client_id, concept_id in assigned_clients.items():

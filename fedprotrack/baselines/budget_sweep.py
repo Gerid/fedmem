@@ -7,10 +7,10 @@ federation frequencies to produce Pareto-style (bytes, AUC) trade-off curves.
 from dataclasses import dataclass
 
 import numpy as np
-from sklearn.linear_model import LogisticRegression
 
 from ..drift_generator.generator import DriftDataset
 from ..federation.aggregator import FedAvgAggregator
+from ..models import TorchLinearClassifier
 from ..metrics.budget_metrics import compute_accuracy_auc
 from .comm_tracker import model_bytes, fingerprint_bytes, prototype_bytes
 from .compressed_fedavg import CompressedFedAvgClient, CompressedFedAvgServer
@@ -108,52 +108,32 @@ def _run_fedavg_full(dataset: DriftDataset, federation_every: int) -> BudgetPoin
     K, T, n_features, n_classes = _extract_dataset_dims(dataset)
     aggregator = FedAvgAggregator()
 
-    # Local sklearn models per client
-    models: list[LogisticRegression | None] = [None] * K
+    # Local PyTorch models per client (on GPU)
+    models = [
+        TorchLinearClassifier(
+            n_features=n_features, n_classes=n_classes,
+            lr=0.01, n_epochs=5, seed=42 + k,
+        )
+        for k in range(K)
+    ]
     # Current model params per client (for communication accounting)
     client_params: list[dict[str, np.ndarray]] = [{}] * K
 
     accuracy_curve = np.zeros((K, T), dtype=np.float64)
     total_bytes = 0.0
 
-    # Helper: build params dict from fitted model
-    def _params_from_model(model: LogisticRegression) -> dict[str, np.ndarray]:
-        return {
-            "coef": model.coef_.flatten().copy(),
-            "intercept": model.intercept_.flatten().copy(),
-        }
-
     for t in range(T):
         # --- 1. Predict (use current model) ---
         for k in range(K):
             X, y = dataset.data[(k, t)]
-            if models[k] is None:
-                preds = np.zeros(len(X), dtype=np.int64)
-            else:
-                preds = models[k].predict(X).astype(np.int64)
+            preds = models[k].predict(X)
             accuracy_curve[k, t] = _accuracy(y, preds)
 
         # --- 2. Fit on current batch ---
         for k in range(K):
             X, y = dataset.data[(k, t)]
-            classes = np.arange(n_classes)
-            # Augment to stabilize coef_ shape when classes are missing
-            if len(np.unique(y)) < n_classes:
-                missing = [c for c in classes if c not in np.unique(y)]
-                X_aug = np.vstack([X] + [X[[0]] * 0.0 for _ in missing])
-                y_aug = np.concatenate([y, np.array(missing, dtype=y.dtype)])
-            else:
-                X_aug, y_aug = X, y
-
-            model = LogisticRegression(
-                max_iter=200,
-                random_state=42 + k,
-                solver="lbfgs",
-                
-            )
-            model.fit(X_aug, y_aug)
-            models[k] = model
-            client_params[k] = _params_from_model(model)
+            models[k].fit(X, y)
+            client_params[k] = models[k].get_params()
 
         # --- 3. Federation (if scheduled and not last step) ---
         if (t + 1) % federation_every == 0 and t < T - 1:
@@ -166,18 +146,11 @@ def _run_fedavg_full(dataset: DriftDataset, federation_every: int) -> BudgetPoin
                 download_b = K * model_bytes(global_params)
                 total_bytes += upload_b + download_b
 
-                # Distribute global model back to all clients
+                # Distribute global model back to all clients (load to GPU)
                 for k in range(K):
-                    coef = global_params["coef"]
-                    intercept = global_params["intercept"]
-                    expected_rows = 1 if n_classes == 2 else n_classes
-                    coef_2d = coef.reshape(expected_rows, n_features)
-                    if models[k] is not None:
-                        models[k].coef_ = coef_2d.copy()
-                        models[k].intercept_ = intercept.copy()
+                    models[k].set_params(global_params)
                     client_params[k] = {
-                        "coef": coef.copy(),
-                        "intercept": intercept.copy(),
+                        k_: v.copy() for k_, v in global_params.items()
                     }
 
     auc = compute_accuracy_auc(accuracy_curve)

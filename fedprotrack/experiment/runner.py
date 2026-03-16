@@ -21,6 +21,7 @@ from ..drift_generator import DriftDataset, GeneratorConfig, generate_drift_data
 from ..drift_detector import BaseDriftDetector, DriftResult
 from ..concept_tracker import ConceptTracker, TrackingResult
 from ..federation.aggregator import BaseAggregator, FedAvgAggregator
+from ..models import TorchLinearClassifier
 from ..evaluation.metrics import (
     StreamingAccuracy,
     ConceptTrackingMetrics,
@@ -71,6 +72,7 @@ class ClientState:
     novel_flags: list[bool] = field(default_factory=list)
     per_concept_accuracies: dict[int, list[float]] = field(default_factory=dict)
     model_params: dict[str, np.ndarray] = field(default_factory=dict)
+    torch_model: TorchLinearClassifier | None = None
 
 
 @dataclass
@@ -206,7 +208,17 @@ class ExperimentRunner:
                 n_classes=2,
                 similarity_threshold=self.config.similarity_threshold,
             )
-            clients.append(ClientState(client_id=k, detector=detector, tracker=tracker))
+            torch_model = TorchLinearClassifier(
+                n_features=n_features,
+                n_classes=2,
+                lr=0.1,
+                n_epochs=1,
+                seed=42 + k,
+            )
+            clients.append(ClientState(
+                client_id=k, detector=detector, tracker=tracker,
+                torch_model=torch_model,
+            ))
         return clients
 
     def _simulate_step(
@@ -217,8 +229,6 @@ class ExperimentRunner:
         n_features: int,
     ) -> None:
         """Simulate one time step across all clients."""
-        from sklearn.linear_model import SGDClassifier
-
         for cs in clients:
             X, y = dataset.data[(cs.client_id, t)]
             true_concept = int(dataset.concept_matrix[cs.client_id, t])
@@ -228,17 +238,8 @@ class ExperimentRunner:
             X_test, y_test = X[:mid], y[:mid]
             X_train, y_train = X[mid:], y[mid:]
 
-            # Predict using current model state (simple SGD per client)
-            if not cs.model_params:
-                y_pred = np.zeros(len(y_test), dtype=np.int32)
-            else:
-                coef = cs.model_params.get("coef_")
-                intercept = cs.model_params.get("intercept_")
-                if coef is not None and intercept is not None:
-                    scores = X_test @ coef.T + intercept
-                    y_pred = (scores.ravel() > 0).astype(np.int32)
-                else:
-                    y_pred = np.zeros(len(y_test), dtype=np.int32)
+            # Predict using current torch model on GPU
+            y_pred = cs.torch_model.predict(X_test)
 
             acc = float(np.mean(y_pred == y_test)) if len(y_test) > 0 else 0.0
             cs.accuracy_tracker.update(y_test, y_pred)
@@ -265,20 +266,14 @@ class ExperimentRunner:
                 pred_concept = cs.tracker.active_concept_id or 0
                 cs.tracker.observe(X_train, y_train)
 
-            # Train simple model
-            model = SGDClassifier(loss="log_loss", random_state=42)
-            model.partial_fit(X_train, y_train, classes=[0, 1])
-            if cs.model_params.get("coef_") is not None and not is_drift:
-                # Warm start: average with existing
-                old_coef = cs.model_params["coef_"]
-                old_int = cs.model_params["intercept_"]
-                model.coef_ = 0.5 * old_coef + 0.5 * model.coef_
-                model.intercept_ = 0.5 * old_int + 0.5 * model.intercept_
+            # Train on GPU
+            old_params = cs.torch_model.get_params() if cs.torch_model._fitted else None
+            cs.torch_model.partial_fit(X_train, y_train)
+            if old_params is not None and not is_drift:
+                # Warm start: blend with previous params
+                cs.torch_model.blend_params(old_params, alpha=0.5)
 
-            cs.model_params = {
-                "coef_": model.coef_.copy(),
-                "intercept_": model.intercept_.copy(),
-            }
+            cs.model_params = cs.torch_model.get_params()
 
             # Record
             cs.predictions.append(y_pred)

@@ -11,10 +11,10 @@ distributions.
 from dataclasses import dataclass, field
 
 import numpy as np
-from sklearn.linear_model import LogisticRegression
 
 from ..concept_tracker.fingerprint import ConceptFingerprint
 from ..federation.aggregator import FedAvgAggregator
+from ..models import TorchLinearClassifier
 from .comm_tracker import model_bytes, fingerprint_bytes
 
 
@@ -50,7 +50,7 @@ class TrackedUpload:
 class TrackedSummaryClient:
     """Client for the TrackedSummary method.
 
-    Maintains a ConceptFingerprint and a sklearn LogisticRegression model.
+    Maintains a ConceptFingerprint and a PyTorch linear model.
     At each step the client fits local data and updates its fingerprint.
     During federation it uploads the fingerprint vector together with model
     parameters so the server can cluster clients before aggregation.
@@ -64,7 +64,7 @@ class TrackedSummaryClient:
     n_classes : int
         Number of possible class labels.
     seed : int
-        Random seed for the internal LogisticRegression. Default 0.
+        Random seed. Default 0.
     """
 
     def __init__(
@@ -80,7 +80,10 @@ class TrackedSummaryClient:
         self._seed = seed
 
         self._fingerprint = ConceptFingerprint(n_features=n_features, n_classes=n_classes)
-        self._model: LogisticRegression | None = None
+        self._model = TorchLinearClassifier(
+            n_features=n_features, n_classes=n_classes,
+            lr=0.01, n_epochs=5, seed=seed,
+        )
         self._model_params: dict[str, np.ndarray] = {}
         self._n_samples: int = 0
 
@@ -102,29 +105,9 @@ class TrackedSummaryClient:
         self._fingerprint.update(X, y)
         self._n_samples += len(X)
 
-        # Fit (or re-fit) logistic regression on the current batch
-        classes = np.arange(self.n_classes)
-        model = LogisticRegression(
-            max_iter=200,
-            random_state=self._seed,
-            solver="lbfgs",
-            
-        )
-        # Ensure all classes are represented to keep coef_ shape stable
-        if len(np.unique(y)) < self.n_classes:
-            # Add tiny dummy rows for missing classes to stabilize coef_ shape
-            missing = [c for c in classes if c not in np.unique(y)]
-            X_aug = np.vstack([X] + [X[[0]] * 0.0 for _ in missing])
-            y_aug = np.concatenate([y, np.array(missing, dtype=y.dtype)])
-        else:
-            X_aug, y_aug = X, y
-
-        model.fit(X_aug, y_aug)
-        self._model = model
-        self._model_params = {
-            "coef": model.coef_.flatten().copy(),
-            "intercept": model.intercept_.flatten().copy(),
-        }
+        # Train on GPU
+        self._model.fit(X, y)
+        self._model_params = self._model.get_params()
 
     # ------------------------------------------------------------------
     # Prediction
@@ -145,9 +128,7 @@ class TrackedSummaryClient:
         np.ndarray of shape (n_samples,)
             Predicted class labels.
         """
-        if self._model is None:
-            return np.zeros(len(X), dtype=np.int64)
-        return self._model.predict(X).astype(np.int64)
+        return self._model.predict(X)
 
     # ------------------------------------------------------------------
     # Federation interface
@@ -156,44 +137,13 @@ class TrackedSummaryClient:
     def set_model_params(self, params: dict[str, np.ndarray]) -> None:
         """Receive aggregated model parameters from the server.
 
-        Reconstructs the internal LogisticRegression from the provided
-        ``coef`` and ``intercept`` arrays so that subsequent calls to
-        ``predict`` use the globally aggregated model.
-
         Parameters
         ----------
         params : dict[str, np.ndarray]
-            Must contain ``"coef"`` of shape ``(n_classes * n_features,)``
-            and ``"intercept"`` of shape ``(n_classes,)`` (or compatible).
+            Must contain ``"coef"`` and ``"intercept"``.
         """
-        coef = params["coef"]
-        intercept = params["intercept"]
-
-        n_classes = self.n_classes
-        # coef shape for sklearn: (n_classes, n_features) or (1, n_features)
-        expected_coef_rows = 1 if n_classes == 2 else n_classes
-        coef_2d = coef.reshape(expected_coef_rows, self.n_features)
-
-        if self._model is None:
-            # Build a fitted-looking model without calling fit()
-            model = LogisticRegression(
-                max_iter=200,
-                random_state=self._seed,
-                solver="lbfgs",
-                
-            )
-            model.classes_ = np.arange(n_classes)
-            model.coef_ = coef_2d.copy()
-            model.intercept_ = intercept.copy()
-            self._model = model
-        else:
-            self._model.coef_ = coef_2d.copy()
-            self._model.intercept_ = intercept.copy()
-
-        self._model_params = {
-            "coef": coef.copy(),
-            "intercept": intercept.copy(),
-        }
+        self._model.set_params(params)
+        self._model_params = {k: v.copy() for k, v in params.items()}
 
     def get_upload(self) -> TrackedUpload:
         """Package local fingerprint and model parameters for upload.
@@ -241,38 +191,17 @@ class TrackedSummaryServer:
     ----------
     similarity_threshold : float
         Minimum cosine similarity between a client's fingerprint vector and
-        a cluster centroid for the client to join that cluster. Clients that
-        do not meet the threshold for any existing cluster start a new one.
-        Default 0.5.
+        a cluster centroid for the client to join that cluster. Default 0.5.
     """
 
     def __init__(self, similarity_threshold: float = 0.5) -> None:
         self.similarity_threshold = similarity_threshold
         self._aggregator = FedAvgAggregator()
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
-        """Cosine similarity between two vectors.
-
-        Parameters
-        ----------
-        a, b : np.ndarray
-            1-D arrays of the same length.
-
-        Returns
-        -------
-        float
-            Cosine similarity in [-1, 1].
-        """
+        """Cosine similarity between two vectors."""
         return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-10))
-
-    # ------------------------------------------------------------------
-    # Aggregation
-    # ------------------------------------------------------------------
 
     def aggregate(
         self,
@@ -280,28 +209,18 @@ class TrackedSummaryServer:
     ) -> dict[int, dict[str, np.ndarray]]:
         """Cluster clients by fingerprint similarity, aggregate within clusters.
 
-        Greedy single-pass clustering: each upload is assigned to the first
-        existing cluster whose centroid has cosine similarity >=
-        ``similarity_threshold`` to the upload's fingerprint vector.  If no
-        such cluster exists a new cluster is created.  FedAvg (weighted by
-        ``n_samples``) is then applied within each cluster.
-
         Parameters
         ----------
         uploads : list[TrackedUpload]
-            One entry per participating client.
 
         Returns
         -------
         dict[int, dict[str, np.ndarray]]
-            Maps each ``client_id`` to the aggregated model parameters that
-            should be sent back to that client.
+            Maps each ``client_id`` to the aggregated model parameters.
         """
         if not uploads:
             return {}
 
-        # Greedy clustering
-        # clusters[i] = {"members": [TrackedUpload, ...], "centroid": np.ndarray}
         clusters: list[dict] = []
 
         for upload in uploads:
@@ -316,7 +235,6 @@ class TrackedSummaryServer:
 
             if best_idx >= 0 and best_sim >= self.similarity_threshold:
                 clusters[best_idx]["members"].append(upload)
-                # Update centroid as mean of all member vectors
                 member_vecs = np.stack(
                     [m.fingerprint_vector for m in clusters[best_idx]["members"]]
                 )
@@ -324,27 +242,22 @@ class TrackedSummaryServer:
             else:
                 clusters.append({"members": [upload], "centroid": fv.copy()})
 
-        # FedAvg within each cluster, then map client_id -> params
         client_params: dict[int, dict[str, np.ndarray]] = {}
 
         for cluster in clusters:
             members = cluster["members"]
-            # Filter members that actually have model params
             valid = [m for m in members if m.model_params]
             if not valid:
-                # No models yet — nothing to send back
                 for m in members:
                     client_params[m.client_id] = {}
                 continue
 
             params_list = [m.model_params for m in valid]
             weights = [float(m.n_samples) for m in valid]
-            # Fall back to uniform weights if all n_samples == 0
             if sum(weights) == 0:
                 weights = [1.0] * len(valid)
 
             aggregated = self._aggregator.aggregate(params_list, weights)
-
             for m in members:
                 client_params[m.client_id] = aggregated
 
@@ -355,20 +268,16 @@ class TrackedSummaryServer:
         uploads: list[TrackedUpload],
         precision_bits: int = 32,
     ) -> float:
-        """Compute bytes required to send aggregated models back to all clients.
+        """Compute bytes to send aggregated models back to all clients.
 
         Parameters
         ----------
         uploads : list[TrackedUpload]
-            The same uploads used in the most recent ``aggregate`` call (used
-            to determine per-client model size).
         precision_bits : int
-            Bit-width per scalar element (default 32).
 
         Returns
         -------
         float
-            Total download volume in bytes (one model copy per client).
         """
         total = 0.0
         for upload in uploads:

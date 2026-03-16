@@ -11,19 +11,18 @@ rapidly adapting a single model rather than maintaining concept-specific
 memory.
 
 Simplifications vs. the full Flash paper:
-- Uses LogisticRegression instead of neural networks (consistent with
-  other baselines in this project).
+- Uses a PyTorch linear classifier (consistent with other baselines).
 - Knowledge distillation is approximated by mixing the old model's
-  predicted probabilities with hard labels (alpha-weighted soft targets).
+  predicted labels with hard labels (alpha-weighted soft targets).
 - Drift detection uses the project's existing ADWIN wrapper.
 """
 
 from dataclasses import dataclass
 
 import numpy as np
-from sklearn.linear_model import LogisticRegression
 
 from ..drift_detector import ADWINDetector
+from ..models import TorchLinearClassifier
 from .comm_tracker import model_bytes
 
 
@@ -52,7 +51,7 @@ class FlashUpload:
 class FlashClient:
     """Client for the Flash single-model drift adaptation baseline.
 
-    Each client trains a local LogisticRegression. When drift is detected
+    Each client trains a local PyTorch linear model. When drift is detected
     via ADWIN, the model is retrained on the current batch using knowledge
     distillation from the previous global model (soft-label mixing).
 
@@ -69,7 +68,7 @@ class FlashClient:
         0.0 = pure hard labels, 1.0 = pure old-model predictions.
         Default 0.3.
     seed : int
-        Random seed for the internal LogisticRegression. Default 0.
+        Random seed. Default 0.
     """
 
     def __init__(
@@ -86,7 +85,10 @@ class FlashClient:
         self.distill_alpha = distill_alpha
         self._seed = seed
 
-        self._model: LogisticRegression | None = None
+        self._model = TorchLinearClassifier(
+            n_features=n_features, n_classes=n_classes,
+            lr=0.01, n_epochs=5, seed=seed,
+        )
         self._model_params: dict[str, np.ndarray] = {}
         self._old_model_params: dict[str, np.ndarray] = {}
         self._n_samples: int = 0
@@ -113,7 +115,7 @@ class FlashClient:
         self._n_samples += len(X)
 
         # Detect drift using prediction error
-        if self._model is not None:
+        if self._model._fitted:
             preds = self._model.predict(X)
             errors = (preds != y).astype(float)
             for err in errors:
@@ -126,32 +128,14 @@ class FlashClient:
                     }
                     break
 
-        # Ensure all classes represented for stable coef_ shape
-        classes = np.arange(self.n_classes)
-        if len(np.unique(y)) < self.n_classes:
-            missing = [c for c in classes if c not in np.unique(y)]
-            X_aug = np.vstack([X] + [X[[0]] * 0.0 for _ in missing])
-            y_aug = np.concatenate([y, np.array(missing, dtype=y.dtype)])
-        else:
-            X_aug, y_aug = X, y
-
         # If drift detected and we have an old model, use distillation
         if self._has_drifted and self._old_model_params:
-            y_train = self._distill_labels(X_aug, y_aug)
+            y_train = self._distill_labels(X, y)
         else:
-            y_train = y_aug
+            y_train = y
 
-        model = LogisticRegression(
-            max_iter=200,
-            random_state=self._seed,
-            solver="lbfgs",
-        )
-        model.fit(X_aug, y_train)
-        self._model = model
-        self._model_params = {
-            "coef": model.coef_.flatten().copy(),
-            "intercept": model.intercept_.flatten().copy(),
-        }
+        self._model.fit(X, y_train)
+        self._model_params = self._model.get_params()
 
     def _distill_labels(
         self, X: np.ndarray, y_hard: np.ndarray,
@@ -171,17 +155,12 @@ class FlashClient:
         if not self._old_model_params:
             return y_hard
 
-        # Build temporary model from old params to get soft predictions
-        old_model = LogisticRegression(
-            max_iter=1, random_state=self._seed, solver="lbfgs",
+        # Build temporary model from old params for soft predictions
+        old_model = TorchLinearClassifier(
+            n_features=self.n_features, n_classes=self.n_classes,
+            seed=self._seed,
         )
-        old_model.classes_ = np.arange(self.n_classes)
-        expected_rows = 1 if self.n_classes == 2 else self.n_classes
-        old_model.coef_ = self._old_model_params["coef"].reshape(
-            expected_rows, self.n_features,
-        )
-        old_model.intercept_ = self._old_model_params["intercept"].copy()
-
+        old_model.set_params(self._old_model_params)
         y_soft = old_model.predict(X)
 
         # Stochastic mixing: with probability (1-alpha) use hard label,
@@ -207,9 +186,7 @@ class FlashClient:
         -------
         np.ndarray of shape (n_samples,)
         """
-        if self._model is None:
-            return np.zeros(len(X), dtype=np.int64)
-        return self._model.predict(X).astype(np.int64)
+        return self._model.predict(X)
 
     # ------------------------------------------------------------------
     # Federation interface
@@ -223,24 +200,8 @@ class FlashClient:
         params : dict[str, np.ndarray]
             Must contain ``"coef"`` and ``"intercept"``.
         """
-        coef = params["coef"]
-        intercept = params["intercept"]
-        expected_rows = 1 if self.n_classes == 2 else self.n_classes
-        coef_2d = coef.reshape(expected_rows, self.n_features)
-
-        if self._model is None:
-            model = LogisticRegression(
-                max_iter=200, random_state=self._seed, solver="lbfgs",
-            )
-            model.classes_ = np.arange(self.n_classes)
-            model.coef_ = coef_2d.copy()
-            model.intercept_ = intercept.copy()
-            self._model = model
-        else:
-            self._model.coef_ = coef_2d.copy()
-            self._model.intercept_ = intercept.copy()
-
-        self._model_params = {"coef": coef.copy(), "intercept": intercept.copy()}
+        self._model.set_params(params)
+        self._model_params = {k: v.copy() for k, v in params.items()}
         # Reset drift state after global update
         self._has_drifted = False
         self._drift_detector.reset()

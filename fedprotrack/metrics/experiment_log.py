@@ -188,6 +188,8 @@ class MetricsResult:
     budget_normalized_score: float | None
     per_client_re_id: np.ndarray
     per_timestep_re_id: np.ndarray
+    final_accuracy: float | None = None
+    accuracy_auc: float | None = None
 
     # ------------------------------------------------------------------
     # Serialisation
@@ -223,6 +225,16 @@ class MetricsResult:
             ),
             "per_client_re_id": self.per_client_re_id.tolist(),
             "per_timestep_re_id": self.per_timestep_re_id.tolist(),
+            "final_accuracy": (
+                float(self.final_accuracy)
+                if self.final_accuracy is not None
+                else None
+            ),
+            "accuracy_auc": (
+                float(self.accuracy_auc)
+                if self.accuracy_auc is not None
+                else None
+            ),
         }
 
     def to_json(self, path: str | Path) -> None:

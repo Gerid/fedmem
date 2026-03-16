@@ -1,7 +1,7 @@
 """Phase 3 experiment suite for FedProTrack (NeurIPS 2026).
 
-Runs all 6 methods across a (rho × alpha × delta × generator × seed) grid,
-computes 5 paper metrics, generates LaTeX tables, phase diagrams, budget
+Runs all methods across a (rho x alpha x delta x generator x seed) grid,
+computes paper metrics, generates LaTeX tables, phase diagrams, budget
 frontiers, ablation studies, and scalability experiments.
 
 Usage:
@@ -39,16 +39,25 @@ from fedprotrack.baselines.runners import (
     run_tracked_summary_full,
 )
 from fedprotrack.metrics import compute_all_metrics
+from fedprotrack.metrics.budget_metrics import compute_accuracy_auc
 from fedprotrack.metrics.experiment_log import ExperimentLog, MetricsResult
 from fedprotrack.posterior.fedprotrack_runner import FedProTrackRunner
 from fedprotrack.posterior.two_phase_protocol import TwoPhaseConfig
-from fedprotrack.experiments.tables import generate_main_table, generate_per_axis_table
+from fedprotrack.experiments.tables import (
+    generate_main_table,
+    generate_per_axis_table,
+    generate_overhead_table,
+    export_summary_csv,
+)
 from fedprotrack.experiments.figures import (
     generate_accuracy_curves,
+    generate_axis_sweep_plot,
+    generate_difference_heatmap,
+    generate_dip_recovery_boxplot,
     generate_phase_diagrams,
 )
 from fedprotrack.experiments.budget_analysis import generate_full_budget_frontier
-from fedprotrack.experiments.ablations import AblationConfig, run_ablation_study
+from fedprotrack.experiments.ablations import AblationConfig, run_ablation_study, run_module_ablation
 from fedprotrack.experiments.scalability import run_scalability_K, run_scalability_T
 
 
@@ -61,12 +70,7 @@ def build_grid(
     generators: list[str],
     seeds: list[int],
 ) -> list[tuple[GeneratorConfig, int]]:
-    """Build (GeneratorConfig, seed) pairs for the full experiment grid.
-
-    Returns
-    -------
-    list of (GeneratorConfig, seed)
-    """
+    """Build (GeneratorConfig, seed) pairs for the full experiment grid."""
     if quick:
         rho_values = [5.0]
         alpha_values = [0.0, 0.5, 1.0]
@@ -119,13 +123,7 @@ def run_single_setting(
     seed: int,
     quick: bool = False,
 ) -> dict[str, MetricsResult]:
-    """Run all 6 methods on one parameter setting.
-
-    Returns
-    -------
-    dict[str, MetricsResult]
-        method_name -> MetricsResult
-    """
+    """Run all methods on one parameter setting."""
     dataset = generate_drift_dataset(gen_config)
     gt = dataset.concept_matrix
 
@@ -197,6 +195,129 @@ def run_single_setting(
 
 
 # ---------------------------------------------------------------------------
+# Helper: extract axis-sweep data from by_axis dicts
+# ---------------------------------------------------------------------------
+
+def _extract_axis_sweep(
+    by_axis: dict[float, dict[str, list[MetricsResult]]],
+    metric: str,
+    methods: list[str] | None = None,
+) -> tuple[list[float], dict[str, list[float]], dict[str, list[float]]]:
+    """Extract mean and std for a metric across axis values.
+
+    Returns
+    -------
+    axis_values, method_means, method_stds
+    """
+    axis_values = sorted(by_axis.keys())
+    if methods is None:
+        methods = list(next(iter(by_axis.values())).keys())
+
+    method_means: dict[str, list[float]] = {m: [] for m in methods}
+    method_stds: dict[str, list[float]] = {m: [] for m in methods}
+
+    for av in axis_values:
+        for m in methods:
+            results = by_axis[av].get(m, [])
+            vals = []
+            for r in results:
+                v = getattr(r, metric, None)
+                if v is not None:
+                    vals.append(float(v))
+            method_means[m].append(float(np.mean(vals)) if vals else 0.0)
+            method_stds[m].append(float(np.std(vals)) if len(vals) > 1 else 0.0)
+
+    return axis_values, method_means, method_stds
+
+
+# ---------------------------------------------------------------------------
+# E4 helper: budget study across alpha values
+# ---------------------------------------------------------------------------
+
+def _run_budget_study(
+    generators: list[str],
+    alpha_values: list[float],
+    federation_every_values: list[int],
+    quick: bool,
+    results_dir: Path,
+) -> None:
+    """Run E4 budget-regime crossover study."""
+    budget_dir = results_dir / "figures" / "budget"
+    budget_dir.mkdir(parents=True, exist_ok=True)
+    tables_dir = results_dir / "tables" / "appendix"
+    tables_dir.mkdir(parents=True, exist_ok=True)
+
+    K = 5 if quick else 10
+    T = 8 if quick else 20
+    n_samples = 200 if quick else 500
+
+    # For budget x alpha heatmap: best method at each (fe, alpha)
+    best_method_grid: list[list[str]] = []
+    budget_labels: list[str] = [f"fe={fe}" for fe in federation_every_values]
+
+    for fe in federation_every_values:
+        best_at_alpha: list[str] = []
+        for alpha in alpha_values:
+            cfg = GeneratorConfig(
+                K=K, T=T, n_samples=n_samples,
+                rho=5.0, alpha=alpha, delta=0.5,
+                generator_type=generators[0], seed=42,
+            )
+            dataset = generate_drift_dataset(cfg)
+
+            # Run key methods at this federation frequency
+            method_aucs: dict[str, float] = {}
+
+            # FedProTrack
+            fpt_runner = FedProTrackRunner(
+                config=TwoPhaseConfig(), federation_every=fe, seed=42,
+            )
+            fpt_result = fpt_runner.run(dataset)
+            method_aucs["FedProTrack"] = float(compute_accuracy_auc(fpt_result.accuracy_matrix))
+
+            # FedAvg
+            exp_cfg = ExperimentConfig(generator_config=cfg)
+            fa_result = run_fedavg_baseline(exp_cfg, dataset=dataset)
+            method_aucs["FedAvg"] = float(compute_accuracy_auc(fa_result.accuracy_matrix))
+
+            # FedProto
+            fp_result = run_fedproto_full(dataset)
+            method_aucs["FedProto"] = float(compute_accuracy_auc(fp_result.accuracy_matrix))
+
+            # IFCA
+            ifca_result = run_ifca_full(dataset)
+            method_aucs["IFCA"] = float(compute_accuracy_auc(ifca_result.accuracy_matrix))
+
+            best = max(method_aucs, key=lambda m: method_aucs[m])
+            best_at_alpha.append(best)
+
+        best_method_grid.append(best_at_alpha)
+
+    # Generate budget frontier for default setting
+    try:
+        budget_cfg = GeneratorConfig(
+            K=K, T=T, n_samples=n_samples,
+            rho=5.0, alpha=0.5, delta=0.5,
+            generator_type=generators[0], seed=42,
+        )
+        budget_dataset = generate_drift_dataset(budget_cfg)
+        generate_full_budget_frontier(
+            budget_dataset, budget_dir / "budget_frontier.png",
+            federation_every_values=federation_every_values,
+        )
+    except Exception as e:
+        print(f"  Budget frontier failed: {e}")
+
+    # Generate budget x alpha heatmap
+    from fedprotrack.experiments.figures import generate_budget_alpha_heatmap
+    generate_budget_alpha_heatmap(
+        alpha_values, budget_labels, best_method_grid,
+        budget_dir / "budget_alpha_best_method.png",
+    )
+    print(f"  Budget alpha heatmap -> {budget_dir / 'budget_alpha_best_method.png'}")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -233,19 +354,16 @@ def main() -> None:
     n_jobs = args.n_jobs
     n_cores = os.cpu_count() or 1
     effective_jobs = n_cores if n_jobs == -1 else min(n_jobs, len(grid))
-    print(f"\nRunning {len(grid)} settings × 10 methods "
+    print(f"\nRunning {len(grid)} settings x 10 methods "
           f"({effective_jobs} parallel workers)...")
 
     all_results: dict[str, list[MetricsResult]] = {}
-    # Also track by axis for per-axis tables
+    # Track by axis for per-axis tables and E1 line plots
     by_rho: dict[float, dict[str, list[MetricsResult]]] = {}
     by_alpha: dict[float, dict[str, list[MetricsResult]]] = {}
     by_delta: dict[float, dict[str, list[MetricsResult]]] = {}
-    # For phase diagrams (fixed alpha=0.5 if available) — collect lists, average later
-    phase_rho_delta_lists: dict[tuple[float, float], dict[str, list[MetricsResult]]] = {}
-
-    # Track accuracy matrices for a representative setting
-    representative_accs: dict[str, np.ndarray] | None = None
+    # For phase diagrams — per alpha slice
+    phase_by_alpha: dict[float, dict[tuple[float, float], dict[str, list[MetricsResult]]]] = {}
 
     t_start = time.time()
 
@@ -290,106 +408,226 @@ def main() -> None:
                     axis_dict[axis_val][mn] = []
                 axis_dict[axis_val][mn].append(mr)
 
-        # Phase diagram: collect for alpha=0.5 (or nearest)
-        if abs(gen_cfg.alpha - 0.5) < 0.01:
-            key = (gen_cfg.rho, gen_cfg.delta)
-            if key not in phase_rho_delta_lists:
-                phase_rho_delta_lists[key] = {}
-            for mn, mr in metrics.items():
-                if mn not in phase_rho_delta_lists[key]:
-                    phase_rho_delta_lists[key][mn] = []
-                phase_rho_delta_lists[key][mn].append(mr)
+        # Phase diagram: collect per alpha slice
+        alpha_key = round(gen_cfg.alpha, 2)
+        if alpha_key not in phase_by_alpha:
+            phase_by_alpha[alpha_key] = {}
+        rd_key = (gen_cfg.rho, gen_cfg.delta)
+        if rd_key not in phase_by_alpha[alpha_key]:
+            phase_by_alpha[alpha_key][rd_key] = {}
+        for mn, mr in metrics.items():
+            if mn not in phase_by_alpha[alpha_key][rd_key]:
+                phase_by_alpha[alpha_key][rd_key][mn] = []
+            phase_by_alpha[alpha_key][rd_key][mn].append(mr)
 
     elapsed = time.time() - t_start
     print(f"\nMain experiments completed in {elapsed:.1f}s")
 
     # -----------------------------------------------------------------------
-    # 2. Save summary JSON
+    # 2. Save summary JSON + CSV
     # -----------------------------------------------------------------------
-    summary = {}
+    summary: dict[str, dict] = {}
     for method_name, results_list in all_results.items():
-        vals = [r.concept_re_id_accuracy for r in results_list]
+        reid_vals = [r.concept_re_id_accuracy for r in results_list]
+        fa_vals = [r.final_accuracy for r in results_list if r.final_accuracy is not None]
+        auc_vals = [r.accuracy_auc for r in results_list if r.accuracy_auc is not None]
         summary[method_name] = {
             "n_settings": len(results_list),
-            "mean_re_id_accuracy": float(np.mean(vals)),
-            "std_re_id_accuracy": float(np.std(vals)),
+            "mean_re_id_accuracy": float(np.mean(reid_vals)),
+            "std_re_id_accuracy": float(np.std(reid_vals)),
+            "mean_final_accuracy": float(np.mean(fa_vals)) if fa_vals else None,
+            "mean_accuracy_auc": float(np.mean(auc_vals)) if auc_vals else None,
         }
     with open(results_dir / "summary.json", "w") as f:
         json.dump(summary, f, indent=2)
-    print(f"\nSummary saved to {results_dir / 'summary.json'}")
+    export_summary_csv(all_results, results_dir / "summary.csv")
+    print(f"\nSummary saved to {results_dir / 'summary.json'} and summary.csv")
 
     # -----------------------------------------------------------------------
-    # 3. LaTeX tables
+    # 3. LaTeX tables (E5)
     # -----------------------------------------------------------------------
     tables_dir = results_dir / "tables"
     tables_dir.mkdir(exist_ok=True)
+    appendix_dir = tables_dir / "appendix"
+    appendix_dir.mkdir(exist_ok=True)
 
-    generate_main_table(all_results, tables_dir / "main_table.tex")
-    print(f"Main table → {tables_dir / 'main_table.tex'}")
+    # Main table (without Oracle/LocalOnly)
+    primary_methods = [
+        "FedAvg", "FedProto", "TrackedSummary", "Flash",
+        "FedDrift", "IFCA", "FedProTrack",
+    ]
+    primary_results = {m: all_results[m] for m in primary_methods if m in all_results}
+    generate_main_table(primary_results, tables_dir / "main_table.tex")
+    print(f"Main table -> {tables_dir / 'main_table.tex'}")
 
+    # Main table with Oracle (appendix)
+    if "Oracle" in all_results:
+        with_oracle = dict(primary_results)
+        with_oracle["Oracle"] = all_results["Oracle"]
+        generate_main_table(with_oracle, appendix_dir / "main_table_with_oracle.tex")
+
+    # Per-axis tables
     for axis_name, axis_dict in [("rho", by_rho), ("alpha", by_alpha), ("delta", by_delta)]:
         if axis_dict:
             generate_per_axis_table(
                 axis_dict, axis_name,
                 tables_dir / f"table_{axis_name}.tex",
             )
-            print(f"Per-{axis_name} table → {tables_dir / f'table_{axis_name}.tex'}")
+            print(f"Per-{axis_name} table -> {tables_dir / f'table_{axis_name}.tex'}")
 
     # -----------------------------------------------------------------------
-    # 4. Phase diagrams
+    # 4. E1: Identity inference quality figures
     # -----------------------------------------------------------------------
-    if phase_rho_delta_lists:
-        # Average over seeds/generators per (rho, delta) cell
-        phase_rho_delta: dict[tuple[float, float], dict[str, MetricsResult]] = {}
-        for key, method_lists in phase_rho_delta_lists.items():
-            phase_rho_delta[key] = {}
-            for mn, mr_list in method_lists.items():
-                K_dim = mr_list[0].per_client_re_id.shape[0]
-                T_dim = mr_list[0].per_timestep_re_id.shape[0]
-                phase_rho_delta[key][mn] = MetricsResult(
-                    concept_re_id_accuracy=float(np.mean([m.concept_re_id_accuracy for m in mr_list])),
-                    assignment_entropy=float(np.mean([m.assignment_entropy for m in mr_list])),
-                    wrong_memory_reuse_rate=float(np.mean([m.wrong_memory_reuse_rate for m in mr_list])),
-                    worst_window_dip=None,
-                    worst_window_recovery=None,
-                    budget_normalized_score=None,
-                    per_client_re_id=np.mean([m.per_client_re_id for m in mr_list], axis=0),
-                    per_timestep_re_id=np.mean([m.per_timestep_re_id for m in mr_list], axis=0),
-                )
-        figures_dir = results_dir / "figures"
+    print("\nGenerating E1 identity inference figures...")
+    e1_dir = results_dir / "figures" / "memory_phase"
+    e1_dir.mkdir(parents=True, exist_ok=True)
+
+    e1_methods = [
+        "FedAvg", "FedProto", "TrackedSummary", "FedDrift",
+        "IFCA", "Flash", "FedProTrack",
+    ]
+
+    # Re-ID vs delta
+    if by_delta:
+        axis_vals, means, stds = _extract_axis_sweep(
+            by_delta, "concept_re_id_accuracy", e1_methods,
+        )
+        generate_axis_sweep_plot(
+            axis_vals, means, "delta", "Re-ID Accuracy",
+            e1_dir / "reid_vs_delta.png",
+            title="Concept Re-ID Accuracy vs Delta",
+            error_bars=stds,
+        )
+        print(f"  reid_vs_delta -> {e1_dir / 'reid_vs_delta.png'}")
+
+    # Wrong memory vs delta
+    if by_delta:
+        axis_vals, means, stds = _extract_axis_sweep(
+            by_delta, "wrong_memory_reuse_rate", e1_methods,
+        )
+        generate_axis_sweep_plot(
+            axis_vals, means, "delta", "Wrong Memory Reuse Rate",
+            e1_dir / "wrong_memory_vs_delta.png",
+            title="Wrong Memory Reuse vs Delta",
+            error_bars=stds,
+        )
+        print(f"  wrong_memory_vs_delta -> {e1_dir / 'wrong_memory_vs_delta.png'}")
+
+    # Re-ID vs rho
+    if by_rho:
+        axis_vals, means, stds = _extract_axis_sweep(
+            by_rho, "concept_re_id_accuracy", e1_methods,
+        )
+        generate_axis_sweep_plot(
+            axis_vals, means, "rho", "Re-ID Accuracy",
+            e1_dir / "reid_vs_rho.png",
+            title="Concept Re-ID Accuracy vs Rho",
+            error_bars=stds,
+        )
+
+    # Assignment entropy heatmap (for alpha=0.5 slice)
+    if 0.5 in phase_by_alpha:
+        phase_05 = _average_phase_grid(phase_by_alpha[0.5])
+        generate_axis_sweep_plot(
+            sorted(by_delta.keys()) if by_delta else [],
+            {m: [getattr(phase_05.get((5.0, d), {}).get(m, MetricsResult(
+                concept_re_id_accuracy=0, assignment_entropy=0,
+                wrong_memory_reuse_rate=0, worst_window_dip=None,
+                worst_window_recovery=None, budget_normalized_score=None,
+                per_client_re_id=np.array([0]), per_timestep_re_id=np.array([0]),
+            )), "assignment_entropy", 0) for d in sorted(by_delta.keys())]
+             for m in e1_methods if m in all_results},
+            "delta", "Assignment Entropy",
+            e1_dir / "assignment_entropy_vs_delta.png",
+            title="Assignment Entropy vs Delta (rho=5, alpha=0.5)",
+        )
+
+    # -----------------------------------------------------------------------
+    # 4b. E2: Drift-window adaptation speed
+    # -----------------------------------------------------------------------
+    print("\nGenerating E2 recovery figures...")
+    e2_methods = ["FedAvg", "Flash", "FedDrift", "IFCA", "FedProTrack"]
+
+    if by_alpha:
+        # Recovery vs alpha
+        axis_vals, means, stds = _extract_axis_sweep(
+            by_alpha, "worst_window_dip", e2_methods,
+        )
+        generate_axis_sweep_plot(
+            axis_vals, means, "alpha", "Worst Window Dip",
+            e1_dir / "dip_vs_alpha.png",
+            title="Worst-Window Dip vs Alpha",
+            error_bars=stds,
+        )
+
+        axis_vals, means, stds = _extract_axis_sweep(
+            by_alpha, "accuracy_auc", e2_methods,
+        )
+        generate_axis_sweep_plot(
+            axis_vals, means, "alpha", "AUC(acc(t))",
+            e1_dir / "auc_vs_alpha.png",
+            title="Accuracy AUC vs Alpha",
+            error_bars=stds,
+        )
+
+        # Dip/recovery boxplot across all settings
+        method_dr: dict[str, list[tuple[float | None, int | None]]] = {}
+        for m in e2_methods:
+            if m in all_results:
+                method_dr[m] = [
+                    (r.worst_window_dip, r.worst_window_recovery)
+                    for r in all_results[m]
+                ]
+        if method_dr:
+            generate_dip_recovery_boxplot(
+                method_dr, e1_dir / "dip_recovery_boxplot.png",
+            )
+
+    # -----------------------------------------------------------------------
+    # 5. E3: Memory benefit phase diagrams (per alpha slice)
+    # -----------------------------------------------------------------------
+    print("\nGenerating E3 phase diagrams and difference heatmaps...")
+    phase_dir = results_dir / "figures" / "phase_diagrams"
+
+    for alpha_val, rd_lists in phase_by_alpha.items():
+        alpha_tag = f"alpha{alpha_val}".replace(".", "")
+        phase_grid = _average_phase_grid(rd_lists)
+
+        if len(phase_grid) < 2:
+            continue
+
+        # Standard phase diagrams per method
         generate_phase_diagrams(
-            phase_rho_delta, "rho", "delta", figures_dir / "phase_diagrams",
+            phase_grid, "rho", "delta",
+            phase_dir / alpha_tag,
         )
-        print(f"Phase diagrams → {figures_dir / 'phase_diagrams'}")
+
+        # Difference heatmaps: FedProTrack - baseline
+        for baseline in ["FedAvg", "FedProto", "IFCA"]:
+            if baseline not in all_results:
+                continue
+            generate_difference_heatmap(
+                phase_grid, "FedProTrack", baseline,
+                "rho", "delta", "concept_re_id_accuracy",
+                e1_dir / f"memory_gain_vs_{baseline.lower()}_{alpha_tag}.png",
+                title=f"FedProTrack - {baseline}: Re-ID ({alpha_tag})",
+            )
+        print(f"  Phase diagrams + diff heatmaps for alpha={alpha_val}")
 
     # -----------------------------------------------------------------------
-    # 5. Budget frontier
+    # 6. E4: Budget-regime crossover
     # -----------------------------------------------------------------------
-    try:
-        # Use the first generator config for budget frontier
-        budget_cfg = GeneratorConfig(
-            K=5 if args.quick else 10,
-            T=8 if args.quick else 20,
-            n_samples=200 if args.quick else 500,
-            rho=5.0, alpha=0.5, delta=0.5,
-            generator_type=generators[0], seed=42,
-        )
-        budget_dataset = generate_drift_dataset(budget_cfg)
-        budget_path = results_dir / "figures" / "budget_frontier.png"
-        fe_vals = [1, 2, 5] if args.quick else [1, 2, 5, 10]
-        generate_full_budget_frontier(
-            budget_dataset, budget_path,
-            federation_every_values=fe_vals,
-        )
-        print(f"Budget frontier → {budget_path}")
-    except Exception as e:
-        print(f"Budget frontier failed: {e}")
+    print("\nRunning E4 budget study...")
+    alpha_vals_budget = [0.0, 0.5, 1.0] if args.quick else [0.0, 0.25, 0.5, 0.75, 1.0]
+    fe_vals = [1, 2, 5] if args.quick else [1, 2, 5, 10]
+    _run_budget_study(generators, alpha_vals_budget, fe_vals, args.quick, results_dir)
+    print("  E4 budget study complete")
 
     # -----------------------------------------------------------------------
-    # 6. Ablation studies
+    # 7. Ablation studies (E7)
     # -----------------------------------------------------------------------
     if not args.skip_ablation:
-        print("\nRunning ablation studies...")
+        print("\nRunning ablation studies (E7)...")
         abl_cfg = AblationConfig()
         if args.quick:
             abl_cfg.gen_config = GeneratorConfig(
@@ -405,10 +643,16 @@ def main() -> None:
 
         abl_dir = results_dir / "figures" / "ablations"
         run_ablation_study(abl_cfg, output_dir=abl_dir)
-        print(f"Ablation plots → {abl_dir}")
+        print(f"  Scalar ablation plots -> {abl_dir}")
+
+        # Module-level ablations (E7)
+        print("  Running module ablations...")
+        module_gen = abl_cfg.gen_config
+        run_module_ablation(module_gen, output_dir=abl_dir)
+        print(f"  Module ablation plots -> {abl_dir}")
 
     # -----------------------------------------------------------------------
-    # 7. Scalability
+    # 8. Scalability
     # -----------------------------------------------------------------------
     if not args.skip_scalability:
         print("\nRunning scalability experiments...")
@@ -427,19 +671,159 @@ def main() -> None:
                           n_samples=n_samp, output_dir=scal_dir)
         run_scalability_T(T_values=t_vals, K=5 if args.quick else 10,
                           n_samples=n_samp, output_dir=scal_dir)
-        print(f"Scalability plots → {scal_dir}")
+        print(f"  Scalability plots -> {scal_dir}")
 
     # -----------------------------------------------------------------------
-    # 8. Final summary
+    # 9. E9: Overhead table
+    # -----------------------------------------------------------------------
+    print("\nGenerating E9 overhead table...")
+    overhead_cfg = GeneratorConfig(
+        K=5 if args.quick else 10,
+        T=8 if args.quick else 20,
+        n_samples=200 if args.quick else 500,
+        rho=5.0, alpha=0.5, delta=0.5,
+        generator_type=generators[0], seed=42,
+    )
+    overhead_dataset = generate_drift_dataset(overhead_cfg)
+    overhead_stats = _collect_overhead_stats(overhead_dataset, overhead_cfg)
+    generate_overhead_table(overhead_stats, appendix_dir / "overhead_table.tex")
+    # Also save as JSON
+    with open(appendix_dir / "overhead_stats.json", "w") as f:
+        json.dump(overhead_stats, f, indent=2)
+    print(f"  Overhead table -> {appendix_dir / 'overhead_table.tex'}")
+
+    # -----------------------------------------------------------------------
+    # 10. Final summary
     # -----------------------------------------------------------------------
     print("\n" + "=" * 60)
     print("PHASE 3 RESULTS SUMMARY")
     print("=" * 60)
     for method_name, info in sorted(summary.items()):
+        fa_str = f", final_acc={info['mean_final_accuracy']:.4f}" if info.get('mean_final_accuracy') else ""
         print(f"  {method_name:18s}: re_id_acc = {info['mean_re_id_accuracy']:.4f} "
-              f"± {info['std_re_id_accuracy']:.4f} "
+              f"+/- {info['std_re_id_accuracy']:.4f}{fa_str} "
               f"(n={info['n_settings']})")
     print(f"\nAll results saved to {results_dir}/")
+
+
+# ---------------------------------------------------------------------------
+# Overhead collection helper
+# ---------------------------------------------------------------------------
+
+def _collect_overhead_stats(
+    dataset,
+    gen_config: GeneratorConfig,
+) -> dict[str, dict[str, float]]:
+    """Run each method once and collect byte/time stats."""
+    stats: dict[str, dict[str, float]] = {}
+    gt = dataset.concept_matrix
+
+    # FedProTrack
+    t0 = time.time()
+    fpt_runner = FedProTrackRunner(config=TwoPhaseConfig(), seed=42)
+    fpt_result = fpt_runner.run(dataset)
+    stats["FedProTrack"] = {
+        "total_bytes": fpt_result.total_bytes,
+        "phase_a_bytes": fpt_result.phase_a_bytes,
+        "phase_b_bytes": fpt_result.phase_b_bytes,
+        "wall_clock_s": time.time() - t0,
+        "active_concepts": float(len(set(
+            fpt_result.predicted_concept_matrix[:, -1]
+        ))),
+    }
+
+    # FedAvg
+    exp_cfg = ExperimentConfig(generator_config=gen_config)
+    t0 = time.time()
+    fa_result = run_fedavg_baseline(exp_cfg, dataset=dataset)
+    stats["FedAvg"] = {
+        "total_bytes": 0.0,
+        "phase_a_bytes": 0.0,
+        "phase_b_bytes": 0.0,
+        "wall_clock_s": time.time() - t0,
+        "active_concepts": 1.0,
+    }
+
+    # FedProto
+    t0 = time.time()
+    fp_result = run_fedproto_full(dataset)
+    stats["FedProto"] = {
+        "total_bytes": fp_result.total_bytes,
+        "phase_a_bytes": fp_result.total_bytes,
+        "phase_b_bytes": 0.0,
+        "wall_clock_s": time.time() - t0,
+        "active_concepts": 1.0,
+    }
+
+    # IFCA
+    t0 = time.time()
+    ifca_result = run_ifca_full(dataset)
+    stats["IFCA"] = {
+        "total_bytes": ifca_result.total_bytes,
+        "phase_a_bytes": 0.0,
+        "phase_b_bytes": ifca_result.total_bytes,
+        "wall_clock_s": time.time() - t0,
+        "active_concepts": float(len(set(
+            ifca_result.predicted_concept_matrix[:, -1]
+        ))),
+    }
+
+    # FedDrift
+    t0 = time.time()
+    fd_result = run_feddrift_full(dataset)
+    stats["FedDrift"] = {
+        "total_bytes": fd_result.total_bytes,
+        "phase_a_bytes": 0.0,
+        "phase_b_bytes": fd_result.total_bytes,
+        "wall_clock_s": time.time() - t0,
+        "active_concepts": float(len(set(
+            fd_result.predicted_concept_matrix[:, -1]
+        ))),
+    }
+
+    # Flash
+    t0 = time.time()
+    flash_result = run_flash_full(dataset)
+    stats["Flash"] = {
+        "total_bytes": flash_result.total_bytes,
+        "phase_a_bytes": 0.0,
+        "phase_b_bytes": flash_result.total_bytes,
+        "wall_clock_s": time.time() - t0,
+        "active_concepts": float(len(set(
+            flash_result.predicted_concept_matrix[:, -1]
+        ))),
+    }
+
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# Phase grid averaging helper
+# ---------------------------------------------------------------------------
+
+def _average_phase_grid(
+    rd_lists: dict[tuple[float, float], dict[str, list[MetricsResult]]],
+) -> dict[tuple[float, float], dict[str, MetricsResult]]:
+    """Average a list-based phase grid into single MetricsResult per cell."""
+    averaged: dict[tuple[float, float], dict[str, MetricsResult]] = {}
+    for key, method_lists in rd_lists.items():
+        averaged[key] = {}
+        for mn, mr_list in method_lists.items():
+            K_dim = mr_list[0].per_client_re_id.shape[0]
+            T_dim = mr_list[0].per_timestep_re_id.shape[0]
+            averaged[key][mn] = MetricsResult(
+                concept_re_id_accuracy=float(np.mean([m.concept_re_id_accuracy for m in mr_list])),
+                assignment_entropy=float(np.mean([m.assignment_entropy for m in mr_list])),
+                wrong_memory_reuse_rate=float(np.mean([m.wrong_memory_reuse_rate for m in mr_list])),
+                worst_window_dip=float(np.mean([m.worst_window_dip for m in mr_list if m.worst_window_dip is not None])) if any(m.worst_window_dip is not None for m in mr_list) else None,
+                worst_window_recovery=None,
+                budget_normalized_score=None,
+                per_client_re_id=np.mean([m.per_client_re_id for m in mr_list], axis=0),
+                per_timestep_re_id=np.mean([m.per_timestep_re_id for m in mr_list], axis=0),
+                final_accuracy=float(np.mean([m.final_accuracy for m in mr_list if m.final_accuracy is not None])) if any(m.final_accuracy is not None for m in mr_list) else None,
+                accuracy_auc=float(np.mean([m.accuracy_auc for m in mr_list if m.accuracy_auc is not None])) if any(m.accuracy_auc is not None for m in mr_list) else None,
+            )
+    return averaged
 
 
 if __name__ == "__main__":

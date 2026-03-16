@@ -1,7 +1,7 @@
 """LaTeX table generation for Phase 3 experiment results.
 
 Produces publication-ready LaTeX tables comparing methods across metrics,
-parameter axes, and generators.
+parameter axes, and generators.  Includes ranking helpers (mean rank, win rate).
 """
 
 from __future__ import annotations
@@ -14,8 +14,9 @@ from ..metrics.experiment_log import MetricsResult
 
 # Metrics displayed in tables (order matches paper)
 METRIC_NAMES = [
+    "final_accuracy",
+    "accuracy_auc",
     "concept_re_id_accuracy",
-    "assignment_entropy",
     "wrong_memory_reuse_rate",
     "budget_normalized_score",
 ]
@@ -25,6 +26,26 @@ METRIC_LABELS = {
     "assignment_entropy": "Assign Ent",
     "wrong_memory_reuse_rate": "Wrong Mem",
     "budget_normalized_score": "Budget Score",
+    "final_accuracy": "Final Acc",
+    "accuracy_auc": "AUC(acc)",
+    "worst_window_dip": "Worst Dip",
+    "worst_window_recovery": "Recovery",
+    "mean_rank": "Mean Rank",
+    "win_rate": "Win Rate",
+}
+
+# Direction: True = higher is better, False = lower is better
+HIGHER_IS_BETTER = {
+    "concept_re_id_accuracy": True,
+    "assignment_entropy": False,
+    "wrong_memory_reuse_rate": False,
+    "budget_normalized_score": True,
+    "final_accuracy": True,
+    "accuracy_auc": True,
+    "worst_window_dip": False,
+    "worst_window_recovery": False,
+    "mean_rank": False,
+    "win_rate": True,
 }
 
 
@@ -44,7 +65,7 @@ def _fmt(val: float | None) -> str:
 
 
 def _fmt_pm(values: list[float]) -> str:
-    """Format mean ± std for LaTeX."""
+    """Format mean +/- std for LaTeX."""
     if not values:
         return "--"
     mean = np.mean(values)
@@ -54,12 +75,101 @@ def _fmt_pm(values: list[float]) -> str:
     return f"{mean:.3f}$\\pm${std:.3f}"
 
 
+# ---------------------------------------------------------------------------
+# Ranking helpers
+# ---------------------------------------------------------------------------
+
+def compute_rankings(
+    all_results: dict[str, list[MetricsResult]],
+    metric: str = "final_accuracy",
+) -> dict[str, float]:
+    """Compute mean rank of each method across settings.
+
+    For each setting index *i*, methods are ranked by metric value (1 = best).
+    Returns the average rank per method.
+
+    Parameters
+    ----------
+    all_results : dict[str, list[MetricsResult]]
+        method_name -> list of MetricsResult (same length, same order).
+    metric : str
+
+    Returns
+    -------
+    dict[str, float]
+        method_name -> mean rank (lower is better).
+    """
+    methods = list(all_results.keys())
+    n_settings = min(len(v) for v in all_results.values()) if all_results else 0
+    if n_settings == 0:
+        return {m: float("nan") for m in methods}
+
+    hib = HIGHER_IS_BETTER.get(metric, True)
+    rank_sums = {m: 0.0 for m in methods}
+
+    for i in range(n_settings):
+        vals = []
+        for m in methods:
+            v = _get_metric(all_results[m][i], metric)
+            vals.append(v if v is not None else (float("-inf") if hib else float("inf")))
+        # Rank: sort descending if higher-is-better, ascending otherwise
+        order = sorted(range(len(methods)), key=lambda j: vals[j], reverse=hib)
+        for rank, j in enumerate(order, 1):
+            rank_sums[methods[j]] += rank
+
+    return {m: rank_sums[m] / n_settings for m in methods}
+
+
+def compute_win_rates(
+    all_results: dict[str, list[MetricsResult]],
+    metric: str = "final_accuracy",
+) -> dict[str, float]:
+    """Compute win rate of each method across settings.
+
+    Parameters
+    ----------
+    all_results : dict[str, list[MetricsResult]]
+    metric : str
+
+    Returns
+    -------
+    dict[str, float]
+        method_name -> win rate in [0, 1].
+    """
+    methods = list(all_results.keys())
+    n_settings = min(len(v) for v in all_results.values()) if all_results else 0
+    if n_settings == 0:
+        return {m: 0.0 for m in methods}
+
+    hib = HIGHER_IS_BETTER.get(metric, True)
+    wins = {m: 0 for m in methods}
+
+    for i in range(n_settings):
+        vals = {}
+        for m in methods:
+            v = _get_metric(all_results[m][i], metric)
+            vals[m] = v if v is not None else (float("-inf") if hib else float("inf"))
+        if hib:
+            best = max(vals.values())
+        else:
+            best = min(vals.values())
+        for m in methods:
+            if vals[m] == best:
+                wins[m] += 1
+
+    return {m: wins[m] / n_settings for m in methods}
+
+
+# ---------------------------------------------------------------------------
+# Table generators
+# ---------------------------------------------------------------------------
+
 def generate_main_table(
     all_results: dict[str, list[MetricsResult]],
     output_path: Path | str | None = None,
     metrics: list[str] | None = None,
 ) -> str:
-    """Generate the main comparison table: methods × metrics.
+    """Generate the main comparison table: methods x metrics + rank + win rate.
 
     Parameters
     ----------
@@ -79,12 +189,18 @@ def generate_main_table(
         metrics = METRIC_NAMES
 
     method_names = list(all_results.keys())
-    n_metrics = len(metrics)
 
-    # Header
-    cols = "l" + "c" * n_metrics
+    # Compute rankings and win rates on the primary metric
+    rankings = compute_rankings(all_results, "final_accuracy")
+    win_rates = compute_win_rates(all_results, "final_accuracy")
+
+    # Columns: metrics + mean rank + win rate
+    display_cols = list(metrics) + ["mean_rank", "win_rate"]
+    n_cols = len(display_cols)
+
+    cols = "l" + "c" * n_cols
     header_cells = " & ".join(
-        METRIC_LABELS.get(m, m.replace("_", " ")) for m in metrics
+        METRIC_LABELS.get(m, m.replace("_", " ")) for m in display_cols
     )
 
     lines = [
@@ -98,14 +214,6 @@ def generate_main_table(
         r"\midrule",
     ]
 
-    # Find best method per metric (highest re-id, lowest entropy/wrong-mem, highest budget)
-    higher_is_better = {
-        "concept_re_id_accuracy": True,
-        "assignment_entropy": False,
-        "wrong_memory_reuse_rate": False,
-        "budget_normalized_score": True,
-    }
-
     # Compute means per method per metric
     method_means: dict[str, dict[str, float]] = {}
     for method_name in method_names:
@@ -117,34 +225,41 @@ def generate_main_table(
                 if _get_metric(r, metric) is not None
             ]
             method_means[method_name][metric] = np.mean(vals) if vals else float("nan")
+        method_means[method_name]["mean_rank"] = rankings.get(method_name, float("nan"))
+        method_means[method_name]["win_rate"] = win_rates.get(method_name, 0.0)
 
-    # Find best per metric
-    best_per_metric: dict[str, str] = {}
-    for metric in metrics:
-        hib = higher_is_better.get(metric, True)
+    # Find best per column
+    best_per_col: dict[str, str] = {}
+    for col in display_cols:
+        hib = HIGHER_IS_BETTER.get(col, True)
         best_val = float("-inf") if hib else float("inf")
         best_method = ""
         for method_name in method_names:
-            v = method_means[method_name][metric]
+            v = method_means[method_name][col]
             if np.isnan(v):
                 continue
             if (hib and v > best_val) or (not hib and v < best_val):
                 best_val = v
                 best_method = method_name
-        best_per_metric[metric] = best_method
+        best_per_col[col] = best_method
 
     # Rows
     for method_name in method_names:
         results = all_results[method_name]
         cells = []
-        for metric in metrics:
-            vals = [
-                _get_metric(r, metric)
-                for r in results
-                if _get_metric(r, metric) is not None
-            ]
-            text = _fmt_pm(vals)
-            if best_per_metric.get(metric) == method_name:
+        for col in display_cols:
+            if col == "mean_rank":
+                text = f"{rankings.get(method_name, float('nan')):.2f}"
+            elif col == "win_rate":
+                text = f"{win_rates.get(method_name, 0.0):.2f}"
+            else:
+                vals = [
+                    _get_metric(r, col)
+                    for r in results
+                    if _get_metric(r, col) is not None
+                ]
+                text = _fmt_pm(vals)
+            if best_per_col.get(col) == method_name:
                 text = f"\\textbf{{{text}}}"
             cells.append(text)
         row = " & ".join([method_name.replace("_", r"\_")] + cells)
@@ -172,7 +287,7 @@ def generate_per_axis_table(
     output_path: Path | str | None = None,
     metric: str = "concept_re_id_accuracy",
 ) -> str:
-    """Generate a breakdown table: axis values × methods.
+    """Generate a breakdown table: axis values x methods.
 
     Parameters
     ----------
@@ -235,3 +350,130 @@ def generate_per_axis_table(
         output_path.write_text(latex, encoding="utf-8")
 
     return latex
+
+
+def generate_overhead_table(
+    method_stats: dict[str, dict[str, float]],
+    output_path: Path | str | None = None,
+) -> str:
+    """Generate the overhead/reproducibility appendix table.
+
+    Parameters
+    ----------
+    method_stats : dict[str, dict[str, float]]
+        method_name -> {"total_bytes", "phase_a_bytes", "phase_b_bytes",
+        "wall_clock_s", "active_concepts", "spawned_concepts",
+        "merged_concepts"}.
+    output_path : Path or str, optional
+
+    Returns
+    -------
+    str
+        LaTeX table source.
+    """
+    overhead_cols = [
+        "total_bytes", "phase_a_bytes", "phase_b_bytes",
+        "wall_clock_s", "active_concepts",
+    ]
+    col_labels = {
+        "total_bytes": "Total Bytes",
+        "phase_a_bytes": "Phase A",
+        "phase_b_bytes": "Phase B",
+        "wall_clock_s": "Time (s)",
+        "active_concepts": "\\# Concepts",
+    }
+
+    methods = list(method_stats.keys())
+    n_cols = len(overhead_cols)
+    cols_str = "l" + "r" * n_cols
+    header = " & ".join(col_labels.get(c, c) for c in overhead_cols)
+
+    lines = [
+        r"\begin{table}[t]",
+        r"\centering",
+        r"\caption{Communication overhead and system cost breakdown.}",
+        r"\label{tab:overhead}",
+        f"\\begin{{tabular}}{{{cols_str}}}",
+        r"\toprule",
+        f"Method & {header} \\\\",
+        r"\midrule",
+    ]
+
+    for method in methods:
+        stats = method_stats[method]
+        cells = []
+        for col in overhead_cols:
+            val = stats.get(col)
+            if val is None:
+                cells.append("--")
+            elif col == "wall_clock_s":
+                cells.append(f"{val:.1f}")
+            elif "bytes" in col:
+                if val > 1e6:
+                    cells.append(f"{val / 1e6:.1f}M")
+                elif val > 1e3:
+                    cells.append(f"{val / 1e3:.1f}K")
+                else:
+                    cells.append(f"{val:.0f}")
+            else:
+                cells.append(f"{val:.1f}")
+        row = " & ".join([method.replace("_", r"\_")] + cells)
+        lines.append(f"{row} \\\\")
+
+    lines.extend([
+        r"\bottomrule",
+        r"\end{tabular}",
+        r"\end{table}",
+    ])
+
+    latex = "\n".join(lines)
+
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(latex, encoding="utf-8")
+
+    return latex
+
+
+def export_summary_csv(
+    all_results: dict[str, list[MetricsResult]],
+    output_path: Path | str,
+) -> None:
+    """Export a CSV summary for post-processing.
+
+    Parameters
+    ----------
+    all_results : dict[str, list[MetricsResult]]
+    output_path : Path or str
+    """
+    import csv
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    all_metrics = [
+        "concept_re_id_accuracy", "assignment_entropy",
+        "wrong_memory_reuse_rate", "budget_normalized_score",
+        "final_accuracy", "accuracy_auc",
+        "worst_window_dip", "worst_window_recovery",
+    ]
+
+    rankings = compute_rankings(all_results, "final_accuracy")
+    win_rates = compute_win_rates(all_results, "final_accuracy")
+
+    with open(output_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["method", "n_settings"] + all_metrics + ["mean_rank", "win_rate"])
+        for method_name, results in all_results.items():
+            row = [method_name, len(results)]
+            for metric in all_metrics:
+                vals = [
+                    _get_metric(r, metric)
+                    for r in results
+                    if _get_metric(r, metric) is not None
+                ]
+                row.append(f"{np.mean(vals):.4f}" if vals else "")
+            row.append(f"{rankings.get(method_name, float('nan')):.3f}")
+            row.append(f"{win_rates.get(method_name, 0.0):.3f}")
+            writer.writerow(row)
