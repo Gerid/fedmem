@@ -233,8 +233,8 @@ def main() -> None:
     by_rho: dict[float, dict[str, list[MetricsResult]]] = {}
     by_alpha: dict[float, dict[str, list[MetricsResult]]] = {}
     by_delta: dict[float, dict[str, list[MetricsResult]]] = {}
-    # For phase diagrams (fixed alpha=0.5 if available)
-    phase_rho_delta: dict[tuple[float, float], dict[str, MetricsResult]] = {}
+    # For phase diagrams (fixed alpha=0.5 if available) — collect lists, average later
+    phase_rho_delta_lists: dict[tuple[float, float], dict[str, list[MetricsResult]]] = {}
 
     # Track accuracy matrices for a representative setting
     representative_accs: dict[str, np.ndarray] | None = None
@@ -274,10 +274,12 @@ def main() -> None:
         # Phase diagram: collect for alpha=0.5 (or nearest)
         if abs(gen_cfg.alpha - 0.5) < 0.01:
             key = (gen_cfg.rho, gen_cfg.delta)
-            if key not in phase_rho_delta:
-                phase_rho_delta[key] = {}
+            if key not in phase_rho_delta_lists:
+                phase_rho_delta_lists[key] = {}
             for mn, mr in metrics.items():
-                phase_rho_delta[key][mn] = mr
+                if mn not in phase_rho_delta_lists[key]:
+                    phase_rho_delta_lists[key][mn] = []
+                phase_rho_delta_lists[key][mn].append(mr)
 
         acc_str = ", ".join(
             f"{mn}={mr.concept_re_id_accuracy:.3f}" for mn, mr in metrics.items()
@@ -322,7 +324,24 @@ def main() -> None:
     # -----------------------------------------------------------------------
     # 4. Phase diagrams
     # -----------------------------------------------------------------------
-    if phase_rho_delta:
+    if phase_rho_delta_lists:
+        # Average over seeds/generators per (rho, delta) cell
+        phase_rho_delta: dict[tuple[float, float], dict[str, MetricsResult]] = {}
+        for key, method_lists in phase_rho_delta_lists.items():
+            phase_rho_delta[key] = {}
+            for mn, mr_list in method_lists.items():
+                K_dim = mr_list[0].per_client_re_id.shape[0]
+                T_dim = mr_list[0].per_timestep_re_id.shape[0]
+                phase_rho_delta[key][mn] = MetricsResult(
+                    concept_re_id_accuracy=float(np.mean([m.concept_re_id_accuracy for m in mr_list])),
+                    assignment_entropy=float(np.mean([m.assignment_entropy for m in mr_list])),
+                    wrong_memory_reuse_rate=float(np.mean([m.wrong_memory_reuse_rate for m in mr_list])),
+                    worst_window_dip=None,
+                    worst_window_recovery=None,
+                    budget_normalized_score=None,
+                    per_client_re_id=np.mean([m.per_client_re_id for m in mr_list], axis=0),
+                    per_timestep_re_id=np.mean([m.per_timestep_re_id for m in mr_list], axis=0),
+                )
         figures_dir = results_dir / "figures"
         generate_phase_diagrams(
             phase_rho_delta, "rho", "delta", figures_dir / "phase_diagrams",

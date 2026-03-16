@@ -16,7 +16,7 @@ from ..drift_generator import GeneratorConfig, generate_drift_dataset
 from ..experiment.baselines import run_fedavg_baseline, run_local_only
 from ..experiment.runner import ExperimentConfig
 from ..metrics import compute_all_metrics
-from ..metrics.experiment_log import MetricsResult
+from ..metrics.experiment_log import ExperimentLog, MetricsResult
 from ..posterior.fedprotrack_runner import FedProTrackRunner
 from ..posterior.two_phase_protocol import TwoPhaseConfig
 from .figures import generate_scalability_plot
@@ -95,15 +95,16 @@ def run_scalability_K(
         t0 = time.time()
         fa_result = run_fedavg_baseline(exp_cfg, dataset=dataset)
         fa_time = time.time() - t0
+        fa_log = ExperimentLog(
+            ground_truth=dataset.concept_matrix,
+            predicted=fa_result.predicted_concept_matrix,
+            accuracy_curve=fa_result.accuracy_matrix,
+            total_bytes=None,
+            method_name="FedAvg",
+        )
+        fa_metrics = compute_all_metrics(fa_log)
         results.append(ScalabilityResult(
-            "FedAvg", K,
-            MetricsResult(
-                concept_re_id_accuracy=0.0, assignment_entropy=0.0,
-                wrong_memory_reuse_rate=1.0, worst_window_dip=None,
-                worst_window_recovery=None, budget_normalized_score=None,
-                per_client_re_id=np.zeros(K), per_timestep_re_id=np.zeros(T),
-            ),
-            fa_time, 0.0,
+            "FedAvg", K, fa_metrics, fa_time, 0.0,
         ))
 
     # Plot

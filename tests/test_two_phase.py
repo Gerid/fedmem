@@ -116,6 +116,7 @@ class TestPhaseA:
         cfg = TwoPhaseConfig(
             n_features=2, n_classes=2,
             novelty_threshold=0.99,  # very high → almost everything is novel
+            loss_novelty_threshold=0.01,  # very low → sensitive to any difference
         )
         proto = TwoPhaseFedProTrack(cfg)
 

@@ -99,6 +99,17 @@ class ConceptFingerprint:
         if 0 <= label < self.n_classes:
             self._label_counts[label] += 1.0
 
+            # Update per-class feature mean (online mean update)
+            self._class_counts *= self.decay
+            self._class_counts[label] += 1.0
+            n_c = self._class_counts[label]
+            if self.decay < 1.0:
+                self._class_means[label] *= self.decay
+                self._class_means[label] += (x - self._class_means[label] * self.decay) / n_c
+            else:
+                delta_c = x - self._class_means[label]
+                self._class_means[label] += delta_c / n_c
+
         delta = x - self._mean
         self._mean += delta / self._count
         delta2 = x - self._mean
