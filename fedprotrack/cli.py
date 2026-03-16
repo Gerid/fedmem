@@ -124,9 +124,18 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
     print(f"  Method : {log.method_name}")
     print(f"  Dataset: {gt_dir.name}")
     print(sep)
-    print(f"  concept_re_id_accuracy   : {result.concept_re_id_accuracy:.4f}")
-    print(f"  assignment_entropy       : {result.assignment_entropy:.4f}")
-    print(f"  wrong_memory_reuse_rate  : {result.wrong_memory_reuse_rate:.4f}")
+    if result.concept_re_id_accuracy is not None:
+        print(f"  concept_re_id_accuracy   : {result.concept_re_id_accuracy:.4f}")
+    else:
+        print(f"  concept_re_id_accuracy   : --  (method does not track identity)")
+    if result.assignment_entropy is not None:
+        print(f"  assignment_entropy       : {result.assignment_entropy:.4f}")
+    else:
+        print(f"  assignment_entropy       : --  (method does not track identity)")
+    if result.wrong_memory_reuse_rate is not None:
+        print(f"  wrong_memory_reuse_rate  : {result.wrong_memory_reuse_rate:.4f}")
+    else:
+        print(f"  wrong_memory_reuse_rate  : --  (method does not track identity)")
     if result.worst_window_dip is not None:
         print(f"  worst_window_dip         : {result.worst_window_dip:.4f}")
         print(f"  worst_window_recovery    : {result.worst_window_recovery} steps")
