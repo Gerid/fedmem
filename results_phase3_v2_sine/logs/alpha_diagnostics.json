@@ -1,0 +1,102 @@
+{
+  "alpha=0.0": {
+    "FedProTrack": {
+      "mean_final_accuracy": 0.6506399999999999,
+      "mean_accuracy_auc": 12.027999999999999,
+      "mean_worst_window_dip": 0.20248,
+      "mean_worst_window_recovery": 2.0
+    },
+    "IFCA": {
+      "mean_final_accuracy": 0.66288,
+      "mean_accuracy_auc": 12.185620000000002,
+      "mean_worst_window_dip": 0.19011999999999996,
+      "mean_worst_window_recovery": 1.2
+    },
+    "FedDrift": {
+      "mean_final_accuracy": 0.6631599999999999,
+      "mean_accuracy_auc": 12.22246,
+      "mean_worst_window_dip": 0.21976000000000004,
+      "mean_worst_window_recovery": 1.0
+    }
+  },
+  "alpha=0.25": {
+    "FedProTrack": {
+      "mean_final_accuracy": 0.5791999999999999,
+      "mean_accuracy_auc": 11.058760000000001,
+      "mean_worst_window_dip": 0.12800000000000009,
+      "mean_worst_window_recovery": 4.8
+    },
+    "IFCA": {
+      "mean_final_accuracy": 0.58576,
+      "mean_accuracy_auc": 11.11806,
+      "mean_worst_window_dip": 0.14092,
+      "mean_worst_window_recovery": 4.8
+    },
+    "FedDrift": {
+      "mean_final_accuracy": 0.58192,
+      "mean_accuracy_auc": 11.142600000000002,
+      "mean_worst_window_dip": 0.13144000000000003,
+      "mean_worst_window_recovery": 5.2
+    }
+  },
+  "alpha=0.5": {
+    "FedProTrack": {
+      "mean_final_accuracy": 0.5404,
+      "mean_accuracy_auc": 10.48348,
+      "mean_worst_window_dip": 0.11392000000000002,
+      "mean_worst_window_recovery": 5.4
+    },
+    "IFCA": {
+      "mean_final_accuracy": 0.54148,
+      "mean_accuracy_auc": 10.640440000000002,
+      "mean_worst_window_dip": 0.13124000000000002,
+      "mean_worst_window_recovery": 4.8
+    },
+    "FedDrift": {
+      "mean_final_accuracy": 0.53628,
+      "mean_accuracy_auc": 10.648419999999998,
+      "mean_worst_window_dip": 0.13304000000000002,
+      "mean_worst_window_recovery": 4.8
+    }
+  },
+  "alpha=0.75": {
+    "FedProTrack": {
+      "mean_final_accuracy": 0.55456,
+      "mean_accuracy_auc": 10.811679999999999,
+      "mean_worst_window_dip": 0.11400000000000002,
+      "mean_worst_window_recovery": 5.8
+    },
+    "IFCA": {
+      "mean_final_accuracy": 0.55968,
+      "mean_accuracy_auc": 11.06224,
+      "mean_worst_window_dip": 0.1042,
+      "mean_worst_window_recovery": 5.2
+    },
+    "FedDrift": {
+      "mean_final_accuracy": 0.55708,
+      "mean_accuracy_auc": 11.073319999999999,
+      "mean_worst_window_dip": 0.11127999999999996,
+      "mean_worst_window_recovery": 5.8
+    }
+  },
+  "alpha=1.0": {
+    "FedProTrack": {
+      "mean_final_accuracy": 0.5924799999999999,
+      "mean_accuracy_auc": 11.36772,
+      "mean_worst_window_dip": 0.10240000000000007,
+      "mean_worst_window_recovery": 4.4
+    },
+    "IFCA": {
+      "mean_final_accuracy": 0.60756,
+      "mean_accuracy_auc": 11.77732,
+      "mean_worst_window_dip": 0.10916000000000001,
+      "mean_worst_window_recovery": 4.4
+    },
+    "FedDrift": {
+      "mean_final_accuracy": 0.60556,
+      "mean_accuracy_auc": 11.70182,
+      "mean_worst_window_dip": 0.11283999999999994,
+      "mean_worst_window_recovery": 3.8
+    }
+  }
+}

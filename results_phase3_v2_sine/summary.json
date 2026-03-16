@@ -1,0 +1,82 @@
+{
+  "FedProTrack": {
+    "n_settings": 375,
+    "supports_identity_metrics": true,
+    "mean_re_id_accuracy": 0.6035466666666667,
+    "std_re_id_accuracy": 0.2848772036431759,
+    "mean_final_accuracy": 0.6162143999999999,
+    "mean_accuracy_auc": 11.3444384
+  },
+  "LocalOnly": {
+    "n_settings": 375,
+    "supports_identity_metrics": false,
+    "mean_re_id_accuracy": null,
+    "std_re_id_accuracy": null,
+    "mean_final_accuracy": 0.6056906666666666,
+    "mean_accuracy_auc": 11.032909866666666
+  },
+  "FedAvg": {
+    "n_settings": 375,
+    "supports_identity_metrics": false,
+    "mean_re_id_accuracy": null,
+    "std_re_id_accuracy": null,
+    "mean_final_accuracy": 0.5962122666666667,
+    "mean_accuracy_auc": 10.8863776
+  },
+  "Oracle": {
+    "n_settings": 375,
+    "supports_identity_metrics": true,
+    "mean_re_id_accuracy": 1.0,
+    "std_re_id_accuracy": 0.0,
+    "mean_final_accuracy": 0.6456693333333333,
+    "mean_accuracy_auc": 11.797947733333334
+  },
+  "FedProto": {
+    "n_settings": 375,
+    "supports_identity_metrics": false,
+    "mean_re_id_accuracy": null,
+    "std_re_id_accuracy": null,
+    "mean_final_accuracy": 0.5552005333333333,
+    "mean_accuracy_auc": 10.473570933333333
+  },
+  "TrackedSummary": {
+    "n_settings": 375,
+    "supports_identity_metrics": false,
+    "mean_re_id_accuracy": null,
+    "std_re_id_accuracy": null,
+    "mean_final_accuracy": 0.6174288000000001,
+    "mean_accuracy_auc": 11.073409866666669
+  },
+  "Flash": {
+    "n_settings": 375,
+    "supports_identity_metrics": false,
+    "mean_re_id_accuracy": null,
+    "std_re_id_accuracy": null,
+    "mean_final_accuracy": 0.6174288000000001,
+    "mean_accuracy_auc": 11.073409866666669
+  },
+  "FedDrift": {
+    "n_settings": 375,
+    "supports_identity_metrics": true,
+    "mean_re_id_accuracy": 0.5182266666666666,
+    "std_re_id_accuracy": 0.24487654431479458,
+    "mean_final_accuracy": 0.6335914666666667,
+    "mean_accuracy_auc": 11.648396266666667
+  },
+  "IFCA": {
+    "n_settings": 375,
+    "supports_identity_metrics": true,
+    "mean_re_id_accuracy": 0.7150933333333334,
+    "std_re_id_accuracy": 0.22760153328911376,
+    "mean_final_accuracy": 0.6334741333333334,
+    "mean_accuracy_auc": 11.637953333333334
+  },
+  "CompressedFedAvg": {
+    "n_settings": 375,
+    "supports_identity_metrics": false,
+    "mean_re_id_accuracy": null,
+    "std_re_id_accuracy": null,
+    "mean_final_accuracy": 0.5700826666666666,
+    "mean_accuracy_auc": 10.526539466666666
+  }
+}
