@@ -93,7 +93,7 @@ class FedProTrackResult:
             ground_truth=self.true_concept_matrix,
             predicted=self.predicted_concept_matrix,
             accuracy_curve=self.accuracy_matrix,
-            total_bytes=self.total_bytes,
+            total_bytes=self.total_bytes if self.total_bytes > 0 else None,
             method_name=self.method_name,
         )
 

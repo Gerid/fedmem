@@ -51,6 +51,13 @@ def compute_all_metrics(log: ExperimentLog) -> MetricsResult:
     if log.accuracy_curve is not None and log.total_bytes is not None:
         bns = budget_normalized_score(log.accuracy_curve, log.total_bytes)
 
+    # Final accuracy and AUC (optional)
+    final_acc: float | None = None
+    acc_auc: float | None = None
+    if log.accuracy_curve is not None:
+        final_acc = float(log.accuracy_curve[:, -1].mean())
+        acc_auc = float(compute_accuracy_auc(log.accuracy_curve))
+
     return MetricsResult(
         concept_re_id_accuracy=acc,
         assignment_entropy=ent,
@@ -60,6 +67,8 @@ def compute_all_metrics(log: ExperimentLog) -> MetricsResult:
         budget_normalized_score=bns,
         per_client_re_id=per_client,
         per_timestep_re_id=per_ts,
+        final_accuracy=final_acc,
+        accuracy_auc=acc_auc,
     )
 
 
