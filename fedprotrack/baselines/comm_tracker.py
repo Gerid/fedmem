@@ -75,8 +75,9 @@ def fingerprint_bytes(
     """Compute bytes required to transmit one ConceptFingerprint summary.
 
     The transmitted payload consists of the running mean vector
-    ``(n_features,)`` and the label distribution vector ``(n_classes,)``,
-    totalling ``n_features + n_classes`` floats.
+    ``(n_features,)``, the label distribution vector ``(n_classes,)``,
+    and the per-class conditional means matrix ``(n_classes, n_features)``,
+    totalling ``n_features + n_classes + n_classes * n_features`` floats.
 
     Parameters
     ----------
@@ -104,5 +105,5 @@ def fingerprint_bytes(
         raise ValueError(f"n_features must be > 0, got {n_features}")
     if n_classes <= 0:
         raise ValueError(f"n_classes must be > 0, got {n_classes}")
-    total_elements = n_features + n_classes
+    total_elements = n_features + n_classes + n_classes * n_features
     return float(total_elements * precision_bits / 8)

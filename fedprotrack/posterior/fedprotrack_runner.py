@@ -201,8 +201,13 @@ class FedProTrackRunner:
 
                 # 2. Drift detection
                 errors = (y_pred != y_test).astype(float)
+                is_drift = False
                 for e in errors:
-                    detectors[k].update(e)
+                    result = detectors[k].update(e)
+                    if result.is_drift:
+                        is_drift = True
+                        detectors[k].reset()
+                        break
 
                 # 3. Build per-step fingerprint (fresh, no accumulation)
                 step_fingerprints[k].update(X_train, y_train)
@@ -214,8 +219,8 @@ class FedProTrackRunner:
                 )
                 model.partial_fit(X_train, y_train, classes=[0, 1])
 
-                if model_params[k].get("coef") is not None:
-                    # Warm-start with momentum
+                if not is_drift and model_params[k].get("coef") is not None:
+                    # Warm-start with momentum only when no drift detected
                     old_coef = model_params[k]["coef"]
                     old_int = model_params[k]["intercept"]
                     model.coef_ = 0.5 * old_coef + 0.5 * model.coef_

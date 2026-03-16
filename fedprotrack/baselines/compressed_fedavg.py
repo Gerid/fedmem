@@ -274,9 +274,11 @@ class CompressedFedAvgClient:
         )
 
     def upload_bytes(self, precision_bits: int = 32) -> float:
-        """Compute bytes for the compressed upload.
+        """Estimate bytes for the compressed upload without mutating state.
 
-        Only non-zero entries are counted (plus index overhead).
+        Computes the expected byte count from the stored model parameters
+        and ``topk_fraction`` without calling ``get_upload()`` (which would
+        mutate the error feedback buffer).
 
         Parameters
         ----------
@@ -286,12 +288,12 @@ class CompressedFedAvgClient:
         -------
         float
         """
-        upload = self.get_upload()
-        if upload.n_nonzero == 0:
+        if not self._model_params:
             return 0.0
-        # Each non-zero entry: value (precision_bits) + index (32-bit int)
-        value_bytes = upload.n_nonzero * precision_bits / 8
-        index_bytes = upload.n_nonzero * 4  # 32-bit index
+        n_total = sum(arr.size for arr in self._model_params.values())
+        n_nonzero = max(1, int(np.ceil(n_total * self.topk_fraction)))
+        value_bytes = n_nonzero * precision_bits / 8
+        index_bytes = n_nonzero * 4  # 32-bit index
         return float(value_bytes + index_bytes)
 
     def upload_bytes_from_upload(
