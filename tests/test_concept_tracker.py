@@ -67,7 +67,7 @@ class TestConceptFingerprint:
         y = np.zeros(10, dtype=np.int32)
         fp.update(X, y)
         vec = fp.to_vector()
-        assert vec.shape == (5,)  # 3 features + 2 classes
+        assert vec.shape == (11,)  # 3 features + 2 classes + 2*3 class means
 
 
 class TestConceptTracker:
