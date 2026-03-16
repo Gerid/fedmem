@@ -74,15 +74,15 @@ class TestPrototypeBytes:
 
 class TestFingerprintBytes:
     def test_fingerprint_bytes_basic(self) -> None:
-        """n_features=4, n_classes=3: (4 + 3 + 3*4) * 4 bytes = 76 bytes."""
+        """n_features=4, n_classes=3: (4+3+3*4) * 4 bytes = 76 bytes."""
         assert fingerprint_bytes(n_features=4, n_classes=3, precision_bits=32) == 76.0
 
     def test_fingerprint_bytes_64bit(self) -> None:
-        """n_features=4, n_classes=3 at 64-bit: 19 * 8 = 152 bytes."""
+        """n_features=4, n_classes=3 at 64-bit: (4+3+12) * 8 = 152 bytes."""
         assert fingerprint_bytes(n_features=4, n_classes=3, precision_bits=64) == 152.0
 
     def test_fingerprint_bytes_minimum(self) -> None:
-        """n_features=1, n_classes=1: (1 + 1 + 1*1) * 4 = 12 bytes."""
+        """n_features=1, n_classes=1: (1+1+1*1) * 4 = 12 bytes."""
         assert fingerprint_bytes(n_features=1, n_classes=1, precision_bits=32) == 12.0
 
     def test_fingerprint_bytes_invalid_precision(self) -> None:

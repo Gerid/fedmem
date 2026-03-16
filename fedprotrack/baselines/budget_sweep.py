@@ -13,7 +13,11 @@ from ..drift_generator.generator import DriftDataset
 from ..federation.aggregator import FedAvgAggregator
 from ..metrics.budget_metrics import compute_accuracy_auc
 from .comm_tracker import model_bytes, fingerprint_bytes, prototype_bytes
+from .compressed_fedavg import CompressedFedAvgClient, CompressedFedAvgServer
+from .feddrift import FedDriftClient, FedDriftServer
 from .fedproto import FedProtoClient, FedProtoAggregator
+from .flash import FlashClient, FlashAggregator
+from .ifca import IFCAClient, IFCAServer
 from .tracked_summary import TrackedSummaryClient, TrackedSummaryServer
 
 
@@ -309,6 +313,248 @@ def _run_tracked_summary(
 
 
 # ---------------------------------------------------------------------------
+# Runner: Flash
+# ---------------------------------------------------------------------------
+
+def _run_flash(dataset: DriftDataset, federation_every: int) -> BudgetPoint:
+    """Run Flash baseline with drift-aware knowledge distillation.
+
+    Parameters
+    ----------
+    dataset : DriftDataset
+    federation_every : int
+
+    Returns
+    -------
+    BudgetPoint
+    """
+    K, T, n_features, n_classes = _extract_dataset_dims(dataset)
+    clients = [
+        FlashClient(k, n_features, n_classes, seed=42 + k)
+        for k in range(K)
+    ]
+    aggregator = FlashAggregator()
+
+    accuracy_curve = np.zeros((K, T), dtype=np.float64)
+    total_bytes = 0.0
+
+    for t in range(T):
+        for k in range(K):
+            X, y = dataset.data[(k, t)]
+            preds = clients[k].predict(X)
+            accuracy_curve[k, t] = _accuracy(y, preds)
+
+        for k in range(K):
+            X, y = dataset.data[(k, t)]
+            clients[k].fit(X, y)
+
+        if (t + 1) % federation_every == 0 and t < T - 1:
+            uploads = [c.get_upload() for c in clients]
+            upload_b = sum(c.upload_bytes() for c in clients)
+            global_params = aggregator.aggregate(uploads)
+            download_b = aggregator.download_bytes(global_params, K)
+            total_bytes += upload_b + download_b
+            for c in clients:
+                if global_params:
+                    c.set_model_params(global_params)
+
+    auc = compute_accuracy_auc(accuracy_curve)
+    return BudgetPoint(
+        method_name="Flash",
+        federation_every=federation_every,
+        total_bytes=total_bytes,
+        accuracy_auc=auc,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Runner: FedDrift
+# ---------------------------------------------------------------------------
+
+def _run_feddrift(
+    dataset: DriftDataset,
+    federation_every: int,
+    similarity_threshold: float = 0.5,
+) -> BudgetPoint:
+    """Run FedDrift baseline with multi-model drift branching.
+
+    Parameters
+    ----------
+    dataset : DriftDataset
+    federation_every : int
+    similarity_threshold : float
+
+    Returns
+    -------
+    BudgetPoint
+    """
+    K, T, n_features, n_classes = _extract_dataset_dims(dataset)
+    clients = [
+        FedDriftClient(k, n_features, n_classes,
+                       similarity_threshold=similarity_threshold, seed=42 + k)
+        for k in range(K)
+    ]
+    server = FedDriftServer(similarity_threshold=similarity_threshold)
+
+    accuracy_curve = np.zeros((K, T), dtype=np.float64)
+    total_bytes = 0.0
+
+    for t in range(T):
+        for k in range(K):
+            X, y = dataset.data[(k, t)]
+            preds = clients[k].predict(X)
+            accuracy_curve[k, t] = _accuracy(y, preds)
+
+        for k in range(K):
+            X, y = dataset.data[(k, t)]
+            clients[k].fit(X, y)
+
+        if (t + 1) % federation_every == 0 and t < T - 1:
+            uploads = [c.get_upload() for c in clients]
+            upload_b = sum(c.upload_bytes() for c in clients)
+            aggregated = server.aggregate(uploads)
+            download_b = server.download_bytes(uploads)
+            total_bytes += upload_b + download_b
+            for c in clients:
+                params = aggregated.get(c.client_id, {})
+                if params:
+                    c.set_model_params(params)
+
+    auc = compute_accuracy_auc(accuracy_curve)
+    return BudgetPoint(
+        method_name="FedDrift",
+        federation_every=federation_every,
+        total_bytes=total_bytes,
+        accuracy_auc=auc,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Runner: IFCA
+# ---------------------------------------------------------------------------
+
+def _run_ifca(
+    dataset: DriftDataset,
+    federation_every: int,
+    n_clusters: int = 3,
+) -> BudgetPoint:
+    """Run IFCA baseline with iterative federated clustering.
+
+    Parameters
+    ----------
+    dataset : DriftDataset
+    federation_every : int
+    n_clusters : int
+
+    Returns
+    -------
+    BudgetPoint
+    """
+    K, T, n_features, n_classes = _extract_dataset_dims(dataset)
+    clients = [IFCAClient(k, n_features, n_classes, seed=42 + k) for k in range(K)]
+    server = IFCAServer(
+        n_clusters=n_clusters, n_features=n_features,
+        n_classes=n_classes, seed=42,
+    )
+
+    accuracy_curve = np.zeros((K, T), dtype=np.float64)
+    total_bytes = 0.0
+
+    for c in clients:
+        c.set_cluster_models(server.cluster_models)
+
+    for t in range(T):
+        for k in range(K):
+            X, y = dataset.data[(k, t)]
+            preds = clients[k].predict(X)
+            accuracy_curve[k, t] = _accuracy(y, preds)
+
+        for k in range(K):
+            X, y = dataset.data[(k, t)]
+            clients[k].fit(X, y)
+
+        if (t + 1) % federation_every == 0 and t < T - 1:
+            uploads = [c.get_upload() for c in clients]
+            upload_b = sum(c.upload_bytes() for c in clients)
+            updated = server.aggregate(uploads)
+            download_b = server.download_bytes(K)
+            total_bytes += upload_b + download_b
+            for c in clients:
+                c.set_cluster_models(updated)
+
+    auc = compute_accuracy_auc(accuracy_curve)
+    return BudgetPoint(
+        method_name="IFCA",
+        federation_every=federation_every,
+        total_bytes=total_bytes,
+        accuracy_auc=auc,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Runner: CompressedFedAvg
+# ---------------------------------------------------------------------------
+
+def _run_compressed_fedavg(
+    dataset: DriftDataset,
+    federation_every: int,
+    topk_fraction: float = 0.3,
+) -> BudgetPoint:
+    """Run CompressedFedAvg baseline with top-k sparsification.
+
+    Parameters
+    ----------
+    dataset : DriftDataset
+    federation_every : int
+    topk_fraction : float
+
+    Returns
+    -------
+    BudgetPoint
+    """
+    K, T, n_features, n_classes = _extract_dataset_dims(dataset)
+    clients = [
+        CompressedFedAvgClient(k, n_features, n_classes,
+                               topk_fraction=topk_fraction, seed=42 + k)
+        for k in range(K)
+    ]
+    server = CompressedFedAvgServer(n_features, n_classes)
+
+    accuracy_curve = np.zeros((K, T), dtype=np.float64)
+    total_bytes = 0.0
+
+    for t in range(T):
+        for k in range(K):
+            X, y = dataset.data[(k, t)]
+            preds = clients[k].predict(X)
+            accuracy_curve[k, t] = _accuracy(y, preds)
+
+        for k in range(K):
+            X, y = dataset.data[(k, t)]
+            clients[k].fit(X, y)
+
+        if (t + 1) % federation_every == 0 and t < T - 1:
+            uploads = [c.get_upload() for c in clients]
+            upload_b = sum(
+                c.upload_bytes_from_upload(u)
+                for c, u in zip(clients, uploads)
+            )
+            global_params = server.aggregate(uploads)
+            download_b = server.download_bytes(K)
+            total_bytes += upload_b + download_b
+            for c in clients:
+                c.set_model_params(global_params)
+
+    auc = compute_accuracy_auc(accuracy_curve)
+    return BudgetPoint(
+        method_name="CompressedFedAvg",
+        federation_every=federation_every,
+        total_bytes=total_bytes,
+        accuracy_auc=auc,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -317,10 +563,10 @@ def run_budget_sweep(
     federation_every_values: list[int] | None = None,
     similarity_threshold: float = 0.5,
 ) -> list[BudgetPoint]:
-    """Run all three methods across a range of federation frequencies.
+    """Run all seven methods across a range of federation frequencies.
 
     For each combination of method and ``federation_every`` value one
-    ``BudgetPoint`` is produced, yielding ``3 * len(federation_every_values)``
+    ``BudgetPoint`` is produced, yielding ``7 * len(federation_every_values)``
     points in total.
 
     Parameters
@@ -331,8 +577,8 @@ def run_budget_sweep(
         Federation is triggered every this many time steps. Defaults to
         ``[1, 2, 5, 10]``.
     similarity_threshold : float
-        Cosine similarity threshold used by TrackedSummary clustering.
-        Default 0.5.
+        Cosine similarity threshold used by TrackedSummary / FedDrift
+        clustering. Default 0.5.
 
     Returns
     -------
@@ -347,6 +593,10 @@ def run_budget_sweep(
         results.append(_run_fedavg_full(dataset, fe))
         results.append(_run_fedproto(dataset, fe))
         results.append(_run_tracked_summary(dataset, fe, similarity_threshold))
+        results.append(_run_flash(dataset, fe))
+        results.append(_run_feddrift(dataset, fe, similarity_threshold))
+        results.append(_run_ifca(dataset, fe))
+        results.append(_run_compressed_fedavg(dataset, fe))
 
     return results
 

@@ -76,7 +76,7 @@ def fingerprint_bytes(
 
     The transmitted payload consists of the running mean vector
     ``(n_features,)``, the label distribution vector ``(n_classes,)``,
-    and per-class feature mean vectors ``(n_classes * n_features,)``,
+    and the per-class conditional means matrix ``(n_classes, n_features)``,
     totalling ``n_features + n_classes + n_classes * n_features`` floats.
 
     Parameters
