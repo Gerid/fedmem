@@ -58,6 +58,7 @@ from fedprotrack.experiments.figures import (
 )
 from fedprotrack.experiments.budget_analysis import generate_full_budget_frontier
 from fedprotrack.experiments.ablations import AblationConfig, run_ablation_study, run_module_ablation
+from fedprotrack.experiments.method_registry import identity_metrics_valid
 from fedprotrack.experiments.scalability import run_scalability_K, run_scalability_T
 
 
@@ -129,12 +130,15 @@ def run_single_setting(
 
     results: dict[str, MetricsResult] = {}
 
+    def _compute(name: str, log: ExperimentLog) -> MetricsResult:
+        return compute_all_metrics(log, identity_capable=identity_metrics_valid(name))
+
     # 1. FedProTrack (our method)
     fpt_cfg = TwoPhaseConfig()
     fpt_runner = FedProTrackRunner(config=fpt_cfg, seed=seed)
     fpt_result = fpt_runner.run(dataset)
     fpt_log = fpt_result.to_experiment_log()
-    results["FedProTrack"] = compute_all_metrics(fpt_log)
+    results["FedProTrack"] = _compute("FedProTrack", fpt_log)
 
     # 2. LocalOnly
     exp_cfg = ExperimentConfig(generator_config=gen_config)
@@ -143,7 +147,7 @@ def run_single_setting(
         "LocalOnly", lo_result.accuracy_matrix,
         lo_result.predicted_concept_matrix, gt,
     )
-    results["LocalOnly"] = compute_all_metrics(lo_log)
+    results["LocalOnly"] = _compute("LocalOnly", lo_log)
 
     # 3. FedAvg
     fa_result = run_fedavg_baseline(exp_cfg, dataset=dataset)
@@ -151,7 +155,7 @@ def run_single_setting(
         "FedAvg", fa_result.accuracy_matrix,
         fa_result.predicted_concept_matrix, gt,
     )
-    results["FedAvg"] = compute_all_metrics(fa_log)
+    results["FedAvg"] = _compute("FedAvg", fa_log)
 
     # 4. Oracle
     oracle_result = run_oracle_baseline(exp_cfg, dataset=dataset)
@@ -159,37 +163,37 @@ def run_single_setting(
         "Oracle", oracle_result.accuracy_matrix,
         oracle_result.predicted_concept_matrix, gt,
     )
-    results["Oracle"] = compute_all_metrics(oracle_log)
+    results["Oracle"] = _compute("Oracle", oracle_log)
 
     # 5. FedProto
     fp_result = run_fedproto_full(dataset)
     fp_log = fp_result.to_experiment_log(gt)
-    results["FedProto"] = compute_all_metrics(fp_log)
+    results["FedProto"] = _compute("FedProto", fp_log)
 
     # 6. TrackedSummary
     ts_result = run_tracked_summary_full(dataset)
     ts_log = ts_result.to_experiment_log(gt)
-    results["TrackedSummary"] = compute_all_metrics(ts_log)
+    results["TrackedSummary"] = _compute("TrackedSummary", ts_log)
 
     # 7. Flash
     flash_result = run_flash_full(dataset)
     flash_log = flash_result.to_experiment_log(gt)
-    results["Flash"] = compute_all_metrics(flash_log)
+    results["Flash"] = _compute("Flash", flash_log)
 
     # 8. FedDrift
     fd_result = run_feddrift_full(dataset)
     fd_log = fd_result.to_experiment_log(gt)
-    results["FedDrift"] = compute_all_metrics(fd_log)
+    results["FedDrift"] = _compute("FedDrift", fd_log)
 
     # 9. IFCA
     ifca_result = run_ifca_full(dataset)
     ifca_log = ifca_result.to_experiment_log(gt)
-    results["IFCA"] = compute_all_metrics(ifca_log)
+    results["IFCA"] = _compute("IFCA", ifca_log)
 
     # 10. CompressedFedAvg
     cfed_result = run_compressed_fedavg_full(dataset)
     cfed_log = cfed_result.to_experiment_log(gt)
-    results["CompressedFedAvg"] = compute_all_metrics(cfed_log)
+    results["CompressedFedAvg"] = _compute("CompressedFedAvg", cfed_log)
 
     return results
 
@@ -224,7 +228,7 @@ def _extract_axis_sweep(
                 v = getattr(r, metric, None)
                 if v is not None:
                     vals.append(float(v))
-            method_means[m].append(float(np.mean(vals)) if vals else 0.0)
+            method_means[m].append(float(np.mean(vals)) if vals else float("nan"))
             method_stds[m].append(float(np.std(vals)) if len(vals) > 1 else 0.0)
 
     return axis_values, method_means, method_stds
@@ -373,7 +377,10 @@ def main() -> None:
         try:
             metrics = run_single_setting(gen_cfg, seed, args.quick)
             acc_str = ", ".join(
-                f"{mn}={mr.concept_re_id_accuracy:.3f}" for mn, mr in metrics.items()
+                f"{mn}={mr.concept_re_id_accuracy:.3f}"
+                if mr.concept_re_id_accuracy is not None
+                else f"{mn}=--"
+                for mn, mr in metrics.items()
             )
             return gen_cfg, seed, metrics, f"  [{idx+1}/{len(grid)}] {setting} -> {acc_str}"
         except Exception as e:
@@ -428,13 +435,14 @@ def main() -> None:
     # -----------------------------------------------------------------------
     summary: dict[str, dict] = {}
     for method_name, results_list in all_results.items():
-        reid_vals = [r.concept_re_id_accuracy for r in results_list]
+        reid_vals = [r.concept_re_id_accuracy for r in results_list
+                     if r.concept_re_id_accuracy is not None]
         fa_vals = [r.final_accuracy for r in results_list if r.final_accuracy is not None]
         auc_vals = [r.accuracy_auc for r in results_list if r.accuracy_auc is not None]
         summary[method_name] = {
             "n_settings": len(results_list),
-            "mean_re_id_accuracy": float(np.mean(reid_vals)),
-            "std_re_id_accuracy": float(np.std(reid_vals)),
+            "mean_re_id_accuracy": float(np.mean(reid_vals)) if reid_vals else None,
+            "std_re_id_accuracy": float(np.std(reid_vals)) if reid_vals else None,
             "mean_final_accuracy": float(np.mean(fa_vals)) if fa_vals else None,
             "mean_accuracy_auc": float(np.mean(auc_vals)) if auc_vals else None,
         }
@@ -531,11 +539,11 @@ def main() -> None:
         generate_axis_sweep_plot(
             sorted(by_delta.keys()) if by_delta else [],
             {m: [getattr(phase_05.get((5.0, d), {}).get(m, MetricsResult(
-                concept_re_id_accuracy=0, assignment_entropy=0,
-                wrong_memory_reuse_rate=0, worst_window_dip=None,
+                concept_re_id_accuracy=None, assignment_entropy=None,
+                wrong_memory_reuse_rate=None, worst_window_dip=None,
                 worst_window_recovery=None, budget_normalized_score=None,
-                per_client_re_id=np.array([0]), per_timestep_re_id=np.array([0]),
-            )), "assignment_entropy", 0) for d in sorted(by_delta.keys())]
+                per_client_re_id=None, per_timestep_re_id=None,
+            )), "assignment_entropy", float("nan")) for d in sorted(by_delta.keys())]
              for m in e1_methods if m in all_results},
             "delta", "Assignment Entropy",
             e1_dir / "assignment_entropy_vs_delta.png",
@@ -699,9 +707,14 @@ def main() -> None:
     print("PHASE 3 RESULTS SUMMARY")
     print("=" * 60)
     for method_name, info in sorted(summary.items()):
-        fa_str = f", final_acc={info['mean_final_accuracy']:.4f}" if info.get('mean_final_accuracy') else ""
-        print(f"  {method_name:18s}: re_id_acc = {info['mean_re_id_accuracy']:.4f} "
-              f"+/- {info['std_re_id_accuracy']:.4f}{fa_str} "
+        fa_str = f", final_acc={info['mean_final_accuracy']:.4f}" if info.get('mean_final_accuracy') is not None else ""
+        reid_str = (
+            f"re_id_acc = {info['mean_re_id_accuracy']:.4f} "
+            f"+/- {info['std_re_id_accuracy']:.4f}"
+            if info.get("mean_re_id_accuracy") is not None
+            else "re_id_acc = --"
+        )
+        print(f"  {method_name:18s}: {reid_str}{fa_str} "
               f"(n={info['n_settings']})")
     print(f"\nAll results saved to {results_dir}/")
 
@@ -809,17 +822,22 @@ def _average_phase_grid(
     for key, method_lists in rd_lists.items():
         averaged[key] = {}
         for mn, mr_list in method_lists.items():
-            K_dim = mr_list[0].per_client_re_id.shape[0]
-            T_dim = mr_list[0].per_timestep_re_id.shape[0]
+            # Identity metrics may be None for non-identity-capable methods
+            reid_vals = [m.concept_re_id_accuracy for m in mr_list if m.concept_re_id_accuracy is not None]
+            ent_vals = [m.assignment_entropy for m in mr_list if m.assignment_entropy is not None]
+            wmrr_vals = [m.wrong_memory_reuse_rate for m in mr_list if m.wrong_memory_reuse_rate is not None]
+            pcr_vals = [m.per_client_re_id for m in mr_list if m.per_client_re_id is not None]
+            ptr_vals = [m.per_timestep_re_id for m in mr_list if m.per_timestep_re_id is not None]
+
             averaged[key][mn] = MetricsResult(
-                concept_re_id_accuracy=float(np.mean([m.concept_re_id_accuracy for m in mr_list])),
-                assignment_entropy=float(np.mean([m.assignment_entropy for m in mr_list])),
-                wrong_memory_reuse_rate=float(np.mean([m.wrong_memory_reuse_rate for m in mr_list])),
+                concept_re_id_accuracy=float(np.mean(reid_vals)) if reid_vals else None,
+                assignment_entropy=float(np.mean(ent_vals)) if ent_vals else None,
+                wrong_memory_reuse_rate=float(np.mean(wmrr_vals)) if wmrr_vals else None,
                 worst_window_dip=float(np.mean([m.worst_window_dip for m in mr_list if m.worst_window_dip is not None])) if any(m.worst_window_dip is not None for m in mr_list) else None,
                 worst_window_recovery=None,
                 budget_normalized_score=None,
-                per_client_re_id=np.mean([m.per_client_re_id for m in mr_list], axis=0),
-                per_timestep_re_id=np.mean([m.per_timestep_re_id for m in mr_list], axis=0),
+                per_client_re_id=np.mean(pcr_vals, axis=0) if pcr_vals else None,
+                per_timestep_re_id=np.mean(ptr_vals, axis=0) if ptr_vals else None,
                 final_accuracy=float(np.mean([m.final_accuracy for m in mr_list if m.final_accuracy is not None])) if any(m.final_accuracy is not None for m in mr_list) else None,
                 accuracy_auc=float(np.mean([m.accuracy_auc for m in mr_list if m.accuracy_auc is not None])) if any(m.accuracy_auc is not None for m in mr_list) else None,
             )

@@ -19,26 +19,43 @@ from .phase_diagram import PhaseDiagramData, build_phase_diagram, load_results_f
 from .visualization import plot_budget_frontier, plot_metric_comparison, plot_phase_diagram
 
 
-def compute_all_metrics(log: ExperimentLog) -> MetricsResult:
+def compute_all_metrics(
+    log: ExperimentLog,
+    identity_capable: bool = True,
+) -> MetricsResult:
     """Compute all available metrics from an ExperimentLog.
 
     Parameters
     ----------
     log : ExperimentLog
         Contains ground truth, predictions, and optional accuracy/budget data.
+    identity_capable : bool
+        If False, identity metrics (concept_re_id_accuracy,
+        assignment_entropy, wrong_memory_reuse_rate, per_client_re_id,
+        per_timestep_re_id) are set to ``None`` instead of being computed.
+        This should be set to False for methods that do not perform
+        concept identity inference (e.g. FedAvg, FedProto, Flash).
 
     Returns
     -------
     MetricsResult
-        All computed metrics; optional fields are None when input is missing.
+        All computed metrics; optional fields are None when input is missing
+        or when the method does not support that metric.
     """
-    # Concept identity metrics
-    acc, per_client, per_ts = concept_re_id_accuracy(log.ground_truth, log.predicted)
+    # Concept identity metrics -- only compute when the method supports them
+    acc: float | None = None
+    ent: float | None = None
+    wmrr: float | None = None
+    per_client: np.ndarray | None = None
+    per_ts: np.ndarray | None = None
 
-    n_concepts = int(log.ground_truth.max()) + 1
-    ent = assignment_entropy(log.soft_assignments, log.predicted, n_concepts)
-
-    wmrr = wrong_memory_reuse_rate(log.ground_truth, log.predicted)
+    if identity_capable:
+        acc, per_client, per_ts = concept_re_id_accuracy(
+            log.ground_truth, log.predicted,
+        )
+        n_concepts = int(log.ground_truth.max()) + 1
+        ent = assignment_entropy(log.soft_assignments, log.predicted, n_concepts)
+        wmrr = wrong_memory_reuse_rate(log.ground_truth, log.predicted)
 
     # Drift window metrics (optional)
     dip: float | None = None
