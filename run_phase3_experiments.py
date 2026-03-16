@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
 
 import numpy as np
+from joblib import Parallel, delayed
 
 from fedprotrack.drift_generator import GeneratorConfig, generate_drift_dataset
 from fedprotrack.experiment.baselines import (
@@ -186,6 +188,8 @@ def main() -> None:
                         help="Comma-separated random seeds")
     parser.add_argument("--skip-ablation", action="store_true")
     parser.add_argument("--skip-scalability", action="store_true")
+    parser.add_argument("--n-jobs", type=int, default=-1,
+                        help="Number of parallel jobs (-1 = all cores, 1 = serial)")
     args = parser.parse_args()
 
     results_dir = Path(args.results_dir)
@@ -202,7 +206,11 @@ def main() -> None:
     # 1. Main experiments
     # -----------------------------------------------------------------------
     grid = build_grid(args.quick, generators, seeds)
-    print(f"\nRunning {len(grid)} settings × 6 methods...")
+    n_jobs = args.n_jobs
+    n_cores = os.cpu_count() or 1
+    effective_jobs = n_cores if n_jobs == -1 else min(n_jobs, len(grid))
+    print(f"\nRunning {len(grid)} settings × 6 methods "
+          f"({effective_jobs} parallel workers)...")
 
     all_results: dict[str, list[MetricsResult]] = {}
     # Also track by axis for per-axis tables
@@ -217,15 +225,26 @@ def main() -> None:
 
     t_start = time.time()
 
-    for i, (gen_cfg, seed) in enumerate(grid):
+    def _run_one(idx_cfg_seed: tuple[int, GeneratorConfig, int]) -> tuple[GeneratorConfig, int, dict[str, MetricsResult] | None, str]:
+        idx, gen_cfg, seed = idx_cfg_seed
         setting = f"{gen_cfg.generator_type}_rho{gen_cfg.rho}_a{gen_cfg.alpha}_d{gen_cfg.delta}_s{seed}"
-        print(f"  [{i+1}/{len(grid)}] {setting}", end="")
-        sys.stdout.flush()
-
         try:
             metrics = run_single_setting(gen_cfg, seed, args.quick)
+            acc_str = ", ".join(
+                f"{mn}={mr.concept_re_id_accuracy:.3f}" for mn, mr in metrics.items()
+            )
+            return gen_cfg, seed, metrics, f"  [{idx+1}/{len(grid)}] {setting} -> {acc_str}"
         except Exception as e:
-            print(f" ERROR: {e}")
+            return gen_cfg, seed, None, f"  [{idx+1}/{len(grid)}] {setting} ERROR: {e}"
+
+    tasks = [(i, cfg, s) for i, (cfg, s) in enumerate(grid)]
+    job_results = Parallel(n_jobs=n_jobs, backend="loky")(
+        delayed(_run_one)(t) for t in tasks
+    )
+
+    for gen_cfg, seed, metrics, msg in job_results:
+        print(msg)
+        if metrics is None:
             continue
 
         # Accumulate
@@ -254,11 +273,6 @@ def main() -> None:
                 phase_rho_delta[key] = {}
             for mn, mr in metrics.items():
                 phase_rho_delta[key][mn] = mr
-
-        acc_str = ", ".join(
-            f"{mn}={mr.concept_re_id_accuracy:.3f}" for mn, mr in metrics.items()
-        )
-        print(f" → {acc_str}")
 
     elapsed = time.time() - t_start
     print(f"\nMain experiments completed in {elapsed:.1f}s")
