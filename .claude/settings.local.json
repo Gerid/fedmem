@@ -22,7 +22,14 @@
       "Bash(winget --version)",
       "Bash(choco --version)",
       "Read(//c/msys64/usr/bin/**)",
-      "Bash(powershell.exe -Command \"Get-Content $PROFILE\")"
+      "Bash(powershell.exe -Command \"Get-Content $PROFILE\")",
+      "Bash(wc -l /E/fedprotrack/.claude/worktrees/wizardly-benz/tests/test_*.py)",
+      "Bash(conda run:*)",
+      "Bash(wc -l /e/fedprotrack/fedprotrack/**/*.py)",
+      "Bash(E:/anaconda3/python.exe -m pytest tests/test_memory_bank.py -v)",
+      "Bash(E:/anaconda3/python.exe -m pytest tests/test_two_phase.py -v)",
+      "Bash(E:/anaconda3/python.exe -m pytest tests/test_fedprotrack_runner.py -v)",
+      "Bash(E:/anaconda3/python.exe -m pytest tests/test_phase3_experiments.py -v)"
     ]
   }
 }
