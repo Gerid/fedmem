@@ -160,14 +160,17 @@ class MetricsResult:
 
     Parameters
     ----------
-    concept_re_id_accuracy : float
+    concept_re_id_accuracy : float or None
         Global fraction of (k, t) cells where the aligned predicted concept
-        matches the ground truth.
-    assignment_entropy : float
-        Mean entropy of the concept assignment distribution.
-    wrong_memory_reuse_rate : float
+        matches the ground truth.  ``None`` when the method does not perform
+        identity inference.
+    assignment_entropy : float or None
+        Mean entropy of the concept assignment distribution.  ``None`` when
+        the method does not perform identity inference.
+    wrong_memory_reuse_rate : float or None
         Fraction of (k, t) cells where the aligned prediction is wrong
-        (1 − concept_re_id_accuracy).
+        (1 - concept_re_id_accuracy).  ``None`` when the method does not
+        perform identity inference.
     worst_window_dip : float or None
         Largest accuracy drop inside any sliding evaluation window.
     worst_window_recovery : int or None
@@ -180,14 +183,14 @@ class MetricsResult:
         Shape (T,). Per-timestep concept re-identification accuracy.
     """
 
-    concept_re_id_accuracy: float
-    assignment_entropy: float
-    wrong_memory_reuse_rate: float
+    concept_re_id_accuracy: float | None
+    assignment_entropy: float | None
+    wrong_memory_reuse_rate: float | None
     worst_window_dip: float | None
     worst_window_recovery: int | None
     budget_normalized_score: float | None
-    per_client_re_id: np.ndarray
-    per_timestep_re_id: np.ndarray
+    per_client_re_id: np.ndarray | None
+    per_timestep_re_id: np.ndarray | None
     final_accuracy: float | None = None
     accuracy_auc: float | None = None
 
@@ -205,9 +208,21 @@ class MetricsResult:
             converted to plain Python lists.
         """
         return {
-            "concept_re_id_accuracy": float(self.concept_re_id_accuracy),
-            "assignment_entropy": float(self.assignment_entropy),
-            "wrong_memory_reuse_rate": float(self.wrong_memory_reuse_rate),
+            "concept_re_id_accuracy": (
+                float(self.concept_re_id_accuracy)
+                if self.concept_re_id_accuracy is not None
+                else None
+            ),
+            "assignment_entropy": (
+                float(self.assignment_entropy)
+                if self.assignment_entropy is not None
+                else None
+            ),
+            "wrong_memory_reuse_rate": (
+                float(self.wrong_memory_reuse_rate)
+                if self.wrong_memory_reuse_rate is not None
+                else None
+            ),
             "worst_window_dip": (
                 float(self.worst_window_dip)
                 if self.worst_window_dip is not None
@@ -223,8 +238,16 @@ class MetricsResult:
                 if self.budget_normalized_score is not None
                 else None
             ),
-            "per_client_re_id": self.per_client_re_id.tolist(),
-            "per_timestep_re_id": self.per_timestep_re_id.tolist(),
+            "per_client_re_id": (
+                self.per_client_re_id.tolist()
+                if self.per_client_re_id is not None
+                else None
+            ),
+            "per_timestep_re_id": (
+                self.per_timestep_re_id.tolist()
+                if self.per_timestep_re_id is not None
+                else None
+            ),
             "final_accuracy": (
                 float(self.final_accuracy)
                 if self.final_accuracy is not None

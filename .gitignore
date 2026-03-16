@@ -6,4 +6,7 @@ dist/
 build/
 .eggs/
 *.egg
-results_phase3/
+# results_phase3/  # now tracked
+.pytest_cache/
+.pytest_tmp/
+.mpl_config/

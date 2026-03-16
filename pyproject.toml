@@ -15,5 +15,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
 
+[tool.pytest.ini_options]
+# Keep cache inside the worktree so Windows PermissionError on system temp is avoided.
+cache_dir = ".pytest_cache"
+tmp_path_retention_policy = "none"
+
 [project.scripts]
 fedprotrack = "fedprotrack.cli:main"

@@ -1,0 +1,44 @@
+{
+  "FedProTrack": {
+    "total_bytes": 2400.0,
+    "phase_a_bytes": 1440.0,
+    "phase_b_bytes": 960.0,
+    "wall_clock_s": 0.0840451717376709,
+    "active_concepts": 2.0
+  },
+  "FedAvg": {
+    "total_bytes": 0.0,
+    "phase_a_bytes": 0.0,
+    "phase_b_bytes": 0.0,
+    "wall_clock_s": 0.02000117301940918,
+    "active_concepts": 1.0
+  },
+  "FedProto": {
+    "total_bytes": 1120.0,
+    "phase_a_bytes": 1120.0,
+    "phase_b_bytes": 0.0,
+    "wall_clock_s": 0.002998828887939453,
+    "active_concepts": 1.0
+  },
+  "IFCA": {
+    "total_bytes": 1680.0,
+    "phase_a_bytes": 0.0,
+    "phase_b_bytes": 1680.0,
+    "wall_clock_s": 0.0625298023223877,
+    "active_concepts": 3.0
+  },
+  "FedDrift": {
+    "total_bytes": 840.0,
+    "phase_a_bytes": 0.0,
+    "phase_b_bytes": 840.0,
+    "wall_clock_s": 0.08296608924865723,
+    "active_concepts": 2.0
+  },
+  "Flash": {
+    "total_bytes": 840.0,
+    "phase_a_bytes": 0.0,
+    "phase_b_bytes": 840.0,
+    "wall_clock_s": 0.07604265213012695,
+    "active_concepts": 1.0
+  }
+}

@@ -169,9 +169,15 @@ def run_ablation_study(
             param_vals = [e[0] for e in entries]
             metric_vals: dict[str, list[float]] = {}
             for m in plot_metrics:
-                metric_vals[m] = [
-                    float(getattr(e[1], m, 0.0) or 0.0) for e in entries
-                ]
+                raw_vals = [getattr(e[1], m, None) for e in entries]
+                # Skip metrics that are entirely None (identity-incapable)
+                if all(v is None for v in raw_vals):
+                    metric_vals[m] = [float("nan")] * len(entries)
+                else:
+                    metric_vals[m] = [
+                        float(v) if v is not None else float("nan")
+                        for v in raw_vals
+                    ]
             generate_ablation_plot(
                 param_name, param_vals, metric_vals,
                 output_dir / f"ablation_{param_name}.png",
@@ -282,7 +288,11 @@ def _plot_module_ablation(
     }
 
     for metric_key, metric_label in metrics_to_plot.items():
-        values = [float(getattr(results[l], metric_key, 0) or 0) for l in labels]
+        raw_values = [getattr(results[l], metric_key, None) for l in labels]
+        # If all values are None, skip this metric chart entirely
+        if all(v is None for v in raw_values):
+            continue
+        values = [float(v) if v is not None else 0.0 for v in raw_values]
 
         fig, ax = plt.subplots(figsize=(10, 5))
         colors = ["#2196F3" if l == "Full FedProTrack" else "#FF9800" for l in labels]

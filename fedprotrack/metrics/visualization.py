@@ -310,7 +310,7 @@ def plot_metric_comparison(
                 raw = result.get(metric, None)
             else:
                 raw = getattr(result, metric, None)
-            values.append(float(raw) if raw is not None else 0.0)
+            values.append(float(raw) if raw is not None else float("nan"))
 
         offset = (i - n_methods / 2 + 0.5) * width
         bars = ax.bar(
@@ -326,7 +326,17 @@ def plot_metric_comparison(
         # Value labels on bars
         for bar, val in zip(bars, values):
             bar_height = bar.get_height()
-            if bar_height > 0.01:
+            if np.isnan(val):
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2.0,
+                    0.02,
+                    "--",
+                    ha="center",
+                    va="bottom",
+                    fontsize=7,
+                    color="gray",
+                )
+            elif bar_height > 0.01:
                 ax.text(
                     bar.get_x() + bar.get_width() / 2.0,
                     bar_height + 0.01,

@@ -18,6 +18,7 @@ from ..drift_detector import BaseDriftDetector
 from ..drift_generator import DriftDataset
 from ..metrics.experiment_log import ExperimentLog
 from ..models import TorchLinearClassifier
+from .gibbs import PosteriorAssignment
 from .two_phase_protocol import TwoPhaseConfig, TwoPhaseFedProTrack
 
 
@@ -80,6 +81,7 @@ class FedProTrackResult:
     phase_b_bytes: float
     mean_accuracy: float
     final_accuracy: float
+    soft_assignments: np.ndarray | None = None
     method_name: str = "FedProTrack"
 
     def to_experiment_log(self) -> ExperimentLog:
@@ -94,6 +96,7 @@ class FedProTrackResult:
             predicted=self.predicted_concept_matrix,
             accuracy_curve=self.accuracy_matrix,
             total_bytes=self.total_bytes if self.total_bytes > 0 else None,
+            soft_assignments=self.soft_assignments,
             method_name=self.method_name,
         )
 
@@ -180,6 +183,9 @@ class FedProTrackRunner:
         accuracy_matrix = np.zeros((K, T), dtype=np.float64)
         predicted_matrix = np.zeros((K, T), dtype=np.int32)
 
+        # Collect posteriors for soft_assignments: list of (t, posteriors_dict)
+        posteriors_log: list[tuple[int, dict[int, PosteriorAssignment]]] = []
+
         phase_a_bytes = 0.0
         phase_b_bytes = 0.0
         prev_assignments: dict[int, int] | None = None
@@ -240,6 +246,7 @@ class FedProTrackRunner:
                 )
                 phase_a_bytes += a_result.total_bytes
                 prev_assignments = a_result.assignments
+                posteriors_log.append((t, a_result.posteriors))
 
                 # Record concept assignments
                 for k in range(K):
@@ -268,6 +275,25 @@ class FedProTrackRunner:
 
         total_bytes = phase_a_bytes + phase_b_bytes
 
+        # Build soft_assignments (K, T, C_max) from collected posteriors
+        soft_assignments: np.ndarray | None = None
+        if posteriors_log:
+            # Collect all concept IDs seen across all posteriors
+            all_cids: set[int] = set()
+            for _, post_dict in posteriors_log:
+                for pa in post_dict.values():
+                    all_cids.update(pa.probabilities.keys())
+            if all_cids:
+                cid_list = sorted(all_cids)
+                cid_to_idx = {c: i for i, c in enumerate(cid_list)}
+                C = len(cid_list)
+                soft_assignments = np.zeros((K, T, C), dtype=np.float64)
+                for t_step, post_dict in posteriors_log:
+                    for k, pa in post_dict.items():
+                        for cid, prob in pa.probabilities.items():
+                            if cid in cid_to_idx:
+                                soft_assignments[k, t_step, cid_to_idx[cid]] = prob
+
         return FedProTrackResult(
             accuracy_matrix=accuracy_matrix,
             predicted_concept_matrix=predicted_matrix,
@@ -277,4 +303,5 @@ class FedProTrackRunner:
             phase_b_bytes=phase_b_bytes,
             mean_accuracy=float(accuracy_matrix.mean()),
             final_accuracy=float(accuracy_matrix[:, -1].mean()),
+            soft_assignments=soft_assignments,
         )
