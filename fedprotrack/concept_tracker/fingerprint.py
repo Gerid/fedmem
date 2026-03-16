@@ -115,12 +115,6 @@ class ConceptFingerprint:
         delta2 = x - self._mean
         self._M2 = self._M2 * self.decay + np.outer(delta, delta2)
 
-        # Update class-conditional mean
-        if 0 <= label < self.n_classes:
-            self._class_counts[label] = self._class_counts[label] * self.decay + 1.0
-            class_delta = x - self._class_means[label]
-            self._class_means[label] += class_delta / self._class_counts[label]
-
     def similarity(self, other: ConceptFingerprint) -> float:
         """Compute composite similarity to another fingerprint.
 

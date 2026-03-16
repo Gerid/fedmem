@@ -70,15 +70,15 @@ class TwoPhaseConfig:
         Number of class labels.
     """
 
-    omega: float = 10.0
+    omega: float = 2.0
     kappa: float = 0.6
     novelty_threshold: float = 0.3
-    loss_novelty_threshold: float = 0.1
+    loss_novelty_threshold: float = 0.05
     sticky_dampening: float = 1.5
     sticky_posterior_gate: float = 0.3
-    model_loss_weight: float = 0.3
+    model_loss_weight: float = 0.0
     post_spawn_merge: bool = True
-    merge_threshold: float = 0.90
+    merge_threshold: float = 0.98
     min_count: float = 5.0
     max_concepts: int = 20
     merge_every: int = 2
@@ -200,7 +200,10 @@ class TwoPhaseFedProTrack:
         PhaseAResult
         """
         K = len(client_fingerprints)
-        fp_bytes = fingerprint_bytes(self.config.n_features, self.config.n_classes)
+        fp_bytes = fingerprint_bytes(
+            self.config.n_features, self.config.n_classes,
+            precision_bits=16, include_global_mean=False,
+        )
         bytes_up = K * fp_bytes
 
         assignments: dict[int, int] = {}
@@ -333,11 +336,11 @@ class TwoPhaseFedProTrack:
             # where client A switches at t and spawns B', then client C
             # switches at t+1 and spawns B'' — both represent concept B.
             if self.config.post_spawn_merge:
-                self.memory_bank.maybe_merge()
+                merge_pairs = self.memory_bank.maybe_merge()
                 # Remap any assignments whose concept was merged away
-                self._remap_merged_assignments(assignments)
+                self._remap_merged_assignments(assignments, merge_pairs)
                 # Also remap assigned_clients in case their concepts were merged
-                self._remap_merged_assignments(assigned_clients)
+                self._remap_merged_assignments(assigned_clients, merge_pairs)
 
         # --- Pass 3: absorb assigned clients into their MAP concepts ---
         for client_id, concept_id in assigned_clients.items():
@@ -362,37 +365,35 @@ class TwoPhaseFedProTrack:
 
     def _remap_merged_assignments(
         self, assignments: dict[int, int],
+        merge_pairs: list[tuple[int, int]],
     ) -> None:
         """Remap client assignments after a merge pass.
 
-        If a concept was merged away (no longer in the memory bank),
-        reassign clients to the surviving concept that absorbed it.
+        Uses the merge mapping directly: each ``(kept_id, removed_id)``
+        pair maps clients assigned to ``removed_id`` to ``kept_id``.
 
         Parameters
         ----------
         assignments : dict[int, int]
             Client ID -> concept ID (mutated in place).
+        merge_pairs : list[tuple[int, int]]
+            Pairs of ``(kept_id, removed_id)`` from ``maybe_merge()``.
         """
-        live_ids = set(self.memory_bank._library.keys())
-        stale_clients = [
-            cid for cid, concept_id in assignments.items()
-            if concept_id not in live_ids
-        ]
-        if not stale_clients:
+        if not merge_pairs:
             return
 
-        # For each stale assignment, find the best surviving concept
-        for client_id in stale_clients:
-            best_id = None
-            best_sim = -1.0
-            for concept_id, cfp in self.memory_bank._library.items():
-                # Use the library directly (no copy needed for read)
-                sim = cfp.count  # prefer higher-count concepts as merge targets
-                if sim > best_sim:
-                    best_sim = sim
-                    best_id = concept_id
-            if best_id is not None:
-                assignments[client_id] = best_id
+        # Build removed -> kept mapping (chain through transitive merges)
+        remap: dict[int, int] = {}
+        for kept_id, removed_id in merge_pairs:
+            # Follow chain: if kept_id was itself remapped, use its target
+            final_kept = kept_id
+            while final_kept in remap:
+                final_kept = remap[final_kept]
+            remap[removed_id] = final_kept
+
+        for client_id, concept_id in assignments.items():
+            if concept_id in remap:
+                assignments[client_id] = remap[concept_id]
 
     def _cluster_novel_clients(
         self,
@@ -433,19 +434,23 @@ class TwoPhaseFedProTrack:
         # to the same concept at different times to be clustered together.
         sim_threshold = self.config.merge_threshold
 
-        # Single-linkage greedy clustering
+        # Average-linkage greedy clustering
         clusters: list[list[int]] = [[novel_client_ids[0]]]
         for cid in novel_client_ids[1:]:
             fp = client_fingerprints[cid]
-            merged = False
-            for cluster in clusters:
-                rep_fp = client_fingerprints[cluster[0]]
-                sim = fp.similarity(rep_fp)
-                if sim >= sim_threshold:
-                    cluster.append(cid)
-                    merged = True
-                    break
-            if not merged:
+            best_cluster_idx = -1
+            best_avg_sim = -1.0
+            for idx, cluster in enumerate(clusters):
+                avg_sim = float(np.mean([
+                    fp.similarity(client_fingerprints[member])
+                    for member in cluster
+                ]))
+                if avg_sim >= sim_threshold and avg_sim > best_avg_sim:
+                    best_avg_sim = avg_sim
+                    best_cluster_idx = idx
+            if best_cluster_idx >= 0:
+                clusters[best_cluster_idx].append(cid)
+            else:
                 clusters.append([cid])
 
         return clusters

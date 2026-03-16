@@ -70,14 +70,15 @@ def prototype_bytes(
 
 
 def fingerprint_bytes(
-    n_features: int, n_classes: int, precision_bits: int = 32
+    n_features: int, n_classes: int, precision_bits: int = 32,
+    *, include_global_mean: bool = True,
 ) -> float:
     """Compute bytes required to transmit one ConceptFingerprint summary.
 
-    The transmitted payload consists of the running mean vector
-    ``(n_features,)``, the label distribution vector ``(n_classes,)``,
-    and the per-class conditional means matrix ``(n_classes, n_features)``,
-    totalling ``n_features + n_classes + n_classes * n_features`` floats.
+    The transmitted payload consists of the label distribution vector
+    ``(n_classes,)`` and the per-class conditional means matrix
+    ``(n_classes, n_features)``.  Optionally includes the global running
+    mean vector ``(n_features,)`` (default: yes, for backward compat).
 
     Parameters
     ----------
@@ -87,6 +88,8 @@ def fingerprint_bytes(
         Number of class labels tracked by the fingerprint.
     precision_bits : int
         Bit-width used for each scalar element (default 32).
+    include_global_mean : bool
+        Whether to include the global mean in the payload (default True).
 
     Returns
     -------
@@ -105,5 +108,7 @@ def fingerprint_bytes(
         raise ValueError(f"n_features must be > 0, got {n_features}")
     if n_classes <= 0:
         raise ValueError(f"n_classes must be > 0, got {n_classes}")
-    total_elements = n_features + n_classes + n_classes * n_features
+    total_elements = n_classes + n_classes * n_features
+    if include_global_mean:
+        total_elements += n_features
     return float(total_elements * precision_bits / 8)

@@ -43,14 +43,14 @@ def _make_model_params(n_features: int = 2, seed: int = 0) -> dict[str, np.ndarr
 class TestTwoPhaseConfig:
     def test_defaults(self) -> None:
         cfg = TwoPhaseConfig()
-        assert cfg.omega == 10.0
+        assert cfg.omega == 2.0
         assert cfg.kappa == 0.6
-        assert cfg.loss_novelty_threshold == 0.1
+        assert cfg.loss_novelty_threshold == 0.05
         assert cfg.sticky_dampening == 1.5
         assert cfg.sticky_posterior_gate == 0.3
-        assert cfg.model_loss_weight == 0.3
+        assert cfg.model_loss_weight == 0.0
         assert cfg.post_spawn_merge is True
-        assert cfg.merge_threshold == 0.90
+        assert cfg.merge_threshold == 0.98
         assert cfg.merge_every == 2
         assert cfg.n_features == 2
 
@@ -149,9 +149,11 @@ class TestPhaseA:
         fps = {0: _make_fp(seed=0), 1: _make_fp(seed=1)}
         result = proto.phase_a(fps)
 
-        # Upload: 2 fingerprints * fingerprint_bytes(2, 2)
+        # Upload: 2 fingerprints * fingerprint_bytes(2, 2, float16, no global mean)
         from fedprotrack.baselines.comm_tracker import fingerprint_bytes
-        expected_up = 2 * fingerprint_bytes(2, 2)
+        expected_up = 2 * fingerprint_bytes(
+            2, 2, precision_bits=16, include_global_mean=False,
+        )
         assert result.bytes_up == expected_up
         # Download: 2 clients * 4 bytes
         assert result.bytes_down == 8.0
