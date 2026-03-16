@@ -20,6 +20,7 @@ from ..metrics.experiment_log import ExperimentLog, MetricsResult
 from ..posterior.fedprotrack_runner import FedProTrackRunner
 from ..posterior.two_phase_protocol import TwoPhaseConfig
 from .figures import generate_scalability_plot
+from .method_registry import identity_metrics_valid
 
 
 @dataclass
@@ -85,7 +86,9 @@ def run_scalability_K(
         fpt_result = runner.run(dataset)
         fpt_time = time.time() - t0
         fpt_log = fpt_result.to_experiment_log()
-        fpt_metrics = compute_all_metrics(fpt_log)
+        fpt_metrics = compute_all_metrics(
+            fpt_log, identity_capable=identity_metrics_valid("FedProTrack"),
+        )
         results.append(ScalabilityResult(
             "FedProTrack", K, fpt_metrics, fpt_time, fpt_result.total_bytes,
         ))
@@ -102,7 +105,9 @@ def run_scalability_K(
             total_bytes=None,
             method_name="FedAvg",
         )
-        fa_metrics = compute_all_metrics(fa_log)
+        fa_metrics = compute_all_metrics(
+            fa_log, identity_capable=identity_metrics_valid("FedAvg"),
+        )
         results.append(ScalabilityResult(
             "FedAvg", K, fa_metrics, fa_time, 0.0,
         ))
@@ -110,14 +115,16 @@ def run_scalability_K(
     # Plot
     if output_dir is not None:
         output_dir = Path(output_dir)
-        # Mean accuracy plot
+        # Mean accuracy plot -- use final_accuracy instead of identity metric
         method_accs: dict[str, list[float]] = {}
         for r in results:
             if r.method_name not in method_accs:
                 method_accs[r.method_name] = []
-            method_accs[r.method_name].append(r.metrics.concept_re_id_accuracy)
+            val = r.metrics.concept_re_id_accuracy
+            method_accs[r.method_name].append(val if val is not None else float("nan"))
 
-        fpt_accs = [r.metrics.concept_re_id_accuracy for r in results if r.method_name == "FedProTrack"]
+        fpt_accs = [r.metrics.concept_re_id_accuracy for r in results
+                     if r.method_name == "FedProTrack" and r.metrics.concept_re_id_accuracy is not None]
         if fpt_accs:
             generate_scalability_plot(
                 "K (clients)", K_values,
@@ -180,7 +187,9 @@ def run_scalability_T(
         fpt_result = runner.run(dataset)
         fpt_time = time.time() - t0
         fpt_log = fpt_result.to_experiment_log()
-        fpt_metrics = compute_all_metrics(fpt_log)
+        fpt_metrics = compute_all_metrics(
+            fpt_log, identity_capable=identity_metrics_valid("FedProTrack"),
+        )
         results.append(ScalabilityResult(
             "FedProTrack", T, fpt_metrics, fpt_time, fpt_result.total_bytes,
         ))
@@ -188,7 +197,8 @@ def run_scalability_T(
     # Plot
     if output_dir is not None:
         output_dir = Path(output_dir)
-        fpt_accs = [r.metrics.concept_re_id_accuracy for r in results]
+        fpt_accs = [r.metrics.concept_re_id_accuracy for r in results
+                     if r.metrics.concept_re_id_accuracy is not None]
         generate_scalability_plot(
             "T (timesteps)", T_values,
             {"FedProTrack": fpt_accs},

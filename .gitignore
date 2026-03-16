@@ -7,3 +7,6 @@ build/
 .eggs/
 *.egg
 results_phase3/
+.pytest_cache/
+.pytest_tmp/
+.mpl_config/
