@@ -1,0 +1,14 @@
+[
+  {
+    "concept_id": 0,
+    "generator_type": "sine",
+    "variant": 0,
+    "noise_scale": 0.7
+  },
+  {
+    "concept_id": 1,
+    "generator_type": "sine",
+    "variant": 1,
+    "noise_scale": 0.7
+  }
+]

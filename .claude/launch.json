@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "run-experiments-quick",
+      "runtimeExecutable": "conda",
+      "runtimeArgs": ["run", "-n", "base", "python", "run_experiments.py", "--quick"],
+      "port": 0
+    },
+    {
+      "name": "run-experiments-full",
+      "runtimeExecutable": "conda",
+      "runtimeArgs": ["run", "-n", "base", "python", "run_experiments.py"],
+      "port": 0
+    },
+    {
+      "name": "pytest",
+      "runtimeExecutable": "conda",
+      "runtimeArgs": ["run", "-n", "base", "python", "-m", "pytest", "tests/", "-v"],
+      "port": 0
+    },
+    {
+      "name": "fedprotrack-cli",
+      "runtimeExecutable": "conda",
+      "runtimeArgs": ["run", "-n", "base", "python", "-m", "fedprotrack"],
+      "port": 0
+    }
+  ]
+}
