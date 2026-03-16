@@ -219,7 +219,7 @@ class TestFindCrossoverPoints:
 
 class TestRunBudgetSweep:
     def test_run_budget_sweep_smoke(self) -> None:
-        """Smoke test on a tiny dataset: 3 methods x 4 federation_every = 12 points."""
+        """Smoke test on a tiny dataset: 7 methods x 4 federation_every = 28 points."""
         dataset = _make_small_dataset(K=2, T=4, n_samples=30)
         federation_every_values = [1, 2, 3, 4]
 
@@ -229,13 +229,17 @@ class TestRunBudgetSweep:
             similarity_threshold=0.5,
         )
 
-        # 3 methods × 4 federation_every values
-        assert len(results) == 12, f"Expected 12 BudgetPoints, got {len(results)}"
+        # 7 methods × 4 federation_every values
+        assert len(results) == 28, f"Expected 28 BudgetPoints, got {len(results)}"
 
         method_names = {bp.method_name for bp in results}
         assert "FedAvg-Full" in method_names
         assert "FedProto" in method_names
         assert "TrackedSummary" in method_names
+        assert "Flash" in method_names
+        assert "FedDrift" in method_names
+        assert "IFCA" in method_names
+        assert "CompressedFedAvg" in method_names
 
         for bp in results:
             assert isinstance(bp, BudgetPoint)
@@ -257,10 +261,10 @@ class TestRunBudgetSweep:
             )
 
     def test_run_budget_sweep_default_values(self) -> None:
-        """Default federation_every_values produce 12 points (3 methods x 4)."""
+        """Default federation_every_values produce 28 points (7 methods x 4)."""
         dataset = _make_small_dataset(K=2, T=10, n_samples=20)
         results = run_budget_sweep(dataset)
-        assert len(results) == 12
+        assert len(results) == 28
 
     def test_run_budget_sweep_accuracy_auc_range(self) -> None:
         """accuracy_auc is non-negative for all methods."""

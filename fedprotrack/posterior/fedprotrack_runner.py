@@ -146,6 +146,7 @@ class FedProTrackRunner:
             omega=self.config.omega,
             kappa=self.config.kappa,
             novelty_threshold=self.config.novelty_threshold,
+            loss_novelty_threshold=self.config.loss_novelty_threshold,
             merge_threshold=self.config.merge_threshold,
             min_count=self.config.min_count,
             max_concepts=self.config.max_concepts,
@@ -159,9 +160,6 @@ class FedProTrackRunner:
 
         # Per-client state
         detectors = [_make_detector(self.detector_name) for _ in range(K)]
-        fingerprints = [
-            ConceptFingerprint(n_features, 2) for _ in range(K)
-        ]
         model_params: list[dict[str, np.ndarray]] = [{}] * K
 
         # Results
@@ -173,6 +171,12 @@ class FedProTrackRunner:
         prev_assignments: dict[int, int] | None = None
 
         for t in range(T):
+            # Per-step fingerprints: built fresh each step from current
+            # data only, avoiding cross-concept contamination.
+            step_fingerprints = [
+                ConceptFingerprint(n_features, 2) for _ in range(K)
+            ]
+
             # --- Per-client: predict, detect, fingerprint, train ---
             for k in range(K):
                 X, y = dataset.data[(k, t)]
@@ -197,20 +201,11 @@ class FedProTrackRunner:
 
                 # 2. Drift detection
                 errors = (y_pred != y_test).astype(float)
-                is_drift = False
                 for e in errors:
-                    result = detectors[k].update(e)
-                    if result.is_drift:
-                        is_drift = True
-                        break
+                    detectors[k].update(e)
 
-                if is_drift:
-                    detectors[k].reset()
-                    # Reset fingerprint on drift
-                    fingerprints[k] = ConceptFingerprint(n_features, 2)
-
-                # 3. Update fingerprint
-                fingerprints[k].update(X_train, y_train)
+                # 3. Build per-step fingerprint (fresh, no accumulation)
+                step_fingerprints[k].update(X_train, y_train)
 
                 # 4. Local SGD training
                 model = SGDClassifier(
@@ -219,7 +214,7 @@ class FedProTrackRunner:
                 )
                 model.partial_fit(X_train, y_train, classes=[0, 1])
 
-                if model_params[k].get("coef") is not None and not is_drift:
+                if model_params[k].get("coef") is not None:
                     # Warm-start with momentum
                     old_coef = model_params[k]["coef"]
                     old_int = model_params[k]["intercept"]
@@ -233,8 +228,8 @@ class FedProTrackRunner:
 
             # --- Federation ---
             if (t + 1) % self.federation_every == 0:
-                # Phase A: fingerprint exchange
-                client_fps = {k: fingerprints[k] for k in range(K)}
+                # Phase A: fingerprint exchange (per-step fingerprints)
+                client_fps = {k: step_fingerprints[k] for k in range(K)}
                 a_result = protocol.phase_a(client_fps, prev_assignments)
                 phase_a_bytes += a_result.total_bytes
                 prev_assignments = a_result.assignments

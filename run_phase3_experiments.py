@@ -29,7 +29,11 @@ from fedprotrack.experiment.baselines import (
 from fedprotrack.experiment.runner import ExperimentConfig, ExperimentRunner
 from fedprotrack.baselines.runners import (
     MethodResult,
+    run_compressed_fedavg_full,
+    run_feddrift_full,
     run_fedproto_full,
+    run_flash_full,
+    run_ifca_full,
     run_tracked_summary_full,
 )
 from fedprotrack.metrics import compute_all_metrics
@@ -167,6 +171,26 @@ def run_single_setting(
     ts_log = ts_result.to_experiment_log(gt)
     results["TrackedSummary"] = compute_all_metrics(ts_log)
 
+    # 7. Flash
+    flash_result = run_flash_full(dataset)
+    flash_log = flash_result.to_experiment_log(gt)
+    results["Flash"] = compute_all_metrics(flash_log)
+
+    # 8. FedDrift
+    fd_result = run_feddrift_full(dataset)
+    fd_log = fd_result.to_experiment_log(gt)
+    results["FedDrift"] = compute_all_metrics(fd_log)
+
+    # 9. IFCA
+    ifca_result = run_ifca_full(dataset)
+    ifca_log = ifca_result.to_experiment_log(gt)
+    results["IFCA"] = compute_all_metrics(ifca_log)
+
+    # 10. CompressedFedAvg
+    cfed_result = run_compressed_fedavg_full(dataset)
+    cfed_log = cfed_result.to_experiment_log(gt)
+    results["CompressedFedAvg"] = compute_all_metrics(cfed_log)
+
     return results
 
 
@@ -202,7 +226,7 @@ def main() -> None:
     # 1. Main experiments
     # -----------------------------------------------------------------------
     grid = build_grid(args.quick, generators, seeds)
-    print(f"\nRunning {len(grid)} settings × 6 methods...")
+    print(f"\nRunning {len(grid)} settings × 10 methods...")
 
     all_results: dict[str, list[MetricsResult]] = {}
     # Also track by axis for per-axis tables
