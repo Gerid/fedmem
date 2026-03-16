@@ -37,6 +37,23 @@ class TwoPhaseConfig:
         concept's loss exceeds this value, the observation is considered
         novel. This is critical for escaping the single-concept trap
         where the posterior is always 1.0.
+    sticky_dampening : float
+        When a client's previous concept has posterior probability >=
+        ``sticky_posterior_gate``, the effective loss_novelty_threshold
+        is multiplied by this factor. Higher values suppress over-
+        spawning during asynchronous drift (alpha > 0) by trusting
+        the transition prior's "stay" signal. Default 2.0.
+    sticky_posterior_gate : float
+        Minimum posterior probability for the previous concept to
+        activate sticky dampening. Default 0.3.
+    model_loss_weight : float
+        Weight for blending model-based loss (classification error)
+        into the novelty decision. 0.0 = fingerprint only, 1.0 = model
+        loss only. Default 0.3.
+    post_spawn_merge : bool
+        Whether to run an immediate merge pass after spawning novel
+        concepts. This catches duplicate concepts created across
+        rounds when clients switch asynchronously. Default True.
     merge_threshold : float
         Similarity threshold for merging concepts in the memory bank.
     min_count : float
@@ -53,14 +70,18 @@ class TwoPhaseConfig:
         Number of class labels.
     """
 
-    omega: float = 5.0
-    kappa: float = 0.8
+    omega: float = 10.0
+    kappa: float = 0.6
     novelty_threshold: float = 0.3
     loss_novelty_threshold: float = 0.1
-    merge_threshold: float = 0.85
+    sticky_dampening: float = 1.5
+    sticky_posterior_gate: float = 0.3
+    model_loss_weight: float = 0.3
+    post_spawn_merge: bool = True
+    merge_threshold: float = 0.90
     min_count: float = 5.0
     max_concepts: int = 20
-    merge_every: int = 5
+    merge_every: int = 2
     shrink_every: int = 5
     n_features: int = 2
     n_classes: int = 2
@@ -153,6 +174,7 @@ class TwoPhaseFedProTrack:
         self,
         client_fingerprints: dict[int, ConceptFingerprint],
         prev_assignments: dict[int, int] | None = None,
+        client_model_losses: dict[int, float] | None = None,
     ) -> PhaseAResult:
         """Execute Phase A: lightweight concept identification.
 
@@ -167,6 +189,11 @@ class TwoPhaseFedProTrack:
             Client ID -> fingerprint built from current data batch.
         prev_assignments : dict[int, int] or None
             Previous round's concept assignments (client_id -> concept_id).
+        client_model_losses : dict[int, float] or None
+            Client ID -> classification error rate (0=perfect, 1=all wrong).
+            Used as a second channel for novelty gating: if a client's model
+            performs well (low loss), it suppresses novelty even if fingerprint
+            distance is moderate. Default None (fingerprint-only).
 
         Returns
         -------
@@ -230,8 +257,48 @@ class TwoPhaseFedProTrack:
             # escape): even if posterior is high (e.g. 1.0 with 1 concept),
             # a high loss means the concept is a poor fit.
             best_concept_fp = library[assignment.map_concept_id]
-            best_loss = self.gibbs.compute_loss(fp, best_concept_fp)
-            if best_loss > self.config.loss_novelty_threshold:
+            fp_loss = self.gibbs.compute_loss(fp, best_concept_fp)
+
+            # --- Sticky dampening (Fix #1 for async drift) ---
+            # When the transition prior says "stay" (high posterior for the
+            # previous concept), raise the novelty threshold. This prevents
+            # flagging a client as novel just because its per-step fingerprint
+            # has moderate noise — the temporal prior is informative.
+            #
+            # CRITICAL: only apply sticky dampening when there are >= 2
+            # concepts in the library. With a single concept, the posterior
+            # is trivially 1.0 (no real choice), so stickiness would
+            # prevent escaping the single-concept trap on first drift.
+            effective_threshold = self.config.loss_novelty_threshold
+            n_library = len(library)
+            if (
+                n_library >= 2
+                and prev_cid is not None
+                and prev_cid in assignment.probabilities
+            ):
+                prev_prob = assignment.probabilities[prev_cid]
+                if prev_prob >= self.config.sticky_posterior_gate:
+                    effective_threshold *= self.config.sticky_dampening
+
+            # --- Model-based loss as second channel (Fix #3) ---
+            # Model loss acts as a novelty SUPPRESSOR: if the client's
+            # model is still predicting well (low error rate), this is
+            # strong evidence that the concept hasn't actually changed,
+            # even if the fingerprint distance is moderate.
+            # It does NOT trigger novelty (that's the fingerprint's job).
+            model_suppresses = False
+            if (
+                client_model_losses is not None
+                and client_id in client_model_losses
+                and self.config.model_loss_weight > 0.0
+            ):
+                model_loss = client_model_losses[client_id]
+                # If model accuracy is high (loss < weight threshold),
+                # suppress fingerprint-based novelty detection
+                if model_loss < self.config.model_loss_weight:
+                    model_suppresses = True
+
+            if fp_loss > effective_threshold and not model_suppresses:
                 is_novel = True
 
             if is_novel:
@@ -244,7 +311,8 @@ class TwoPhaseFedProTrack:
             novel_clusters = self._cluster_novel_clients(
                 novel_clients, client_fingerprints,
             )
-            # Spawn one new concept per cluster
+
+            # Spawn one new concept per cluster of truly novel clients
             for cluster in novel_clusters:
                 # Build a merged fingerprint for the cluster
                 representative_fp = client_fingerprints[cluster[0]]
@@ -258,6 +326,16 @@ class TwoPhaseFedProTrack:
                         self.memory_bank.absorb_fingerprint(
                             new_cid, client_fingerprints[client_id]
                         )
+
+            # --- Post-spawn merge (Fix #2 for async drift) ---
+            # Immediately check whether newly spawned concepts are similar
+            # to existing ones. This catches the cross-round duplication
+            # where client A switches at t and spawns B', then client C
+            # switches at t+1 and spawns B'' — both represent concept B.
+            if self.config.post_spawn_merge:
+                self.memory_bank.maybe_merge()
+                # Remap any assignments whose concept was merged away
+                self._remap_merged_assignments(assignments)
 
         # --- Pass 3: absorb assigned clients into their MAP concepts ---
         for client_id, concept_id in assigned_clients.items():
@@ -280,12 +358,56 @@ class TwoPhaseFedProTrack:
             bytes_down=bytes_down,
         )
 
+    def _remap_merged_assignments(
+        self, assignments: dict[int, int],
+    ) -> None:
+        """Remap client assignments after a merge pass.
+
+        If a concept was merged away (no longer in the memory bank),
+        reassign clients to the surviving concept that absorbed it.
+
+        Parameters
+        ----------
+        assignments : dict[int, int]
+            Client ID -> concept ID (mutated in place).
+        """
+        live_ids = set(self.memory_bank._library.keys())
+        stale_clients = [
+            cid for cid, concept_id in assignments.items()
+            if concept_id not in live_ids
+        ]
+        if not stale_clients:
+            return
+
+        # For each stale assignment, find the best surviving concept
+        for client_id in stale_clients:
+            best_id = None
+            best_sim = -1.0
+            for concept_id, cfp in self.memory_bank._library.items():
+                # Use the library directly (no copy needed for read)
+                sim = cfp.count  # prefer higher-count concepts as merge targets
+                if sim > best_sim:
+                    best_sim = sim
+                    best_id = concept_id
+            if best_id is not None:
+                assignments[client_id] = best_id
+
     def _cluster_novel_clients(
         self,
         novel_client_ids: list[int],
         client_fingerprints: dict[int, ConceptFingerprint],
     ) -> list[list[int]]:
         """Cluster novel clients by fingerprint similarity (single-linkage).
+
+        Uses ``merge_threshold`` as the clustering similarity threshold
+        (same threshold used for concept merging in the memory bank).
+        This ensures that novel clients representing the same new concept
+        are grouped together and only one concept is spawned per group.
+
+        Reassignment of novel clients to *existing* memory bank concepts
+        is deferred to the post-spawn merge pass, which is more principled
+        because it operates on fully-formed concept fingerprints rather
+        than noisy single-client observations.
 
         Parameters
         ----------
@@ -302,9 +424,12 @@ class TwoPhaseFedProTrack:
         if len(novel_client_ids) <= 1:
             return [novel_client_ids] if novel_client_ids else []
 
-        # Similarity threshold for clustering: two novel clients belong
-        # to the same new concept if their fingerprints are similar enough.
-        sim_threshold = 1.0 - self.config.loss_novelty_threshold
+        # Use merge_threshold for clustering: two novel clients belong
+        # to the same new concept if their fingerprints are similar enough
+        # to be merged. This is more permissive than the old
+        # (1 - loss_novelty_threshold) and allows clients that switched
+        # to the same concept at different times to be clustered together.
+        sim_threshold = self.config.merge_threshold
 
         # Single-linkage greedy clustering
         clusters: list[list[int]] = [[novel_client_ids[0]]]

@@ -147,6 +147,10 @@ class FedProTrackRunner:
             kappa=self.config.kappa,
             novelty_threshold=self.config.novelty_threshold,
             loss_novelty_threshold=self.config.loss_novelty_threshold,
+            sticky_dampening=self.config.sticky_dampening,
+            sticky_posterior_gate=self.config.sticky_posterior_gate,
+            model_loss_weight=self.config.model_loss_weight,
+            post_spawn_merge=self.config.post_spawn_merge,
             merge_threshold=self.config.merge_threshold,
             min_count=self.config.min_count,
             max_concepts=self.config.max_concepts,
@@ -234,8 +238,15 @@ class FedProTrackRunner:
             # --- Federation ---
             if (t + 1) % self.federation_every == 0:
                 # Phase A: fingerprint exchange (per-step fingerprints)
+                # Compute per-client model losses (error rates) as a
+                # second channel for novelty gating.
+                client_model_losses = {
+                    k: 1.0 - accuracy_matrix[k, t] for k in range(K)
+                }
                 client_fps = {k: step_fingerprints[k] for k in range(K)}
-                a_result = protocol.phase_a(client_fps, prev_assignments)
+                a_result = protocol.phase_a(
+                    client_fps, prev_assignments, client_model_losses,
+                )
                 phase_a_bytes += a_result.total_bytes
                 prev_assignments = a_result.assignments
 

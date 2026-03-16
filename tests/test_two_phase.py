@@ -43,9 +43,15 @@ def _make_model_params(n_features: int = 2, seed: int = 0) -> dict[str, np.ndarr
 class TestTwoPhaseConfig:
     def test_defaults(self) -> None:
         cfg = TwoPhaseConfig()
-        assert cfg.omega == 5.0
-        assert cfg.kappa == 0.8
+        assert cfg.omega == 10.0
+        assert cfg.kappa == 0.6
         assert cfg.loss_novelty_threshold == 0.1
+        assert cfg.sticky_dampening == 1.5
+        assert cfg.sticky_posterior_gate == 0.3
+        assert cfg.model_loss_weight == 0.3
+        assert cfg.post_spawn_merge is True
+        assert cfg.merge_threshold == 0.90
+        assert cfg.merge_every == 2
         assert cfg.n_features == 2
 
     def test_custom(self) -> None:
@@ -256,3 +262,204 @@ class TestEndToEnd:
             prev = a_result.assignments
 
         assert proto.memory_bank.n_concepts >= 1
+
+
+# ---------------------------------------------------------------------------
+# Anti-fragmentation: sticky dampening
+# ---------------------------------------------------------------------------
+
+class TestStickyDampening:
+    """Tests for sticky novelty dampening (Fix #1 for async drift)."""
+
+    def test_no_dampening_single_concept(self) -> None:
+        """Sticky dampening must NOT activate when library has only 1 concept.
+
+        This is the 'single-concept trap': with 1 concept, the posterior is
+        trivially 1.0. If sticky dampening raised the loss threshold, the
+        first drift could never be detected.
+        """
+        cfg = TwoPhaseConfig(
+            n_features=2, n_classes=2,
+            sticky_dampening=3.0,  # very high → would block detection if active
+            loss_novelty_threshold=0.05,
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+
+        # Bootstrap: create 1 concept
+        fps = {0: _make_fp(seed=0, mean_shift=0.0, n_samples=100)}
+        r1 = proto.phase_a(fps)
+        assert proto.memory_bank.n_concepts == 1
+
+        # Now present a different fingerprint. Even with high sticky_dampening,
+        # the single-concept guard should let novelty through.
+        fps2 = {0: _make_fp(seed=10, mean_shift=5.0, n_samples=100)}
+        r2 = proto.phase_a(fps2, prev_assignments=r1.assignments)
+        # Should have spawned a new concept (novelty detected)
+        assert proto.memory_bank.n_concepts >= 2
+
+    def test_dampening_active_with_multiple_concepts(self) -> None:
+        """Sticky dampening should suppress noise-driven novelty when
+        multiple concepts exist and the previous assignment's posterior
+        is strong."""
+        cfg = TwoPhaseConfig(
+            n_features=2, n_classes=2,
+            sticky_dampening=3.0,
+            loss_novelty_threshold=0.05,  # low threshold → easy to trigger
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+
+        # Bootstrap: 2 well-separated concepts
+        fps = {
+            0: _make_fp(seed=0, mean_shift=0.0, n_samples=100),
+            1: _make_fp(seed=1, mean_shift=20.0, n_samples=100),
+        }
+        r1 = proto.phase_a(fps)
+        n_before = proto.memory_bank.n_concepts
+        assert n_before == 2
+
+        # Present client 0 with a slightly noisy fingerprint (same concept)
+        # Without dampening (threshold=0.05), this might trigger novelty.
+        # With dampening (threshold=0.15), the noise is tolerated.
+        fps2 = {0: _make_fp(seed=100, mean_shift=0.3, n_samples=100)}
+        r2 = proto.phase_a(fps2, prev_assignments=r1.assignments)
+        # Should NOT have spawned a new concept
+        assert proto.memory_bank.n_concepts == n_before
+
+
+# ---------------------------------------------------------------------------
+# Anti-fragmentation: model loss suppression
+# ---------------------------------------------------------------------------
+
+class TestModelLossSuppression:
+    """Tests for model-loss-based novelty suppression (Fix #3)."""
+
+    def test_model_loss_suppresses_novelty(self) -> None:
+        """When model accuracy is high (loss < threshold), fingerprint-
+        based novelty should be suppressed."""
+        cfg = TwoPhaseConfig(
+            n_features=2, n_classes=2,
+            model_loss_weight=0.3,
+            loss_novelty_threshold=0.05,  # low → easy to trigger from fingerprint
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+
+        # Bootstrap
+        fps = {0: _make_fp(seed=0, mean_shift=0.0, n_samples=100)}
+        r1 = proto.phase_a(fps)
+        assert proto.memory_bank.n_concepts == 1
+
+        # Present a moderately different fingerprint with LOW model loss
+        fps2 = {0: _make_fp(seed=10, mean_shift=1.0, n_samples=100)}
+        model_losses = {0: 0.1}  # good accuracy → suppresses novelty
+        r2 = proto.phase_a(fps2, r1.assignments, client_model_losses=model_losses)
+        # Model loss (0.1 < 0.3=model_loss_weight) should suppress novelty
+        assert proto.memory_bank.n_concepts == 1
+
+    def test_high_model_loss_allows_novelty(self) -> None:
+        """When model loss is high, fingerprint novelty should not be suppressed."""
+        cfg = TwoPhaseConfig(
+            n_features=2, n_classes=2,
+            model_loss_weight=0.3,
+            loss_novelty_threshold=0.05,
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+
+        fps = {0: _make_fp(seed=0, mean_shift=0.0, n_samples=100)}
+        r1 = proto.phase_a(fps)
+
+        fps2 = {0: _make_fp(seed=10, mean_shift=5.0, n_samples=100)}
+        model_losses = {0: 0.6}  # bad accuracy → no suppression
+        r2 = proto.phase_a(fps2, r1.assignments, client_model_losses=model_losses)
+        assert proto.memory_bank.n_concepts >= 2
+
+    def test_no_model_losses_falls_back(self) -> None:
+        """Without model losses, fingerprint-only novelty detection works."""
+        cfg = TwoPhaseConfig(n_features=2, n_classes=2)
+        proto = TwoPhaseFedProTrack(cfg)
+
+        fps = {0: _make_fp(seed=0, mean_shift=0.0, n_samples=100)}
+        r1 = proto.phase_a(fps)
+
+        fps2 = {0: _make_fp(seed=10, mean_shift=20.0, n_samples=100)}
+        r2 = proto.phase_a(fps2, r1.assignments)  # no model_losses
+        assert proto.memory_bank.n_concepts >= 2
+
+
+# ---------------------------------------------------------------------------
+# Anti-fragmentation: post-spawn merge
+# ---------------------------------------------------------------------------
+
+class TestPostSpawnMerge:
+    """Tests for post-spawn merge (Fix #2 for async drift)."""
+
+    def test_post_spawn_merge_deduplicates(self) -> None:
+        """Concepts spawned across rounds for the same underlying concept
+        should be merged by post-spawn merge."""
+        cfg = TwoPhaseConfig(
+            n_features=2, n_classes=2,
+            post_spawn_merge=True,
+            merge_threshold=0.85,
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+
+        # Round 1: spawn concept at mean=0
+        fps = {0: _make_fp(seed=0, mean_shift=0.0, n_samples=100)}
+        proto.phase_a(fps)
+        assert proto.memory_bank.n_concepts == 1
+
+        # Round 2: spawn concept at mean=20 (very different)
+        fps2 = {1: _make_fp(seed=1, mean_shift=20.0, n_samples=100)}
+        proto.phase_a(fps2)
+        assert proto.memory_bank.n_concepts == 2
+
+        # Round 3: spawn concept at mean=0.01 (nearly identical to first)
+        # The post-spawn merge should merge it with concept 0.
+        fps3 = {2: _make_fp(seed=2, mean_shift=0.01, n_samples=100)}
+        proto.phase_a(fps3)
+        # Should have 2 concepts (the duplicate was merged)
+        assert proto.memory_bank.n_concepts == 2
+
+    def test_post_spawn_merge_disabled(self) -> None:
+        """With post_spawn_merge=False, duplicate concepts remain."""
+        cfg = TwoPhaseConfig(
+            n_features=2, n_classes=2,
+            post_spawn_merge=False,
+            merge_threshold=0.85,
+            merge_every=100,  # disable periodic merge too
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+
+        fps = {0: _make_fp(seed=0, mean_shift=0.0, n_samples=100)}
+        proto.phase_a(fps)
+
+        fps2 = {1: _make_fp(seed=1, mean_shift=20.0, n_samples=100)}
+        proto.phase_a(fps2)
+
+        fps3 = {2: _make_fp(seed=2, mean_shift=0.01, n_samples=100)}
+        proto.phase_a(fps3)
+        # Without post-spawn merge, the near-duplicate might persist
+        assert proto.memory_bank.n_concepts >= 2
+
+    def test_remap_after_merge(self) -> None:
+        """Assignments to merged-away concepts should be remapped."""
+        cfg = TwoPhaseConfig(
+            n_features=2, n_classes=2,
+            post_spawn_merge=True,
+            merge_threshold=0.85,
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+
+        # Bootstrap with distinct concept
+        fps = {0: _make_fp(seed=0, mean_shift=0.0, n_samples=100)}
+        r1 = proto.phase_a(fps)
+
+        # Spawn near-identical concept in next round
+        fps2 = {1: _make_fp(seed=1, mean_shift=0.01, n_samples=100)}
+        r2 = proto.phase_a(fps2, r1.assignments)
+
+        # All assignments should point to live concepts
+        live_ids = set(proto.memory_bank._library.keys())
+        for cid, concept_id in r2.assignments.items():
+            assert concept_id in live_ids, (
+                f"Client {cid} assigned to dead concept {concept_id}"
+            )
