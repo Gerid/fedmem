@@ -292,7 +292,22 @@ def _merge_fingerprint_into(target: ConceptFingerprint, source: ConceptFingerpri
     # Combined label counts
     new_labels = target._label_counts + source._label_counts
 
+    # Combined class-conditional means
+    n_classes = target.n_classes
+    new_class_counts = target._class_counts + source._class_counts
+    new_class_means = np.zeros_like(target._class_means)
+    for c in range(n_classes):
+        na_c = target._class_counts[c]
+        nb_c = source._class_counts[c]
+        nab_c = na_c + nb_c
+        if nab_c > 0:
+            new_class_means[c] = (
+                na_c * target._class_means[c] + nb_c * source._class_means[c]
+            ) / nab_c
+
     target._count = n_ab
     target._mean = new_mean
     target._M2 = new_M2
     target._label_counts = new_labels
+    target._class_counts = new_class_counts
+    target._class_means = new_class_means

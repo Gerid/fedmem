@@ -31,7 +31,11 @@ from fedprotrack.experiment.baselines import (
 from fedprotrack.experiment.runner import ExperimentConfig, ExperimentRunner
 from fedprotrack.baselines.runners import (
     MethodResult,
+    run_compressed_fedavg_full,
+    run_feddrift_full,
     run_fedproto_full,
+    run_flash_full,
+    run_ifca_full,
     run_tracked_summary_full,
 )
 from fedprotrack.metrics import compute_all_metrics
@@ -169,6 +173,26 @@ def run_single_setting(
     ts_log = ts_result.to_experiment_log(gt)
     results["TrackedSummary"] = compute_all_metrics(ts_log)
 
+    # 7. Flash
+    flash_result = run_flash_full(dataset)
+    flash_log = flash_result.to_experiment_log(gt)
+    results["Flash"] = compute_all_metrics(flash_log)
+
+    # 8. FedDrift
+    fd_result = run_feddrift_full(dataset)
+    fd_log = fd_result.to_experiment_log(gt)
+    results["FedDrift"] = compute_all_metrics(fd_log)
+
+    # 9. IFCA
+    ifca_result = run_ifca_full(dataset)
+    ifca_log = ifca_result.to_experiment_log(gt)
+    results["IFCA"] = compute_all_metrics(ifca_log)
+
+    # 10. CompressedFedAvg
+    cfed_result = run_compressed_fedavg_full(dataset)
+    cfed_log = cfed_result.to_experiment_log(gt)
+    results["CompressedFedAvg"] = compute_all_metrics(cfed_log)
+
     return results
 
 
@@ -209,7 +233,7 @@ def main() -> None:
     n_jobs = args.n_jobs
     n_cores = os.cpu_count() or 1
     effective_jobs = n_cores if n_jobs == -1 else min(n_jobs, len(grid))
-    print(f"\nRunning {len(grid)} settings × 6 methods "
+    print(f"\nRunning {len(grid)} settings × 10 methods "
           f"({effective_jobs} parallel workers)...")
 
     all_results: dict[str, list[MetricsResult]] = {}
@@ -217,8 +241,8 @@ def main() -> None:
     by_rho: dict[float, dict[str, list[MetricsResult]]] = {}
     by_alpha: dict[float, dict[str, list[MetricsResult]]] = {}
     by_delta: dict[float, dict[str, list[MetricsResult]]] = {}
-    # For phase diagrams (fixed alpha=0.5 if available)
-    phase_rho_delta: dict[tuple[float, float], dict[str, MetricsResult]] = {}
+    # For phase diagrams (fixed alpha=0.5 if available) — collect lists, average later
+    phase_rho_delta_lists: dict[tuple[float, float], dict[str, list[MetricsResult]]] = {}
 
     # Track accuracy matrices for a representative setting
     representative_accs: dict[str, np.ndarray] | None = None
@@ -269,10 +293,12 @@ def main() -> None:
         # Phase diagram: collect for alpha=0.5 (or nearest)
         if abs(gen_cfg.alpha - 0.5) < 0.01:
             key = (gen_cfg.rho, gen_cfg.delta)
-            if key not in phase_rho_delta:
-                phase_rho_delta[key] = {}
+            if key not in phase_rho_delta_lists:
+                phase_rho_delta_lists[key] = {}
             for mn, mr in metrics.items():
-                phase_rho_delta[key][mn] = mr
+                if mn not in phase_rho_delta_lists[key]:
+                    phase_rho_delta_lists[key][mn] = []
+                phase_rho_delta_lists[key][mn].append(mr)
 
     elapsed = time.time() - t_start
     print(f"\nMain experiments completed in {elapsed:.1f}s")
@@ -312,7 +338,24 @@ def main() -> None:
     # -----------------------------------------------------------------------
     # 4. Phase diagrams
     # -----------------------------------------------------------------------
-    if phase_rho_delta:
+    if phase_rho_delta_lists:
+        # Average over seeds/generators per (rho, delta) cell
+        phase_rho_delta: dict[tuple[float, float], dict[str, MetricsResult]] = {}
+        for key, method_lists in phase_rho_delta_lists.items():
+            phase_rho_delta[key] = {}
+            for mn, mr_list in method_lists.items():
+                K_dim = mr_list[0].per_client_re_id.shape[0]
+                T_dim = mr_list[0].per_timestep_re_id.shape[0]
+                phase_rho_delta[key][mn] = MetricsResult(
+                    concept_re_id_accuracy=float(np.mean([m.concept_re_id_accuracy for m in mr_list])),
+                    assignment_entropy=float(np.mean([m.assignment_entropy for m in mr_list])),
+                    wrong_memory_reuse_rate=float(np.mean([m.wrong_memory_reuse_rate for m in mr_list])),
+                    worst_window_dip=None,
+                    worst_window_recovery=None,
+                    budget_normalized_score=None,
+                    per_client_re_id=np.mean([m.per_client_re_id for m in mr_list], axis=0),
+                    per_timestep_re_id=np.mean([m.per_timestep_re_id for m in mr_list], axis=0),
+                )
         figures_dir = results_dir / "figures"
         generate_phase_diagrams(
             phase_rho_delta, "rho", "delta", figures_dir / "phase_diagrams",

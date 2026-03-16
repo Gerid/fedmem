@@ -32,6 +32,11 @@ class TwoPhaseConfig:
         Stickiness for the transition prior.
     novelty_threshold : float
         MAP probability threshold below which a concept is novel.
+    loss_novelty_threshold : float
+        Absolute loss threshold for novelty detection. When the best
+        concept's loss exceeds this value, the observation is considered
+        novel. This is critical for escaping the single-concept trap
+        where the posterior is always 1.0.
     merge_threshold : float
         Similarity threshold for merging concepts in the memory bank.
     min_count : float
@@ -48,9 +53,10 @@ class TwoPhaseConfig:
         Number of class labels.
     """
 
-    omega: float = 1.0
+    omega: float = 5.0
     kappa: float = 0.8
     novelty_threshold: float = 0.3
+    loss_novelty_threshold: float = 0.1
     merge_threshold: float = 0.85
     min_count: float = 5.0
     max_concepts: int = 20
@@ -150,8 +156,10 @@ class TwoPhaseFedProTrack:
     ) -> PhaseAResult:
         """Execute Phase A: lightweight concept identification.
 
-        Each client uploads a fingerprint. The server uses the Gibbs
-        posterior to assign concept identities and updates the memory bank.
+        Uses batch assignment: compute all posteriors first, cluster novel
+        clients together, then update the memory bank. This avoids the
+        sequential processing bias where early clients always get assigned
+        to existing concepts.
 
         Parameters
         ----------
@@ -171,44 +179,92 @@ class TwoPhaseFedProTrack:
         assignments: dict[int, int] = {}
         posteriors: dict[int, PosteriorAssignment] = {}
 
-        for client_id, fp in client_fingerprints.items():
-            prev_cid = prev_assignments.get(client_id) if prev_assignments else None
+        if K == 0:
+            return PhaseAResult(
+                assignments={}, posteriors={},
+                bytes_up=0.0, bytes_down=0.0,
+            )
 
-            if self.memory_bank.n_concepts == 0:
-                # Bootstrap: spawn the first concept
-                result = self.memory_bank.spawn_from_fingerprint(fp)
-                assignment = PosteriorAssignment(
-                    probabilities={result.new_concept_id: 1.0},
-                    map_concept_id=result.new_concept_id,
-                    is_novel=True,
-                    entropy=0.0,
-                )
-            else:
-                assignment = self.gibbs.compute_posterior(
-                    fp, self.memory_bank.concept_library, prev_cid,
-                )
+        # --- Bootstrap: if no concepts yet, create the first from all clients ---
+        if self.memory_bank.n_concepts == 0:
+            # Spawn first concept from the first client
+            first_cid = next(iter(client_fingerprints))
+            result = self.memory_bank.spawn_from_fingerprint(
+                client_fingerprints[first_cid]
+            )
+            first_concept_id = result.new_concept_id
+            assignment = PosteriorAssignment(
+                probabilities={first_concept_id: 1.0},
+                map_concept_id=first_concept_id,
+                is_novel=True,
+                entropy=0.0,
+            )
+            assignments[first_cid] = first_concept_id
+            posteriors[first_cid] = assignment
 
-                # Additional novelty check: with a single concept the
-                # posterior is always 1.0, so also look at the raw loss.
-                best_loss = self.gibbs.compute_loss(
-                    fp, self.memory_bank.concept_library[assignment.map_concept_id],
-                )
-                loss_novel = best_loss > (1.0 - self.config.novelty_threshold)
+            # Remove first client from remaining processing
+            remaining_fps = {
+                cid: fp for cid, fp in client_fingerprints.items()
+                if cid != first_cid
+            }
+        else:
+            remaining_fps = dict(client_fingerprints)
 
-                if assignment.is_novel or loss_novel:
-                    result = self.memory_bank.spawn_from_fingerprint(fp)
-                    # Update assignment to point to the new/absorbed concept
-                    assignments[client_id] = result.new_concept_id
-                    posteriors[client_id] = assignment
-                    continue
-                else:
-                    # Absorb fingerprint into the MAP concept
-                    self.memory_bank.absorb_fingerprint(
-                        assignment.map_concept_id, fp,
-                    )
+        # --- Pass 1: compute posteriors for all remaining clients ---
+        novel_clients: list[int] = []  # clients flagged as novel
+        assigned_clients: dict[int, int] = {}  # client -> concept_id
 
-            assignments[client_id] = assignment.map_concept_id
+        for client_id, fp in remaining_fps.items():
+            prev_cid = (
+                prev_assignments.get(client_id) if prev_assignments else None
+            )
+            library = self.memory_bank.concept_library
+
+            assignment = self.gibbs.compute_posterior(fp, library, prev_cid)
             posteriors[client_id] = assignment
+
+            # Check novelty via posterior probability threshold
+            is_novel = assignment.is_novel
+
+            # Additional loss-based novelty check (critical for single-concept
+            # escape): even if posterior is high (e.g. 1.0 with 1 concept),
+            # a high loss means the concept is a poor fit.
+            best_concept_fp = library[assignment.map_concept_id]
+            best_loss = self.gibbs.compute_loss(fp, best_concept_fp)
+            if best_loss > self.config.loss_novelty_threshold:
+                is_novel = True
+
+            if is_novel:
+                novel_clients.append(client_id)
+            else:
+                assigned_clients[client_id] = assignment.map_concept_id
+
+        # --- Pass 2: cluster novel clients by fingerprint similarity ---
+        if novel_clients:
+            novel_clusters = self._cluster_novel_clients(
+                novel_clients, client_fingerprints,
+            )
+            # Spawn one new concept per cluster
+            for cluster in novel_clusters:
+                # Build a merged fingerprint for the cluster
+                representative_fp = client_fingerprints[cluster[0]]
+                spawn_result = self.memory_bank.spawn_from_fingerprint(
+                    representative_fp
+                )
+                new_cid = spawn_result.new_concept_id
+                for client_id in cluster:
+                    assignments[client_id] = new_cid
+                    if client_id != cluster[0]:
+                        self.memory_bank.absorb_fingerprint(
+                            new_cid, client_fingerprints[client_id]
+                        )
+
+        # --- Pass 3: absorb assigned clients into their MAP concepts ---
+        for client_id, concept_id in assigned_clients.items():
+            assignments[client_id] = concept_id
+            self.memory_bank.absorb_fingerprint(
+                concept_id, client_fingerprints[client_id]
+            )
 
         # Run memory bank maintenance
         self.memory_bank.step()
@@ -223,6 +279,49 @@ class TwoPhaseFedProTrack:
             bytes_up=bytes_up,
             bytes_down=bytes_down,
         )
+
+    def _cluster_novel_clients(
+        self,
+        novel_client_ids: list[int],
+        client_fingerprints: dict[int, ConceptFingerprint],
+    ) -> list[list[int]]:
+        """Cluster novel clients by fingerprint similarity (single-linkage).
+
+        Parameters
+        ----------
+        novel_client_ids : list[int]
+            Client IDs flagged as novel.
+        client_fingerprints : dict[int, ConceptFingerprint]
+            All client fingerprints.
+
+        Returns
+        -------
+        list[list[int]]
+            List of clusters, each a list of client IDs.
+        """
+        if len(novel_client_ids) <= 1:
+            return [novel_client_ids] if novel_client_ids else []
+
+        # Similarity threshold for clustering: two novel clients belong
+        # to the same new concept if their fingerprints are similar enough.
+        sim_threshold = 1.0 - self.config.loss_novelty_threshold
+
+        # Single-linkage greedy clustering
+        clusters: list[list[int]] = [[novel_client_ids[0]]]
+        for cid in novel_client_ids[1:]:
+            fp = client_fingerprints[cid]
+            merged = False
+            for cluster in clusters:
+                rep_fp = client_fingerprints[cluster[0]]
+                sim = fp.similarity(rep_fp)
+                if sim >= sim_threshold:
+                    cluster.append(cid)
+                    merged = True
+                    break
+            if not merged:
+                clusters.append([cid])
+
+        return clusters
 
     def phase_b(
         self,
@@ -278,3 +377,56 @@ class TwoPhaseFedProTrack:
             bytes_up=bytes_up,
             bytes_down=bytes_down,
         )
+
+    def _cluster_novel_clients(
+        self,
+        novel_clients: list[tuple[int, ConceptFingerprint]],
+    ) -> list[list[tuple[int, ConceptFingerprint]]]:
+        """Group novel clients into clusters by fingerprint similarity.
+
+        Uses single-linkage clustering: novel clients whose pairwise
+        similarity exceeds ``merge_threshold`` are placed in the same
+        cluster, spawning one concept per cluster instead of one per
+        client.
+
+        Parameters
+        ----------
+        novel_clients : list of (client_id, ConceptFingerprint)
+
+        Returns
+        -------
+        list of clusters, each a list of (client_id, ConceptFingerprint)
+        """
+        n = len(novel_clients)
+        if n <= 1:
+            return [novel_clients]
+
+        # Union-Find for clustering
+        parent = list(range(n))
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(a: int, b: int) -> None:
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+        threshold = 1.0 - self.config.loss_novelty_threshold
+        for i in range(n):
+            for j in range(i + 1, n):
+                sim = novel_clients[i][1].similarity(novel_clients[j][1])
+                if sim >= threshold:
+                    union(i, j)
+
+        clusters: dict[int, list[tuple[int, ConceptFingerprint]]] = {}
+        for i in range(n):
+            root = find(i)
+            if root not in clusters:
+                clusters[root] = []
+            clusters[root].append(novel_clients[i])
+
+        return list(clusters.values())

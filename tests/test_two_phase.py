@@ -43,14 +43,19 @@ def _make_model_params(n_features: int = 2, seed: int = 0) -> dict[str, np.ndarr
 class TestTwoPhaseConfig:
     def test_defaults(self) -> None:
         cfg = TwoPhaseConfig()
-        assert cfg.omega == 1.0
+        assert cfg.omega == 5.0
         assert cfg.kappa == 0.8
+        assert cfg.loss_novelty_threshold == 0.1
         assert cfg.n_features == 2
 
     def test_custom(self) -> None:
         cfg = TwoPhaseConfig(omega=2.0, kappa=0.9, n_features=3)
         assert cfg.omega == 2.0
         assert cfg.n_features == 3
+
+    def test_loss_novelty_threshold(self) -> None:
+        cfg = TwoPhaseConfig(loss_novelty_threshold=0.1)
+        assert cfg.loss_novelty_threshold == 0.1
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +110,7 @@ class TestPhaseA:
         cfg = TwoPhaseConfig(
             n_features=2, n_classes=2,
             novelty_threshold=0.99,  # very high → almost everything is novel
+            loss_novelty_threshold=0.01,  # very low → sensitive to any difference
         )
         proto = TwoPhaseFedProTrack(cfg)
 
