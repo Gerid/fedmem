@@ -73,8 +73,8 @@ class TwoPhaseConfig:
     omega: float = 2.0
     kappa: float = 0.6
     novelty_threshold: float = 0.3
-    loss_novelty_threshold: float = 0.05
-    sticky_dampening: float = 1.5
+    loss_novelty_threshold: float = 0.02
+    sticky_dampening: float = 1.0
     sticky_posterior_gate: float = 0.3
     model_loss_weight: float = 0.0
     post_spawn_merge: bool = True
@@ -107,6 +107,9 @@ class PhaseAResult:
     posteriors: dict[int, PosteriorAssignment]
     bytes_up: float
     bytes_down: float
+    spawned: int = 0
+    merged: int = 0
+    pruned: int = 0
 
     @property
     def total_bytes(self) -> float:
@@ -310,6 +313,10 @@ class TwoPhaseFedProTrack:
                 assigned_clients[client_id] = assignment.map_concept_id
 
         # --- Pass 2: cluster novel clients by fingerprint similarity ---
+        n_spawned = 0
+        n_merged = 0
+        n_pruned = 0
+
         if novel_clients:
             novel_clusters = self._cluster_novel_clients(
                 novel_clients, client_fingerprints,
@@ -322,6 +329,8 @@ class TwoPhaseFedProTrack:
                 spawn_result = self.memory_bank.spawn_from_fingerprint(
                     representative_fp
                 )
+                if not spawn_result.absorbed:
+                    n_spawned += 1
                 new_cid = spawn_result.new_concept_id
                 for client_id in cluster:
                     assignments[client_id] = new_cid
@@ -337,6 +346,7 @@ class TwoPhaseFedProTrack:
             # switches at t+1 and spawns B'' — both represent concept B.
             if self.config.post_spawn_merge:
                 merge_pairs = self.memory_bank.maybe_merge()
+                n_merged += len(merge_pairs)
                 # Remap any assignments whose concept was merged away
                 self._remap_merged_assignments(assignments, merge_pairs)
                 # Also remap assigned_clients in case their concepts were merged
@@ -349,8 +359,13 @@ class TwoPhaseFedProTrack:
                 concept_id, client_fingerprints[client_id]
             )
 
-        # Run memory bank maintenance
+        # Run memory bank maintenance (merge + shrink on schedule)
+        n_before = self.memory_bank.n_concepts
         self.memory_bank.step()
+        n_after = self.memory_bank.n_concepts
+        # step() may merge or prune concepts
+        n_removed_in_step = max(0, n_before - n_after)
+        n_pruned += n_removed_in_step
         self._round += 1
 
         # Download cost: 4 bytes per client (concept ID as int32)
@@ -361,6 +376,9 @@ class TwoPhaseFedProTrack:
             posteriors=posteriors,
             bytes_up=bytes_up,
             bytes_down=bytes_down,
+            spawned=n_spawned,
+            merged=n_merged,
+            pruned=n_pruned,
         )
 
     def _remap_merged_assignments(

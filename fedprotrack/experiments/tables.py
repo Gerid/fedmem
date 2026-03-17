@@ -374,13 +374,17 @@ def generate_overhead_table(
     overhead_cols = [
         "total_bytes", "phase_a_bytes", "phase_b_bytes",
         "wall_clock_s", "active_concepts",
+        "spawned_concepts", "merged_concepts", "pruned_concepts",
     ]
     col_labels = {
         "total_bytes": "Total Bytes",
         "phase_a_bytes": "Phase A",
         "phase_b_bytes": "Phase B",
         "wall_clock_s": "Time (s)",
-        "active_concepts": "\\# Concepts",
+        "active_concepts": "\\# Active",
+        "spawned_concepts": "\\# Spawned",
+        "merged_concepts": "\\# Merged",
+        "pruned_concepts": "\\# Pruned",
     }
 
     methods = list(method_stats.keys())

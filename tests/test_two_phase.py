@@ -45,8 +45,8 @@ class TestTwoPhaseConfig:
         cfg = TwoPhaseConfig()
         assert cfg.omega == 2.0
         assert cfg.kappa == 0.6
-        assert cfg.loss_novelty_threshold == 0.05
-        assert cfg.sticky_dampening == 1.5
+        assert cfg.loss_novelty_threshold == 0.02
+        assert cfg.sticky_dampening == 1.0
         assert cfg.sticky_posterior_gate == 0.3
         assert cfg.model_loss_weight == 0.0
         assert cfg.post_spawn_merge is True

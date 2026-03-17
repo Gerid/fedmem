@@ -55,6 +55,22 @@ def run_fedprotrack_budget_points(
             accuracy_auc=auc,
         ))
 
+        # Event-triggered variant: only run Phase A on drift detection
+        et_runner = FedProTrackRunner(
+            config=config,
+            federation_every=fe,
+            seed=seed,
+            event_triggered=True,
+        )
+        et_result = et_runner.run(dataset)
+        et_auc = compute_accuracy_auc(et_result.accuracy_matrix)
+        points.append(BudgetPoint(
+            method_name="FedProTrack-ET",
+            federation_every=fe,
+            total_bytes=et_result.total_bytes,
+            accuracy_auc=et_auc,
+        ))
+
     return points
 
 

@@ -67,6 +67,7 @@ def _run_one(
     two_phase_config: TwoPhaseConfig,
     federation_every: int = 1,
     seed: int = 42,
+    event_triggered: bool = False,
 ) -> MetricsResult:
     """Run FedProTrack once and return metrics."""
     dataset = generate_drift_dataset(gen_config)
@@ -74,6 +75,7 @@ def _run_one(
         config=two_phase_config,
         federation_every=federation_every,
         seed=seed,
+        event_triggered=event_triggered,
     )
     result = runner.run(dataset)
     log = result.to_experiment_log()
@@ -204,6 +206,7 @@ MODULE_ABLATIONS: dict[str, dict[str, object]] = {
     "No sticky dampening": {"sticky_dampening": 1.0, "sticky_posterior_gate": 1.0},
     "No model-loss gate": {"model_loss_weight": 0.0},
     "Phase A only (no aggregation)": {"_phase_a_only": True},
+    "Event-triggered Phase A": {"_event_triggered": True},
 }
 
 
@@ -241,6 +244,7 @@ def run_module_ablation(
         # Copy to avoid mutating the module-level dict
         overrides = dict(overrides)
         phase_a_only = overrides.pop("_phase_a_only", False)
+        event_triggered = overrides.pop("_event_triggered", False)
 
         # Build config with overrides
         base_kwargs: dict[str, object] = {}
@@ -250,12 +254,12 @@ def run_module_ablation(
         cfg = TwoPhaseConfig(**base_kwargs)
 
         if phase_a_only:
-            # Run with federation but skip Phase B (model aggregation)
-            # Emulate by setting federation_every very high so Phase B rarely runs
-            # Actually, the cleanest approach: run with federation_every=1 but
-            # the model aggregation won't be used if we disable it in the runner.
-            # For simplicity, just use extremely infrequent federation.
             mr = _run_one(gen_config, cfg, federation_every=999, seed=seed)
+        elif event_triggered:
+            mr = _run_one(
+                gen_config, cfg, seed=seed,
+                event_triggered=True,
+            )
         else:
             mr = _run_one(gen_config, cfg, seed=seed)
 

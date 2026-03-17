@@ -387,14 +387,11 @@ def main() -> None:
             return gen_cfg, seed, None, f"  [{idx+1}/{len(grid)}] {setting} ERROR: {e}"
 
     tasks = [(i, cfg, s) for i, (cfg, s) in enumerate(grid)]
-    job_results = Parallel(n_jobs=n_jobs, backend="loky")(
-        delayed(_run_one)(t) for t in tasks
-    )
 
-    for gen_cfg, seed, metrics, msg in job_results:
-        print(msg)
+    def _accumulate(gen_cfg: GeneratorConfig, seed: int, metrics: dict[str, MetricsResult] | None, msg: str) -> None:
+        print(msg, flush=True)
         if metrics is None:
-            continue
+            return
 
         # Accumulate
         for method_name, mr in metrics.items():
@@ -426,6 +423,18 @@ def main() -> None:
             if mn not in phase_by_alpha[alpha_key][rd_key]:
                 phase_by_alpha[alpha_key][rd_key][mn] = []
             phase_by_alpha[alpha_key][rd_key][mn].append(mr)
+
+    if n_jobs == 1:
+        # Sequential: run in-process for real-time streaming output
+        for t in tasks:
+            gen_cfg, seed, metrics, msg = _run_one(t)
+            _accumulate(gen_cfg, seed, metrics, msg)
+    else:
+        job_results = Parallel(n_jobs=n_jobs, backend="loky")(
+            delayed(_run_one)(t) for t in tasks
+        )
+        for gen_cfg, seed, metrics, msg in job_results:
+            _accumulate(gen_cfg, seed, metrics, msg)
 
     elapsed = time.time() - t_start
     print(f"\nMain experiments completed in {elapsed:.1f}s")
@@ -740,9 +749,10 @@ def _collect_overhead_stats(
         "phase_a_bytes": fpt_result.phase_a_bytes,
         "phase_b_bytes": fpt_result.phase_b_bytes,
         "wall_clock_s": time.time() - t0,
-        "active_concepts": float(len(set(
-            fpt_result.predicted_concept_matrix[:, -1]
-        ))),
+        "active_concepts": float(fpt_result.active_concepts),
+        "spawned_concepts": float(fpt_result.spawned_concepts),
+        "merged_concepts": float(fpt_result.merged_concepts),
+        "pruned_concepts": float(fpt_result.pruned_concepts),
     }
 
     # FedAvg

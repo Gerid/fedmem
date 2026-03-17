@@ -22,8 +22,12 @@ from ..evaluation.metrics import (
 from .runner import ExperimentConfig, ExperimentResult
 
 
-def _infer_n_features(generator_type: str) -> int:
-    return {"sine": 2, "sea": 3, "circle": 2}[generator_type]
+def _infer_n_features(generator_type: str, dataset: DriftDataset | None = None) -> int:
+    if dataset is not None and dataset.data:
+        first_key = next(iter(dataset.data))
+        X, _ = dataset.data[first_key]
+        return X.shape[1]
+    return {"sine": 2, "sea": 3, "circle": 2}.get(generator_type, 2)
 
 
 def run_local_only(
@@ -50,7 +54,7 @@ def run_local_only(
     gc = config.generator_config
     K, T = gc.K, gc.T
 
-    n_features = _infer_n_features(gc.generator_type)
+    n_features = _infer_n_features(gc.generator_type, dataset)
     acc_matrix = np.zeros((K, T), dtype=np.float64)
     predicted_matrix = np.zeros((K, T), dtype=np.int32)
 
@@ -111,7 +115,7 @@ def run_fedavg_baseline(
 
     gc = config.generator_config
     K, T = gc.K, gc.T
-    n_features = _infer_n_features(gc.generator_type)
+    n_features = _infer_n_features(gc.generator_type, dataset)
 
     acc_matrix = np.zeros((K, T), dtype=np.float64)
     predicted_matrix = np.zeros((K, T), dtype=np.int32)
@@ -198,7 +202,7 @@ def run_oracle_baseline(
     gc = config.generator_config
     K, T = gc.K, gc.T
 
-    n_features = _infer_n_features(gc.generator_type)
+    n_features = _infer_n_features(gc.generator_type, dataset)
     acc_matrix = np.zeros((K, T), dtype=np.float64)
     predicted_matrix = dataset.concept_matrix.copy()
 

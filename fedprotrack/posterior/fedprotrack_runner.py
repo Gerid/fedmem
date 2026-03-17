@@ -42,9 +42,24 @@ def _make_detector(name: str) -> BaseDriftDetector:
     return detectors[name]()
 
 
-def _infer_n_features(generator_type: str) -> int:
-    """Infer feature dimensionality from generator type."""
-    return {"sine": 2, "sea": 3, "circle": 2}[generator_type]
+def _infer_n_features(generator_type: str, dataset: DriftDataset | None = None) -> int:
+    """Infer feature dimensionality from generator type or dataset.
+
+    Parameters
+    ----------
+    generator_type : str
+    dataset : DriftDataset, optional
+        If provided, infer from first data sample.
+
+    Returns
+    -------
+    int
+    """
+    if dataset is not None and dataset.data:
+        first_key = next(iter(dataset.data))
+        X, _ = dataset.data[first_key]
+        return X.shape[1]
+    return {"sine": 2, "sea": 3, "circle": 2}.get(generator_type, 2)
 
 
 @dataclass
@@ -81,6 +96,10 @@ class FedProTrackResult:
     phase_b_bytes: float
     mean_accuracy: float
     final_accuracy: float
+    spawned_concepts: int = 0
+    merged_concepts: int = 0
+    pruned_concepts: int = 0
+    active_concepts: int = 0
     soft_assignments: np.ndarray | None = None
     method_name: str = "FedProTrack"
 
@@ -114,6 +133,11 @@ class FedProTrackRunner:
         Drift detector name ("ADWIN", "PageHinkley", "KSWIN", "NoDrift").
     seed : int
         Base random seed.
+    event_triggered : bool
+        If True, Phase A only runs when at least one client detects drift
+        (or at the first step). This reduces communication by skipping
+        fingerprint exchange during stable periods. Phase B still runs
+        on the ``federation_every`` schedule when assignments exist.
     """
 
     def __init__(
@@ -122,11 +146,13 @@ class FedProTrackRunner:
         federation_every: int = 1,
         detector_name: str = "ADWIN",
         seed: int = 42,
+        event_triggered: bool = False,
     ):
         self.config = config or TwoPhaseConfig()
         self.federation_every = federation_every
         self.detector_name = detector_name
         self.seed = seed
+        self.event_triggered = event_triggered
 
     def run(self, dataset: DriftDataset) -> FedProTrackResult:
         """Execute the full FedProTrack simulation.
@@ -142,7 +168,7 @@ class FedProTrackRunner:
         """
         gc = dataset.config
         K, T = gc.K, gc.T
-        n_features = _infer_n_features(gc.generator_type)
+        n_features = _infer_n_features(gc.generator_type, dataset)
 
         # Update config dimensions
         cfg = TwoPhaseConfig(
@@ -188,6 +214,9 @@ class FedProTrackRunner:
 
         phase_a_bytes = 0.0
         phase_b_bytes = 0.0
+        total_spawned = 0
+        total_merged = 0
+        total_pruned = 0
         prev_assignments: dict[int, int] | None = None
 
         for t in range(T):
@@ -198,6 +227,7 @@ class FedProTrackRunner:
             ]
 
             # --- Per-client: predict, detect, fingerprint, train ---
+            any_drift = False
             for k in range(K):
                 X, y = dataset.data[(k, t)]
                 mid = len(X) // 2
@@ -219,6 +249,8 @@ class FedProTrackRunner:
                         is_drift = True
                         detectors[k].reset()
                         break
+                if is_drift:
+                    any_drift = True
 
                 # 3. Build per-step fingerprint (fresh, no accumulation)
                 step_fingerprints[k].update(X_train, y_train)
@@ -233,40 +265,54 @@ class FedProTrackRunner:
                 model_params[k] = models[k].get_params()
 
             # --- Federation ---
-            if (t + 1) % self.federation_every == 0:
-                # Phase A: fingerprint exchange (per-step fingerprints)
-                # Compute per-client model losses (error rates) as a
-                # second channel for novelty gating.
-                client_model_losses = {
-                    k: 1.0 - accuracy_matrix[k, t] for k in range(K)
-                }
-                client_fps = {k: step_fingerprints[k] for k in range(K)}
-                a_result = protocol.phase_a(
-                    client_fps, prev_assignments, client_model_losses,
-                )
-                phase_a_bytes += a_result.total_bytes
-                prev_assignments = a_result.assignments
-                posteriors_log.append((t, a_result.posteriors))
+            is_federation_step = (t + 1) % self.federation_every == 0
+            if is_federation_step:
+                # Decide whether to run Phase A
+                # In event-triggered mode: only run Phase A when drift
+                # detected or no assignments exist yet (bootstrap)
+                run_phase_a = True
+                if self.event_triggered and prev_assignments is not None:
+                    run_phase_a = any_drift
+
+                if run_phase_a:
+                    # Phase A: fingerprint exchange (per-step fingerprints)
+                    client_model_losses = {
+                        k: 1.0 - accuracy_matrix[k, t] for k in range(K)
+                    }
+                    client_fps = {k: step_fingerprints[k] for k in range(K)}
+                    a_result = protocol.phase_a(
+                        client_fps, prev_assignments, client_model_losses,
+                    )
+                    phase_a_bytes += a_result.total_bytes
+                    total_spawned += a_result.spawned
+                    total_merged += a_result.merged
+                    total_pruned += a_result.pruned
+                    prev_assignments = a_result.assignments
+                    posteriors_log.append((t, a_result.posteriors))
 
                 # Record concept assignments
                 for k in range(K):
-                    predicted_matrix[k, t] = a_result.assignments.get(k, 0)
+                    predicted_matrix[k, t] = (
+                        prev_assignments.get(k, 0) if prev_assignments else 0
+                    )
 
-                # Phase B: model aggregation
-                client_p = {k: model_params[k] for k in range(K) if model_params[k]}
-                if client_p:
-                    b_result = protocol.phase_b(client_p, a_result.assignments)
-                    phase_b_bytes += b_result.total_bytes
+                # Phase B: model aggregation (always runs on federation steps
+                # when assignments exist, even if Phase A was skipped)
+                if prev_assignments:
+                    client_p = {k: model_params[k] for k in range(K) if model_params[k]}
+                    if client_p:
+                        b_result = protocol.phase_b(client_p, prev_assignments)
+                        phase_b_bytes += b_result.total_bytes
 
-                    # Distribute aggregated models (load back to GPU)
-                    for k in range(K):
-                        cid = a_result.assignments.get(k)
-                        if cid is not None and cid in b_result.aggregated_params:
-                            agg_p = b_result.aggregated_params[cid]
-                            model_params[k] = {
-                                key: arr.copy() for key, arr in agg_p.items()
-                            }
-                            models[k].set_params(model_params[k])
+                        # Distribute aggregated models (load back to GPU)
+                        for k in range(K):
+                            cid = prev_assignments.get(k)
+                            if cid is not None and cid in b_result.aggregated_params:
+                                agg_p = b_result.aggregated_params[cid]
+                                model_params[k] = {
+                                    key: arr.copy() for key, arr in agg_p.items()
+                                }
+                                models[k].set_params(model_params[k])
             else:
                 # No federation this step — carry forward previous assignments
                 if prev_assignments:
@@ -303,5 +349,9 @@ class FedProTrackRunner:
             phase_b_bytes=phase_b_bytes,
             mean_accuracy=float(accuracy_matrix.mean()),
             final_accuracy=float(accuracy_matrix[:, -1].mean()),
+            spawned_concepts=total_spawned,
+            merged_concepts=total_merged,
+            pruned_concepts=total_pruned,
+            active_concepts=protocol.memory_bank.n_concepts,
             soft_assignments=soft_assignments,
         )
