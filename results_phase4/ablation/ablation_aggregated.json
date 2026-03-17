@@ -1,0 +1,920 @@
+{
+  "sine_easy": {
+    "Full": {
+      "concept_re_id_accuracy": 0.9066666666666666,
+      "wrong_memory_reuse_rate": 0.09333333333333334,
+      "final_accuracy": 0.6090666666666668,
+      "assignment_entropy": 0.9411537825459543,
+      "accuracy_auc": 10.506733333333331
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.8816666666666667,
+      "wrong_memory_reuse_rate": 0.11833333333333335,
+      "final_accuracy": 0.6086666666666667,
+      "assignment_entropy": 0.452487772792197,
+      "accuracy_auc": 10.4992
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.8366666666666666,
+      "wrong_memory_reuse_rate": 0.16333333333333333,
+      "final_accuracy": 0.6092000000000001,
+      "assignment_entropy": 0.3185381235411587,
+      "accuracy_auc": 10.4976
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 1.0,
+      "wrong_memory_reuse_rate": 0.0,
+      "final_accuracy": 0.6089333333333332,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 10.526533333333333
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.9066666666666666,
+      "wrong_memory_reuse_rate": 0.09333333333333334,
+      "final_accuracy": 0.6090666666666668,
+      "assignment_entropy": 0.9411537825459543,
+      "accuracy_auc": 10.506733333333331
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.9466666666666667,
+      "wrong_memory_reuse_rate": 0.05333333333333334,
+      "final_accuracy": 0.5669333333333334,
+      "assignment_entropy": 0.5814717562088026,
+      "accuracy_auc": 9.758066666666666
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.9049999999999999,
+      "wrong_memory_reuse_rate": 0.09500000000000001,
+      "final_accuracy": 0.6090666666666668,
+      "assignment_entropy": 0.9563711931256297,
+      "accuracy_auc": 10.505133333333333
+    }
+  },
+  "sine_med_sync": {
+    "Full": {
+      "concept_re_id_accuracy": 0.9249999999999999,
+      "wrong_memory_reuse_rate": 0.07500000000000001,
+      "final_accuracy": 0.46880000000000005,
+      "assignment_entropy": 1.1978358886359366,
+      "accuracy_auc": 8.9766
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.895,
+      "wrong_memory_reuse_rate": 0.105,
+      "final_accuracy": 0.46893333333333337,
+      "assignment_entropy": 0.3250042967793607,
+      "accuracy_auc": 8.981866666666667
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.9349999999999999,
+      "wrong_memory_reuse_rate": 0.065,
+      "final_accuracy": 0.47013333333333335,
+      "assignment_entropy": 1.4037767519699642,
+      "accuracy_auc": 8.985666666666665
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 0.5833333333333334,
+      "wrong_memory_reuse_rate": 0.4166666666666667,
+      "final_accuracy": 0.46880000000000005,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 8.986199999999998
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.9249999999999999,
+      "wrong_memory_reuse_rate": 0.07500000000000001,
+      "final_accuracy": 0.46880000000000005,
+      "assignment_entropy": 1.1978358886359366,
+      "accuracy_auc": 8.9766
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.735,
+      "wrong_memory_reuse_rate": 0.26499999999999996,
+      "final_accuracy": 0.47493333333333326,
+      "assignment_entropy": 0.7949658496251052,
+      "accuracy_auc": 8.993133333333335
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.9249999999999999,
+      "wrong_memory_reuse_rate": 0.07500000000000001,
+      "final_accuracy": 0.46880000000000005,
+      "assignment_entropy": 1.2067387566680414,
+      "accuracy_auc": 8.9766
+    }
+  },
+  "sine_med_mild": {
+    "Full": {
+      "concept_re_id_accuracy": 0.9083333333333333,
+      "wrong_memory_reuse_rate": 0.09166666666666667,
+      "final_accuracy": 0.4854666666666667,
+      "assignment_entropy": 1.2340072517977883,
+      "accuracy_auc": 9.315466666666667
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.875,
+      "wrong_memory_reuse_rate": 0.125,
+      "final_accuracy": 0.48373333333333335,
+      "assignment_entropy": 0.38308987093112146,
+      "accuracy_auc": 9.341000000000001
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.9316666666666666,
+      "wrong_memory_reuse_rate": 0.06833333333333334,
+      "final_accuracy": 0.4857333333333333,
+      "assignment_entropy": 1.5143527169878361,
+      "accuracy_auc": 9.341999999999999
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 0.4683333333333333,
+      "wrong_memory_reuse_rate": 0.5316666666666667,
+      "final_accuracy": 0.48120000000000007,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 9.2724
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.9083333333333333,
+      "wrong_memory_reuse_rate": 0.09166666666666667,
+      "final_accuracy": 0.4854666666666667,
+      "assignment_entropy": 1.2340072517977883,
+      "accuracy_auc": 9.315466666666667
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.7333333333333334,
+      "wrong_memory_reuse_rate": 0.26666666666666666,
+      "final_accuracy": 0.4873333333333334,
+      "assignment_entropy": 0.8133579055378043,
+      "accuracy_auc": 9.304133333333333
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.9083333333333333,
+      "wrong_memory_reuse_rate": 0.09166666666666667,
+      "final_accuracy": 0.4854666666666667,
+      "assignment_entropy": 1.2350883485800186,
+      "accuracy_auc": 9.315466666666667
+    }
+  },
+  "sine_med_strong": {
+    "Full": {
+      "concept_re_id_accuracy": 0.9416666666666665,
+      "wrong_memory_reuse_rate": 0.05833333333333333,
+      "final_accuracy": 0.46386666666666665,
+      "assignment_entropy": 1.2480470427296513,
+      "accuracy_auc": 9.156533333333334
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.9033333333333333,
+      "wrong_memory_reuse_rate": 0.09666666666666668,
+      "final_accuracy": 0.46720000000000006,
+      "assignment_entropy": 0.2450057999348001,
+      "accuracy_auc": 9.190466666666666
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.9333333333333332,
+      "wrong_memory_reuse_rate": 0.06666666666666667,
+      "final_accuracy": 0.46493333333333337,
+      "assignment_entropy": 1.602612004211781,
+      "accuracy_auc": 9.1704
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 0.4683333333333333,
+      "wrong_memory_reuse_rate": 0.5316666666666667,
+      "final_accuracy": 0.4630666666666667,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 9.0768
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.9416666666666665,
+      "wrong_memory_reuse_rate": 0.05833333333333333,
+      "final_accuracy": 0.46386666666666665,
+      "assignment_entropy": 1.2480470427296513,
+      "accuracy_auc": 9.156533333333334
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.7566666666666667,
+      "wrong_memory_reuse_rate": 0.24333333333333337,
+      "final_accuracy": 0.47093333333333337,
+      "assignment_entropy": 0.8340940832767819,
+      "accuracy_auc": 9.149266666666668
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.9416666666666665,
+      "wrong_memory_reuse_rate": 0.05833333333333333,
+      "final_accuracy": 0.46386666666666665,
+      "assignment_entropy": 1.2504549149627076,
+      "accuracy_auc": 9.156533333333334
+    }
+  },
+  "sine_hard": {
+    "Full": {
+      "concept_re_id_accuracy": 0.47333333333333333,
+      "wrong_memory_reuse_rate": 0.5266666666666667,
+      "final_accuracy": 0.5556,
+      "assignment_entropy": 1.3394860516143121,
+      "accuracy_auc": 9.4566
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.45999999999999996,
+      "wrong_memory_reuse_rate": 0.54,
+      "final_accuracy": 0.5561333333333334,
+      "assignment_entropy": 0.4204463007852333,
+      "accuracy_auc": 9.481
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.48166666666666663,
+      "wrong_memory_reuse_rate": 0.5183333333333334,
+      "final_accuracy": 0.5561333333333333,
+      "assignment_entropy": 1.7535580713506456,
+      "accuracy_auc": 9.478733333333334
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 0.15000000000000002,
+      "wrong_memory_reuse_rate": 0.85,
+      "final_accuracy": 0.5513333333333333,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 9.410333333333334
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.47333333333333333,
+      "wrong_memory_reuse_rate": 0.5266666666666667,
+      "final_accuracy": 0.5556,
+      "assignment_entropy": 1.3394860516143121,
+      "accuracy_auc": 9.4566
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.38166666666666665,
+      "wrong_memory_reuse_rate": 0.6183333333333333,
+      "final_accuracy": 0.5517333333333333,
+      "assignment_entropy": 0.8851271156687739,
+      "accuracy_auc": 9.428399999999998
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.47333333333333333,
+      "wrong_memory_reuse_rate": 0.5266666666666667,
+      "final_accuracy": 0.5556,
+      "assignment_entropy": 1.3400454882931039,
+      "accuracy_auc": 9.4566
+    }
+  },
+  "sine_extreme": {
+    "Full": {
+      "concept_re_id_accuracy": 0.47500000000000003,
+      "wrong_memory_reuse_rate": 0.525,
+      "final_accuracy": 0.46959999999999996,
+      "assignment_entropy": 1.208301375914996,
+      "accuracy_auc": 9.675133333333333
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.4716666666666667,
+      "wrong_memory_reuse_rate": 0.5283333333333333,
+      "final_accuracy": 0.46706666666666674,
+      "assignment_entropy": 0.19269152949123836,
+      "accuracy_auc": 9.572266666666666
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.4749999999999999,
+      "wrong_memory_reuse_rate": 0.525,
+      "final_accuracy": 0.4693333333333333,
+      "assignment_entropy": 1.5381224633524893,
+      "accuracy_auc": 9.600600000000002
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 0.15166666666666664,
+      "wrong_memory_reuse_rate": 0.8483333333333333,
+      "final_accuracy": 0.46480000000000005,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 9.571666666666667
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.47500000000000003,
+      "wrong_memory_reuse_rate": 0.525,
+      "final_accuracy": 0.46959999999999996,
+      "assignment_entropy": 1.208301375914996,
+      "accuracy_auc": 9.675133333333333
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.36166666666666664,
+      "wrong_memory_reuse_rate": 0.6383333333333333,
+      "final_accuracy": 0.47479999999999994,
+      "assignment_entropy": 0.8142126262784749,
+      "accuracy_auc": 9.384666666666666
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.47500000000000003,
+      "wrong_memory_reuse_rate": 0.525,
+      "final_accuracy": 0.46959999999999996,
+      "assignment_entropy": 1.2127325509368343,
+      "accuracy_auc": 9.675133333333333
+    }
+  },
+  "sea_easy": {
+    "Full": {
+      "concept_re_id_accuracy": 0.8966666666666668,
+      "wrong_memory_reuse_rate": 0.10333333333333333,
+      "final_accuracy": 0.8096,
+      "assignment_entropy": 0.9008409630856765,
+      "accuracy_auc": 14.306733333333332
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.8799999999999999,
+      "wrong_memory_reuse_rate": 0.12,
+      "final_accuracy": 0.8096,
+      "assignment_entropy": 0.4668368228165191,
+      "accuracy_auc": 14.308866666666667
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.8249999999999998,
+      "wrong_memory_reuse_rate": 0.17499999999999996,
+      "final_accuracy": 0.8096,
+      "assignment_entropy": 0.2592599468297117,
+      "accuracy_auc": 14.310466666666665
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 1.0,
+      "wrong_memory_reuse_rate": 0.0,
+      "final_accuracy": 0.8094666666666667,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 14.308533333333335
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.8966666666666668,
+      "wrong_memory_reuse_rate": 0.10333333333333333,
+      "final_accuracy": 0.8096,
+      "assignment_entropy": 0.9008409630856765,
+      "accuracy_auc": 14.306733333333332
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.9316666666666666,
+      "wrong_memory_reuse_rate": 0.06833333333333334,
+      "final_accuracy": 0.8049333333333334,
+      "assignment_entropy": 0.6224775465440121,
+      "accuracy_auc": 14.284533333333334
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.9033333333333333,
+      "wrong_memory_reuse_rate": 0.09666666666666666,
+      "final_accuracy": 0.8096,
+      "assignment_entropy": 0.9087536737148181,
+      "accuracy_auc": 14.307133333333333
+    }
+  },
+  "sea_med": {
+    "Full": {
+      "concept_re_id_accuracy": 0.6749999999999999,
+      "wrong_memory_reuse_rate": 0.325,
+      "final_accuracy": 0.7721333333333334,
+      "assignment_entropy": 1.2531594776105461,
+      "accuracy_auc": 14.010933333333332
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.635,
+      "wrong_memory_reuse_rate": 0.365,
+      "final_accuracy": 0.7717333333333333,
+      "assignment_entropy": 0.5651850095061045,
+      "accuracy_auc": 14.022066666666667
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.6766666666666666,
+      "wrong_memory_reuse_rate": 0.3233333333333333,
+      "final_accuracy": 0.7734666666666666,
+      "assignment_entropy": 1.4588074617878755,
+      "accuracy_auc": 14.022799999999998
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 0.4683333333333333,
+      "wrong_memory_reuse_rate": 0.5316666666666667,
+      "final_accuracy": 0.7808000000000002,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 14.0154
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.6749999999999999,
+      "wrong_memory_reuse_rate": 0.325,
+      "final_accuracy": 0.7721333333333334,
+      "assignment_entropy": 1.2531594776105461,
+      "accuracy_auc": 14.010933333333332
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.6133333333333333,
+      "wrong_memory_reuse_rate": 0.38666666666666666,
+      "final_accuracy": 0.7656000000000001,
+      "assignment_entropy": 0.861976813113628,
+      "accuracy_auc": 13.906199999999998
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.6733333333333333,
+      "wrong_memory_reuse_rate": 0.32666666666666666,
+      "final_accuracy": 0.7721333333333334,
+      "assignment_entropy": 1.2575682987455268,
+      "accuracy_auc": 14.010399999999999
+    }
+  },
+  "sea_med_strong": {
+    "Full": {
+      "concept_re_id_accuracy": 0.6833333333333332,
+      "wrong_memory_reuse_rate": 0.3166666666666667,
+      "final_accuracy": 0.7737333333333334,
+      "assignment_entropy": 1.2249927390125785,
+      "accuracy_auc": 14.030666666666667
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.62,
+      "wrong_memory_reuse_rate": 0.37999999999999995,
+      "final_accuracy": 0.7728000000000002,
+      "assignment_entropy": 0.6021619894709764,
+      "accuracy_auc": 14.023933333333332
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.6750000000000002,
+      "wrong_memory_reuse_rate": 0.325,
+      "final_accuracy": 0.7734666666666667,
+      "assignment_entropy": 1.5847080729159408,
+      "accuracy_auc": 14.043066666666666
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 0.4683333333333333,
+      "wrong_memory_reuse_rate": 0.5316666666666667,
+      "final_accuracy": 0.7837333333333335,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 14.0438
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.6833333333333332,
+      "wrong_memory_reuse_rate": 0.3166666666666667,
+      "final_accuracy": 0.7737333333333334,
+      "assignment_entropy": 1.2249927390125785,
+      "accuracy_auc": 14.030666666666667
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.6116666666666667,
+      "wrong_memory_reuse_rate": 0.38833333333333336,
+      "final_accuracy": 0.766,
+      "assignment_entropy": 0.8284549780547849,
+      "accuracy_auc": 13.9332
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.6833333333333332,
+      "wrong_memory_reuse_rate": 0.3166666666666667,
+      "final_accuracy": 0.7737333333333334,
+      "assignment_entropy": 1.2283510432688798,
+      "accuracy_auc": 14.030666666666667
+    }
+  },
+  "sea_hard": {
+    "Full": {
+      "concept_re_id_accuracy": 0.4066666666666667,
+      "wrong_memory_reuse_rate": 0.5933333333333333,
+      "final_accuracy": 0.7849333333333334,
+      "assignment_entropy": 1.2197500604173888,
+      "accuracy_auc": 14.027133333333332
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.40499999999999997,
+      "wrong_memory_reuse_rate": 0.5950000000000001,
+      "final_accuracy": 0.7850666666666667,
+      "assignment_entropy": 0.6527412783528156,
+      "accuracy_auc": 14.004
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.4066666666666667,
+      "wrong_memory_reuse_rate": 0.5933333333333334,
+      "final_accuracy": 0.7839999999999999,
+      "assignment_entropy": 1.4970565464932826,
+      "accuracy_auc": 13.988399999999999
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 0.18833333333333335,
+      "wrong_memory_reuse_rate": 0.8116666666666666,
+      "final_accuracy": 0.7938666666666666,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 14.021066666666664
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.4066666666666667,
+      "wrong_memory_reuse_rate": 0.5933333333333333,
+      "final_accuracy": 0.7849333333333334,
+      "assignment_entropy": 1.2197500604173888,
+      "accuracy_auc": 14.027133333333332
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.33666666666666667,
+      "wrong_memory_reuse_rate": 0.6633333333333334,
+      "final_accuracy": 0.7816000000000001,
+      "assignment_entropy": 0.823366503283717,
+      "accuracy_auc": 13.9136
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.4066666666666667,
+      "wrong_memory_reuse_rate": 0.5933333333333333,
+      "final_accuracy": 0.7849333333333334,
+      "assignment_entropy": 1.2271853201162075,
+      "accuracy_auc": 14.026333333333334
+    }
+  },
+  "sea_extreme": {
+    "Full": {
+      "concept_re_id_accuracy": 0.3499999999999999,
+      "wrong_memory_reuse_rate": 0.65,
+      "final_accuracy": 0.7894666666666668,
+      "assignment_entropy": 1.2478619908107658,
+      "accuracy_auc": 14.004599999999998
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.36000000000000004,
+      "wrong_memory_reuse_rate": 0.64,
+      "final_accuracy": 0.7897333333333334,
+      "assignment_entropy": 0.581697782383288,
+      "accuracy_auc": 14.016599999999999
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.32833333333333337,
+      "wrong_memory_reuse_rate": 0.6716666666666667,
+      "final_accuracy": 0.7897333333333334,
+      "assignment_entropy": 1.5039265362721759,
+      "accuracy_auc": 13.995799999999997
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 0.15166666666666664,
+      "wrong_memory_reuse_rate": 0.8483333333333333,
+      "final_accuracy": 0.7961333333333332,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 13.982333333333331
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.3499999999999999,
+      "wrong_memory_reuse_rate": 0.65,
+      "final_accuracy": 0.7894666666666668,
+      "assignment_entropy": 1.2478619908107658,
+      "accuracy_auc": 14.004599999999998
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.285,
+      "wrong_memory_reuse_rate": 0.715,
+      "final_accuracy": 0.7865333333333334,
+      "assignment_entropy": 0.8246783307534228,
+      "accuracy_auc": 13.885799999999998
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.3499999999999999,
+      "wrong_memory_reuse_rate": 0.65,
+      "final_accuracy": 0.7893333333333334,
+      "assignment_entropy": 1.244767414460468,
+      "accuracy_auc": 14.009333333333332
+    }
+  },
+  "sea_async": {
+    "Full": {
+      "concept_re_id_accuracy": 0.6833333333333335,
+      "wrong_memory_reuse_rate": 0.3166666666666667,
+      "final_accuracy": 0.7690666666666667,
+      "assignment_entropy": 1.188529040712777,
+      "accuracy_auc": 14.0924
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.6716666666666667,
+      "wrong_memory_reuse_rate": 0.3283333333333333,
+      "final_accuracy": 0.7681333333333334,
+      "assignment_entropy": 0.548718388949296,
+      "accuracy_auc": 14.082333333333333
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.6866666666666666,
+      "wrong_memory_reuse_rate": 0.31333333333333335,
+      "final_accuracy": 0.7680000000000001,
+      "assignment_entropy": 1.4426533820453162,
+      "accuracy_auc": 14.0936
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 0.345,
+      "wrong_memory_reuse_rate": 0.655,
+      "final_accuracy": 0.7808,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 14.0576
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.6833333333333335,
+      "wrong_memory_reuse_rate": 0.3166666666666667,
+      "final_accuracy": 0.7690666666666667,
+      "assignment_entropy": 1.188529040712777,
+      "accuracy_auc": 14.0924
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.5499999999999999,
+      "wrong_memory_reuse_rate": 0.45,
+      "final_accuracy": 0.7593333333333333,
+      "assignment_entropy": 0.8140719789144958,
+      "accuracy_auc": 13.969266666666668
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.6833333333333335,
+      "wrong_memory_reuse_rate": 0.3166666666666667,
+      "final_accuracy": 0.7690666666666667,
+      "assignment_entropy": 1.2036515798869039,
+      "accuracy_auc": 14.0924
+    }
+  },
+  "circle_easy": {
+    "Full": {
+      "concept_re_id_accuracy": 0.8983333333333333,
+      "wrong_memory_reuse_rate": 0.10166666666666667,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.7646715944918464,
+      "accuracy_auc": 12.990733333333333
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.8866666666666667,
+      "wrong_memory_reuse_rate": 0.11333333333333334,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.41219170857696125,
+      "accuracy_auc": 13.002333333333333
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.8533333333333334,
+      "wrong_memory_reuse_rate": 0.14666666666666664,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.15291274496827614,
+      "accuracy_auc": 13.041400000000001
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 1.0,
+      "wrong_memory_reuse_rate": 0.0,
+      "final_accuracy": 0.7202666666666667,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 13.074266666666668
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.8983333333333333,
+      "wrong_memory_reuse_rate": 0.10166666666666667,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.7646715944918464,
+      "accuracy_auc": 12.990733333333333
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.9416666666666668,
+      "wrong_memory_reuse_rate": 0.05833333333333333,
+      "final_accuracy": 0.6756000000000001,
+      "assignment_entropy": 0.5424935397278406,
+      "accuracy_auc": 12.001399999999999
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.9,
+      "wrong_memory_reuse_rate": 0.09999999999999999,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.8294344387574161,
+      "accuracy_auc": 12.990733333333333
+    }
+  },
+  "circle_med": {
+    "Full": {
+      "concept_re_id_accuracy": 0.45166666666666666,
+      "wrong_memory_reuse_rate": 0.5483333333333333,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.7646715944918464,
+      "accuracy_auc": 12.990733333333333
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.4466666666666666,
+      "wrong_memory_reuse_rate": 0.5533333333333333,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.41219170857696125,
+      "accuracy_auc": 13.002333333333333
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.4283333333333333,
+      "wrong_memory_reuse_rate": 0.5716666666666667,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.15291274496827614,
+      "accuracy_auc": 13.041400000000001
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 0.4683333333333333,
+      "wrong_memory_reuse_rate": 0.5316666666666667,
+      "final_accuracy": 0.7202666666666667,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 13.074266666666668
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.45166666666666666,
+      "wrong_memory_reuse_rate": 0.5483333333333333,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.7646715944918464,
+      "accuracy_auc": 12.990733333333333
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.455,
+      "wrong_memory_reuse_rate": 0.545,
+      "final_accuracy": 0.6756000000000001,
+      "assignment_entropy": 0.5424935397554718,
+      "accuracy_auc": 12.001399999999999
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.45166666666666666,
+      "wrong_memory_reuse_rate": 0.5483333333333333,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.8294344387574161,
+      "accuracy_auc": 12.990733333333333
+    }
+  },
+  "circle_med_strong": {
+    "Full": {
+      "concept_re_id_accuracy": 0.4633333333333334,
+      "wrong_memory_reuse_rate": 0.5366666666666666,
+      "final_accuracy": 0.7206666666666667,
+      "assignment_entropy": 0.6372117241118972,
+      "accuracy_auc": 13.236600000000001
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.45166666666666666,
+      "wrong_memory_reuse_rate": 0.5483333333333333,
+      "final_accuracy": 0.7206666666666667,
+      "assignment_entropy": 0.2952905738708143,
+      "accuracy_auc": 13.233933333333333
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.44166666666666665,
+      "wrong_memory_reuse_rate": 0.5583333333333332,
+      "final_accuracy": 0.7206666666666667,
+      "assignment_entropy": 0.05994041558289908,
+      "accuracy_auc": 13.236600000000001
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 0.4683333333333333,
+      "wrong_memory_reuse_rate": 0.5316666666666667,
+      "final_accuracy": 0.7206666666666667,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 13.257933333333332
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.4633333333333334,
+      "wrong_memory_reuse_rate": 0.5366666666666666,
+      "final_accuracy": 0.7206666666666667,
+      "assignment_entropy": 0.6372117241118972,
+      "accuracy_auc": 13.236600000000001
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.4583333333333333,
+      "wrong_memory_reuse_rate": 0.5416666666666666,
+      "final_accuracy": 0.6738666666666667,
+      "assignment_entropy": 0.44485321498804636,
+      "accuracy_auc": 12.214933333333333
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.4666666666666666,
+      "wrong_memory_reuse_rate": 0.5333333333333333,
+      "final_accuracy": 0.7206666666666667,
+      "assignment_entropy": 0.676164858007641,
+      "accuracy_auc": 13.198999999999998
+    }
+  },
+  "circle_hard": {
+    "Full": {
+      "concept_re_id_accuracy": 0.21666666666666665,
+      "wrong_memory_reuse_rate": 0.7833333333333333,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.7646715944918464,
+      "accuracy_auc": 12.990733333333333
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.21833333333333335,
+      "wrong_memory_reuse_rate": 0.7816666666666666,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.41219170857696125,
+      "accuracy_auc": 13.002333333333333
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.20333333333333334,
+      "wrong_memory_reuse_rate": 0.7966666666666667,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.15291274496827614,
+      "accuracy_auc": 13.041400000000001
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 0.18833333333333335,
+      "wrong_memory_reuse_rate": 0.8116666666666666,
+      "final_accuracy": 0.7202666666666667,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 13.074266666666668
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.21666666666666665,
+      "wrong_memory_reuse_rate": 0.7833333333333333,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.7646715944918464,
+      "accuracy_auc": 12.990733333333333
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.205,
+      "wrong_memory_reuse_rate": 0.7949999999999999,
+      "final_accuracy": 0.6756000000000001,
+      "assignment_entropy": 0.5424935398107338,
+      "accuracy_auc": 12.001399999999999
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.215,
+      "wrong_memory_reuse_rate": 0.785,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.8294344387574161,
+      "accuracy_auc": 12.990733333333333
+    }
+  },
+  "circle_extreme": {
+    "Full": {
+      "concept_re_id_accuracy": 0.18333333333333335,
+      "wrong_memory_reuse_rate": 0.8166666666666668,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.7646715944918464,
+      "accuracy_auc": 12.990733333333333
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.17833333333333334,
+      "wrong_memory_reuse_rate": 0.8216666666666667,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.41219170857696125,
+      "accuracy_auc": 13.002333333333333
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.18000000000000002,
+      "wrong_memory_reuse_rate": 0.82,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.15291274496827614,
+      "accuracy_auc": 13.041400000000001
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 0.15166666666666664,
+      "wrong_memory_reuse_rate": 0.8483333333333333,
+      "final_accuracy": 0.7202666666666667,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 13.074266666666668
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.18333333333333335,
+      "wrong_memory_reuse_rate": 0.8166666666666668,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.7646715944918464,
+      "accuracy_auc": 12.990733333333333
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.17,
+      "wrong_memory_reuse_rate": 0.8300000000000001,
+      "final_accuracy": 0.6756000000000001,
+      "assignment_entropy": 0.5424935398107338,
+      "accuracy_auc": 12.001399999999999
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.18500000000000003,
+      "wrong_memory_reuse_rate": 0.8150000000000001,
+      "final_accuracy": 0.7204,
+      "assignment_entropy": 0.8294344387574161,
+      "accuracy_auc": 12.990733333333333
+    }
+  },
+  "circle_sync_mild": {
+    "Full": {
+      "concept_re_id_accuracy": 0.5616666666666666,
+      "wrong_memory_reuse_rate": 0.4383333333333333,
+      "final_accuracy": 0.7194666666666666,
+      "assignment_entropy": 0.8746563005941445,
+      "accuracy_auc": 12.887066666666668
+    },
+    "Hard assignment": {
+      "concept_re_id_accuracy": 0.5533333333333333,
+      "wrong_memory_reuse_rate": 0.4466666666666667,
+      "final_accuracy": 0.7194666666666666,
+      "assignment_entropy": 0.4496859764200902,
+      "accuracy_auc": 12.903199999999998
+    },
+    "No transition prior": {
+      "concept_re_id_accuracy": 0.5183333333333333,
+      "wrong_memory_reuse_rate": 0.4816666666666667,
+      "final_accuracy": 0.7194666666666666,
+      "assignment_entropy": 0.2519360163127177,
+      "accuracy_auc": 12.9056
+    },
+    "No spawn/merge": {
+      "concept_re_id_accuracy": 0.5833333333333334,
+      "wrong_memory_reuse_rate": 0.4166666666666667,
+      "final_accuracy": 0.7193333333333333,
+      "assignment_entropy": 0.0,
+      "accuracy_auc": 12.937933333333334
+    },
+    "No sticky dampening": {
+      "concept_re_id_accuracy": 0.5616666666666666,
+      "wrong_memory_reuse_rate": 0.4383333333333333,
+      "final_accuracy": 0.7194666666666666,
+      "assignment_entropy": 0.8746563005941445,
+      "accuracy_auc": 12.887066666666668
+    },
+    "No Phase A (model-only)": {
+      "concept_re_id_accuracy": 0.5566666666666666,
+      "wrong_memory_reuse_rate": 0.44333333333333336,
+      "final_accuracy": 0.6721333333333334,
+      "assignment_entropy": 0.5749692645185202,
+      "accuracy_auc": 11.921666666666667
+    },
+    "No dynamic memory update": {
+      "concept_re_id_accuracy": 0.5616666666666666,
+      "wrong_memory_reuse_rate": 0.4383333333333333,
+      "final_accuracy": 0.7194666666666666,
+      "assignment_entropy": 0.9148638122390161,
+      "accuracy_auc": 12.887066666666668
+    }
+  }
+}

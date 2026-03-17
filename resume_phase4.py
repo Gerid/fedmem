@@ -1,15 +1,22 @@
 """Resume Phase 4 pipeline from where Stage 1 was interrupted.
 
 Appends missing SEA/CIRCLE settings to raw_e5.csv, then runs stages 2-9.
+Uses ProcessPoolExecutor for parallel Stage 1 execution (each worker forces
+CPU + single-thread BLAS to avoid GPU contention).
 """
 from __future__ import annotations
 
 import csv
+import os
 import sys
 import time
+import threading
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
+
+N_WORKERS = max(1, (os.cpu_count() or 4) - 4)
 
 from fedprotrack.drift_generator import GeneratorConfig, generate_drift_dataset
 from fedprotrack.experiment.baselines import (
@@ -61,6 +68,22 @@ def load_existing_keys(csv_path: Path) -> set[tuple]:
             )
             keys.add(key)
     return keys
+
+
+def _worker_init() -> None:
+    """Per-worker initialiser: force CPU and single-thread BLAS."""
+    os.environ["FEDPROTRACK_FORCE_CPU"] = "1"
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+
+
+def _worker_run_setting(args: tuple) -> tuple[str, list[dict]]:
+    """Top-level picklable function executed in each worker process."""
+    _worker_init()
+    gen_cfg, seed, tag = args
+    rows = run_single_e5_setting(gen_cfg, seed)
+    return tag, rows
 
 
 def run_single_e5_setting(gen_cfg: GeneratorConfig, seed: int) -> list[dict]:
@@ -132,7 +155,7 @@ def run_single_e5_setting(gen_cfg: GeneratorConfig, seed: int) -> list[dict]:
 
 
 def resume_stage1():
-    """Complete Stage 1 by running only missing settings."""
+    """Complete Stage 1 by running only missing settings (parallel)."""
     csv_path = RESULTS_DIR / "raw_e5.csv"
     existing_keys = load_existing_keys(csv_path)
     print(f"Existing settings in CSV: {len(existing_keys)}")
@@ -151,40 +174,58 @@ def resume_stage1():
                                 rho=rho, alpha=alpha, delta=delta,
                                 generator_type=gen_type, seed=seed,
                             )
-                            remaining.append((cfg, seed, key))
+                            tag = f"{gen_type}_r{rho}_a{alpha}_d{delta}_s{seed}"
+                            remaining.append((cfg, seed, tag))
 
     n_total = len(remaining)
     print(f"Remaining settings to run: {n_total}")
+    print(f"Using {N_WORKERS} workers (cpu_count - 4)")
 
     if n_total == 0:
         print("Stage 1 already complete!")
         return
 
-    # Open CSV in append mode
-    new_rows = []
-    for i, (gen_cfg, seed, key) in enumerate(remaining):
-        tag = f"{gen_cfg.generator_type}_r{gen_cfg.rho}_a{gen_cfg.alpha}_d{gen_cfg.delta}_s{seed}"
-        try:
-            rows = run_single_e5_setting(gen_cfg, seed)
-            new_rows.extend(rows)
+    # Lock for thread-safe CSV append
+    csv_lock = threading.Lock()
+    pending_rows: list[dict] = []
+    completed = 0
+    flush_every = 25
 
-            fpt_row = [r for r in rows if r["method"] == "FedProTrack"]
-            ifca_row = [r for r in rows if r["method"] == "IFCA"]
-            fpt_v = fpt_row[0]["concept_re_id_accuracy"] if fpt_row else "?"
-            ifca_v = ifca_row[0]["concept_re_id_accuracy"] if ifca_row else "?"
-            print(f"  [{i+1}/{n_total}] {tag} -> FPT={fpt_v} IFCA={ifca_v}",
-                  flush=True)
-        except Exception as e:
-            print(f"  [{i+1}/{n_total}] {tag} ERROR: {e}", flush=True)
+    def _flush_rows() -> None:
+        nonlocal pending_rows
+        if pending_rows:
+            _append_rows(csv_path, pending_rows)
+            pending_rows = []
 
-        # Incremental append every 25 settings
-        if (i + 1) % 25 == 0 and new_rows:
-            _append_rows(csv_path, new_rows)
-            new_rows = []
+    with ProcessPoolExecutor(max_workers=N_WORKERS) as pool:
+        futures = {
+            pool.submit(_worker_run_setting, task): task
+            for task in remaining
+        }
 
-    # Final append
-    if new_rows:
-        _append_rows(csv_path, new_rows)
+        for future in as_completed(futures):
+            task = futures[future]
+            tag = task[2]
+            completed += 1
+            try:
+                result_tag, rows = future.result()
+                pending_rows.extend(rows)
+
+                fpt_row = [r for r in rows if r["method"] == "FedProTrack"]
+                ifca_row = [r for r in rows if r["method"] == "IFCA"]
+                fpt_v = fpt_row[0]["concept_re_id_accuracy"] if fpt_row else "?"
+                ifca_v = ifca_row[0]["concept_re_id_accuracy"] if ifca_row else "?"
+                print(f"  [{completed}/{n_total}] {result_tag} -> FPT={fpt_v} IFCA={ifca_v}",
+                      flush=True)
+            except Exception as e:
+                print(f"  [{completed}/{n_total}] {tag} ERROR: {e}", flush=True)
+
+            # Flush every 25 completed settings
+            if completed % flush_every == 0:
+                _flush_rows()
+
+    # Final flush
+    _flush_rows()
 
     total_after = len(load_existing_keys(csv_path))
     print(f"Stage 1 complete: {total_after} unique settings in {csv_path}")

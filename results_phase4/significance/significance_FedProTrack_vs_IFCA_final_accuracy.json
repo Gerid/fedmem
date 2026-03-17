@@ -1,0 +1,14 @@
+{
+  "method_a": "FedProTrack",
+  "method_b": "IFCA",
+  "metric": "final_accuracy",
+  "n_pairs": 1125,
+  "mean_diff": 0.0057,
+  "std_diff": 0.0694,
+  "ci_95_lower": 0.0016,
+  "ci_95_upper": 0.0097,
+  "wilcoxon_stat": 242622.0,
+  "p_value": 0.0,
+  "cohens_d": 0.0817,
+  "win_rate": 0.6142
+}
