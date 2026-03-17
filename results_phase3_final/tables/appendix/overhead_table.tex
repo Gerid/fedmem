@@ -1,0 +1,17 @@
+\begin{table}[t]
+\centering
+\caption{Communication overhead and system cost breakdown.}
+\label{tab:overhead}
+\begin{tabular}{lrrrrrrrr}
+\toprule
+Method & Total Bytes & Phase A & Phase B & Time (s) & \# Active & \# Spawned & \# Merged & \# Pruned \\
+\midrule
+FedProTrack & 8.0K & 3.2K & 4.8K & 1.2 & 8.0 & 65.0 & 57.0 & 1.0 \\
+FedAvg & 0 & 0 & 0 & 0.4 & 1.0 & -- & -- & -- \\
+FedProto & 6.1K & 6.1K & 0 & 0.0 & 1.0 & -- & -- & -- \\
+IFCA & 9.1K & 0 & 9.1K & 1.6 & 2.0 & -- & -- & -- \\
+FedDrift & 4.6K & 0 & 4.6K & 1.2 & 1.0 & -- & -- & -- \\
+Flash & 4.6K & 0 & 4.6K & 1.2 & 1.0 & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}

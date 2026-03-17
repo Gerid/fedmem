@@ -1,0 +1,15 @@
+\begin{table}[t]
+\centering
+\caption{Main comparison across all settings (mean $\pm$ std).}
+\label{tab:main}
+\begin{tabular}{lccccccc}
+\toprule
+Method & Final Acc & AUC(acc) & Re-ID Acc & Wrong Mem & Budget Score & Mean Rank & Win Rate \\
+\midrule
+FedProTrack & 0.702$\pm$0.052 & 5.354$\pm$0.298 & 0.505$\pm$0.087 & 0.495$\pm$0.087 & 0.000$\pm$0.000 & 3.53 & 0.04 \\
+FedAvg & 0.719$\pm$0.073 & 5.727$\pm$0.501 & -- & -- & -- & 2.81 & 0.14 \\
+IFCA & \textbf{0.755$\pm$0.050} & 6.310$\pm$0.498 & \textbf{0.544$\pm$0.140} & \textbf{0.456$\pm$0.140} & 0.000$\pm$0.000 & \textbf{1.78} & \textbf{0.54} \\
+FedProto & 0.753$\pm$0.039 & \textbf{6.555$\pm$0.347} & -- & -- & \textbf{0.000$\pm$0.000} & 1.89 & 0.32 \\
+\bottomrule
+\end{tabular}
+\end{table}

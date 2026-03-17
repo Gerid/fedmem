@@ -1,0 +1,21 @@
+\begin{table}[t]
+\centering
+\caption{Re-ID Acc by $alpha$.}
+\label{tab:alpha_concept_re_id_accuracy}
+\begin{tabular}{lccccc}
+\toprule
+Method & $alpha=0.0$ & $alpha=0.25$ & $alpha=0.5$ & $alpha=0.75$ & $alpha=1.0$ \\
+\midrule
+FedProTrack & 0.840$\pm$0.126 & 0.814$\pm$0.155 & 0.790$\pm$0.189 & 0.775$\pm$0.211 & 0.768$\pm$0.205 \\
+LocalOnly & -- & -- & -- & -- & -- \\
+FedAvg & -- & -- & -- & -- & -- \\
+Oracle & 1.000$\pm$0.000 & 1.000$\pm$0.000 & 1.000$\pm$0.000 & 1.000$\pm$0.000 & 1.000$\pm$0.000 \\
+FedProto & -- & -- & -- & -- & -- \\
+TrackedSummary & 0.633$\pm$0.278 & 0.547$\pm$0.251 & 0.457$\pm$0.222 & 0.375$\pm$0.206 & 0.354$\pm$0.175 \\
+Flash & -- & -- & -- & -- & -- \\
+FedDrift & 0.630$\pm$0.277 & 0.544$\pm$0.244 & 0.455$\pm$0.218 & 0.378$\pm$0.207 & 0.358$\pm$0.176 \\
+IFCA & 0.716$\pm$0.191 & 0.689$\pm$0.217 & 0.653$\pm$0.234 & 0.629$\pm$0.255 & 0.636$\pm$0.263 \\
+CompressedFedAvg & -- & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}

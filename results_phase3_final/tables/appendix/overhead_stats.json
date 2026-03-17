@@ -1,0 +1,47 @@
+{
+  "FedProTrack": {
+    "total_bytes": 8000.0,
+    "phase_a_bytes": 3200.0,
+    "phase_b_bytes": 4800.0,
+    "wall_clock_s": 1.1947555541992188,
+    "active_concepts": 8.0,
+    "spawned_concepts": 65.0,
+    "merged_concepts": 57.0,
+    "pruned_concepts": 1.0
+  },
+  "FedAvg": {
+    "total_bytes": 0.0,
+    "phase_a_bytes": 0.0,
+    "phase_b_bytes": 0.0,
+    "wall_clock_s": 0.4165799617767334,
+    "active_concepts": 1.0
+  },
+  "FedProto": {
+    "total_bytes": 6080.0,
+    "phase_a_bytes": 6080.0,
+    "phase_b_bytes": 0.0,
+    "wall_clock_s": 0.022866249084472656,
+    "active_concepts": 1.0
+  },
+  "IFCA": {
+    "total_bytes": 9120.0,
+    "phase_a_bytes": 0.0,
+    "phase_b_bytes": 9120.0,
+    "wall_clock_s": 1.5674479007720947,
+    "active_concepts": 2.0
+  },
+  "FedDrift": {
+    "total_bytes": 4560.0,
+    "phase_a_bytes": 0.0,
+    "phase_b_bytes": 4560.0,
+    "wall_clock_s": 1.239081859588623,
+    "active_concepts": 1.0
+  },
+  "Flash": {
+    "total_bytes": 4560.0,
+    "phase_a_bytes": 0.0,
+    "phase_b_bytes": 4560.0,
+    "wall_clock_s": 1.1629056930541992,
+    "active_concepts": 1.0
+  }
+}

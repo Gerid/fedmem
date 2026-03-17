@@ -1,0 +1,26 @@
+{
+  "FedProTrack": {
+    "n_settings": 18,
+    "mean_re_id_accuracy": 0.4680555555555556,
+    "std_re_id_accuracy": 0.06498159758494215,
+    "mean_final_accuracy": 0.6153333333333333
+  },
+  "FedAvg": {
+    "n_settings": 18,
+    "mean_re_id_accuracy": null,
+    "std_re_id_accuracy": null,
+    "mean_final_accuracy": 0.6565555555555556
+  },
+  "IFCA": {
+    "n_settings": 18,
+    "mean_re_id_accuracy": 0.4694444444444445,
+    "std_re_id_accuracy": 0.1345144445867028,
+    "mean_final_accuracy": 0.7350555555555555
+  },
+  "FedProto": {
+    "n_settings": 18,
+    "mean_re_id_accuracy": null,
+    "std_re_id_accuracy": null,
+    "mean_final_accuracy": 0.7371666666666666
+  }
+}
