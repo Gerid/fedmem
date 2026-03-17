@@ -1,5 +1,0 @@
-method,n_settings,concept_re_id_accuracy,assignment_entropy,wrong_memory_reuse_rate,budget_normalized_score,final_accuracy,accuracy_auc,worst_window_dip,worst_window_recovery,mean_rank,win_rate
-FedProTrack,375,0.5048,1.4098,0.4952,0.0004,0.7023,5.3539,0.0493,1.1200,3.528,0.040
-FedAvg,375,,,,,0.7189,5.7267,0.0616,1.4160,2.808,0.136
-IFCA,375,0.5438,0.2773,0.4562,0.0004,0.7549,6.3102,0.0740,1.4000,1.776,0.544
-FedProto,375,,,,0.0005,0.7532,6.5552,0.0735,1.9280,1.888,0.320

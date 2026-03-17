@@ -10,3 +10,27 @@ build/
 .pytest_cache/
 .pytest_tmp/
 .mpl_config/
+
+# Experiment results & caches
+results*/
+outputs/
+.mnist_cache/
+.tmp/
+.claude/
+
+# Data files
+*.npy
+*.npz
+*.pkl
+*.pt
+*.pth
+*.h5
+*.hdf5
+
+# Misc
+AGENTS.md
+NeurIPS2026_*.md
+docs/PHASE3_RESULTS_AND_INSIGHTS.md
+docs/PHASE4_FAILURE_ANALYSIS_AND_TARGETED_FIX_PLAN.md
+docs/fedprotracker_theory_md_and_tex.md
+docs/neurips_theory_experiment_bridge_section.md
