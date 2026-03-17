@@ -73,7 +73,7 @@ class TwoPhaseConfig:
     omega: float = 2.0
     kappa: float = 0.6
     novelty_threshold: float = 0.3
-    loss_novelty_threshold: float = 0.02
+    loss_novelty_threshold: float = 0.05
     sticky_dampening: float = 1.0
     sticky_posterior_gate: float = 0.3
     model_loss_weight: float = 0.0
@@ -521,6 +521,10 @@ class TwoPhaseFedProTrack:
             # Download cost: each client in this cluster gets the aggregated model
             agg_bytes = model_bytes(agg)
             bytes_down += len(client_ids) * agg_bytes
+
+        # Store aggregated models in memory bank for concept-model warm-start
+        for concept_id, agg_params in aggregated.items():
+            self.memory_bank.store_model_params(concept_id, agg_params)
 
         return PhaseBResult(
             aggregated_params=aggregated,

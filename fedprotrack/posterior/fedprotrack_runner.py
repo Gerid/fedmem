@@ -138,6 +138,15 @@ class FedProTrackRunner:
         (or at the first step). This reduces communication by skipping
         fingerprint exchange during stable periods. Phase B still runs
         on the ``federation_every`` schedule when assignments exist.
+    blend_alpha : float
+        Weight for momentum blend that pulls local model params toward the
+        previous step's params after training. 0.0 disables it. Default 0.5.
+    auto_scale : bool
+        If True, automatically scale ``loss_novelty_threshold``,
+        ``merge_threshold``, ``max_concepts``, and ``blend_alpha`` based
+        on feature dimensionality. Higher-dimensional data (e.g. MNIST
+        with 20 PCA features) gets higher novelty thresholds and lower
+        merge thresholds to prevent over-spawning. Default False.
     """
 
     def __init__(
@@ -147,12 +156,20 @@ class FedProTrackRunner:
         detector_name: str = "ADWIN",
         seed: int = 42,
         event_triggered: bool = False,
+        blend_alpha: float = 0.5,
+        auto_scale: bool = False,
+        lr: float = 0.1,
+        n_epochs: int = 1,
     ):
         self.config = config or TwoPhaseConfig()
         self.federation_every = federation_every
         self.detector_name = detector_name
         self.seed = seed
         self.event_triggered = event_triggered
+        self.blend_alpha = blend_alpha
+        self.auto_scale = auto_scale
+        self.lr = lr
+        self.n_epochs = n_epochs
 
     def run(self, dataset: DriftDataset) -> FedProTrackResult:
         """Execute the full FedProTrack simulation.
@@ -170,19 +187,37 @@ class FedProTrackRunner:
         K, T = gc.K, gc.T
         n_features = _infer_n_features(gc.generator_type, dataset)
 
+        # --- Dimension-adaptive scaling ---
+        # Higher-dimensional features produce noisier fingerprints, requiring
+        # more conservative spawning (higher loss_novelty_threshold), more
+        # aggressive merging (lower merge_threshold), tighter concept caps,
+        # and less momentum blending.
+        loss_novelty_th = self.config.loss_novelty_threshold
+        merge_th = self.config.merge_threshold
+        max_concepts = self.config.max_concepts
+        blend_alpha = self.blend_alpha
+
+        if self.auto_scale and n_features > 3:
+            # Scale factor: 1.0 at dim=2, ~10.0 at dim=20
+            scale = n_features / 2.0
+            loss_novelty_th = max(loss_novelty_th, 0.02 * scale)
+            merge_th = min(merge_th, max(0.80, 0.98 - 0.01 * (n_features - 2)))
+            max_concepts = min(max_concepts, max(6, 20 - n_features // 2))
+            blend_alpha = max(0.0, blend_alpha - 0.05 * (n_features - 2))
+
         # Update config dimensions
         cfg = TwoPhaseConfig(
             omega=self.config.omega,
             kappa=self.config.kappa,
             novelty_threshold=self.config.novelty_threshold,
-            loss_novelty_threshold=self.config.loss_novelty_threshold,
+            loss_novelty_threshold=loss_novelty_th,
             sticky_dampening=self.config.sticky_dampening,
             sticky_posterior_gate=self.config.sticky_posterior_gate,
             model_loss_weight=self.config.model_loss_weight,
             post_spawn_merge=self.config.post_spawn_merge,
-            merge_threshold=self.config.merge_threshold,
+            merge_threshold=merge_th,
             min_count=self.config.min_count,
-            max_concepts=self.config.max_concepts,
+            max_concepts=max_concepts,
             merge_every=self.config.merge_every,
             shrink_every=self.config.shrink_every,
             n_features=n_features,
@@ -197,9 +232,9 @@ class FedProTrackRunner:
             TorchLinearClassifier(
                 n_features=n_features,
                 n_classes=2,
-                lr=0.1,
-                n_epochs=1,
-                seed=self.seed + k * T + 10000,
+                lr=self.lr,
+                n_epochs=self.n_epochs,
+                seed=self.seed + k,
             )
             for k in range(K)
         ]
@@ -218,6 +253,7 @@ class FedProTrackRunner:
         total_merged = 0
         total_pruned = 0
         prev_assignments: dict[int, int] | None = None
+        old_assignments: dict[int, int] | None = None
 
         for t in range(T):
             # Per-step fingerprints: built fresh each step from current
@@ -256,11 +292,18 @@ class FedProTrackRunner:
                 step_fingerprints[k].update(X_train, y_train)
 
                 # 4. Local training on GPU
-                models[k].partial_fit(X_train, y_train)
+                if self.n_epochs > 1:
+                    models[k].fit(X_train, y_train)
+                else:
+                    models[k].partial_fit(X_train, y_train)
 
-                if not is_drift and model_params[k].get("coef") is not None:
+                if (
+                    blend_alpha > 0.0
+                    and not is_drift
+                    and model_params[k].get("coef") is not None
+                ):
                     # Warm-start with momentum only when no drift detected
-                    models[k].blend_params(model_params[k], alpha=0.5)
+                    models[k].blend_params(model_params[k], alpha=blend_alpha)
 
                 model_params[k] = models[k].get_params()
 
@@ -287,6 +330,7 @@ class FedProTrackRunner:
                     total_spawned += a_result.spawned
                     total_merged += a_result.merged
                     total_pruned += a_result.pruned
+                    old_assignments = prev_assignments
                     prev_assignments = a_result.assignments
                     posteriors_log.append((t, a_result.posteriors))
 
@@ -295,6 +339,28 @@ class FedProTrackRunner:
                     predicted_matrix[k, t] = (
                         prev_assignments.get(k, 0) if prev_assignments else 0
                     )
+
+                # Concept-model warm-start on concept SWITCHES only:
+                # When a client switches to a different concept (recurrence),
+                # restore the stored model for that concept. If the client
+                # stays on the same concept, keep its locally trained model
+                # (which is already specialised for that concept).
+                if prev_assignments and old_assignments is not None:
+                    for k in range(K):
+                        new_cid = prev_assignments.get(k)
+                        old_cid = old_assignments.get(k)
+                        if (
+                            new_cid is not None
+                            and old_cid is not None
+                            and new_cid != old_cid
+                        ):
+                            stored = protocol.memory_bank.get_model_params(new_cid)
+                            if stored is not None:
+                                models[k].set_params(stored)
+                                model_params[k] = {
+                                    key: arr.copy()
+                                    for key, arr in stored.items()
+                                }
 
                 # Phase B: model aggregation (always runs on federation steps
                 # when assignments exist, even if Phase A was skipped)

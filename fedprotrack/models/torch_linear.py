@@ -50,7 +50,8 @@ class TorchLinearClassifier:
         self.lr = lr
         self.n_epochs = n_epochs
         self._seed = seed
-        self.device = device or get_device()
+        n_params = (n_features + 1) * (1 if n_classes == 2 else n_classes)
+        self.device = device or get_device(n_params=n_params)
 
         torch.manual_seed(seed)
 
