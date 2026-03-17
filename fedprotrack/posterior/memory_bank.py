@@ -69,6 +69,9 @@ class SpawnResult:
 class DynamicMemoryBank:
     """Online concept memory with spawn/merge/shrink lifecycle.
 
+    Stores both fingerprints (for concept identification) and model
+    parameters (for warm-starting) per concept.
+
     Parameters
     ----------
     config : MemoryBankConfig
@@ -89,6 +92,7 @@ class DynamicMemoryBank:
         self.n_features = n_features
         self.n_classes = n_classes
         self._library: dict[int, ConceptFingerprint] = {}
+        self._model_store: dict[int, dict[str, np.ndarray]] = {}
         self._next_id: int = 0
         self._step_count: int = 0
 
@@ -114,6 +118,36 @@ class DynamicMemoryBank:
         ConceptFingerprint or None
         """
         return self._library.get(concept_id)
+
+    def get_model_params(self, concept_id: int) -> dict[str, np.ndarray] | None:
+        """Get stored model parameters for a concept, or None.
+
+        Parameters
+        ----------
+        concept_id : int
+
+        Returns
+        -------
+        dict[str, np.ndarray] or None
+        """
+        params = self._model_store.get(concept_id)
+        if params is not None:
+            return {k: v.copy() for k, v in params.items()}
+        return None
+
+    def store_model_params(
+        self,
+        concept_id: int,
+        params: dict[str, np.ndarray],
+    ) -> None:
+        """Store or update model parameters for a concept.
+
+        Parameters
+        ----------
+        concept_id : int
+        params : dict[str, np.ndarray]
+        """
+        self._model_store[concept_id] = {k: v.copy() for k, v in params.items()}
 
     def spawn_from_fingerprint(self, fp: ConceptFingerprint) -> SpawnResult:
         """Create a new concept from a fingerprint, or absorb if at capacity.
@@ -195,6 +229,11 @@ class DynamicMemoryBank:
                         self._library[ids[i]], self._library[ids[j]]
                     )
                     del self._library[ids[j]]
+                    # Keep the model from the concept with more data
+                    if ids[j] in self._model_store:
+                        if ids[i] not in self._model_store:
+                            self._model_store[ids[i]] = self._model_store[ids[j]]
+                        del self._model_store[ids[j]]
                     consumed.add(ids[j])
                     merged.append((ids[i], ids[j]))
 
@@ -226,6 +265,7 @@ class DynamicMemoryBank:
 
         for cid in to_remove:
             del self._library[cid]
+            self._model_store.pop(cid, None)
 
         return to_remove
 
