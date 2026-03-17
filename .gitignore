@@ -15,6 +15,9 @@ build/
 results*/
 outputs/
 .mnist_cache/
+.cifar100_cache/
+.feature_cache/
+sweep_*/
 .tmp/
 .claude/
 

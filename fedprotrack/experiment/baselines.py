@@ -30,6 +30,15 @@ def _infer_n_features(generator_type: str, dataset: DriftDataset | None = None) 
     return {"sine": 2, "sea": 3, "circle": 2}.get(generator_type, 2)
 
 
+def _infer_n_classes(dataset: DriftDataset) -> int:
+    all_labels: set[int] = set()
+    for _, y in dataset.data.values():
+        all_labels.update(int(v) for v in np.unique(y))
+    if not all_labels:
+        return 2
+    return max(all_labels) + 1
+
+
 def run_local_only(
     config: ExperimentConfig,
     dataset: DriftDataset | None = None,
@@ -55,12 +64,13 @@ def run_local_only(
     K, T = gc.K, gc.T
 
     n_features = _infer_n_features(gc.generator_type, dataset)
+    n_classes = _infer_n_classes(dataset)
     acc_matrix = np.zeros((K, T), dtype=np.float64)
     predicted_matrix = np.zeros((K, T), dtype=np.int32)
 
     for k in range(K):
         model = TorchLinearClassifier(
-            n_features=n_features, n_classes=2,
+            n_features=n_features, n_classes=n_classes,
             lr=0.1, n_epochs=1, seed=42 + k,
         )
 
@@ -116,19 +126,20 @@ def run_fedavg_baseline(
     gc = config.generator_config
     K, T = gc.K, gc.T
     n_features = _infer_n_features(gc.generator_type, dataset)
+    n_classes = _infer_n_classes(dataset)
 
     acc_matrix = np.zeros((K, T), dtype=np.float64)
     predicted_matrix = np.zeros((K, T), dtype=np.int32)
 
     # Global model on GPU
     global_model = TorchLinearClassifier(
-        n_features=n_features, n_classes=2,
+        n_features=n_features, n_classes=n_classes,
         lr=0.1, n_epochs=1, seed=42,
     )
     # Per-client local models on GPU
     client_models = [
         TorchLinearClassifier(
-            n_features=n_features, n_classes=2,
+            n_features=n_features, n_classes=n_classes,
             lr=0.1, n_epochs=1, seed=42 + k,
         )
         for k in range(K)
@@ -203,6 +214,7 @@ def run_oracle_baseline(
     K, T = gc.K, gc.T
 
     n_features = _infer_n_features(gc.generator_type, dataset)
+    n_classes = _infer_n_classes(dataset)
     acc_matrix = np.zeros((K, T), dtype=np.float64)
     predicted_matrix = dataset.concept_matrix.copy()
 
@@ -227,7 +239,7 @@ def run_oracle_baseline(
 
             if key not in client_models:
                 client_models[key] = TorchLinearClassifier(
-                    n_features=n_features, n_classes=2,
+                    n_features=n_features, n_classes=n_classes,
                     lr=0.1, n_epochs=1, seed=42 + k,
                 )
             client_models[key].partial_fit(X_train, y_train)

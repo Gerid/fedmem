@@ -36,7 +36,13 @@ class GeneratorConfig:
             raise ValueError(f"alpha must be in [0, 1], got {self.alpha}")
         if not (0.0 < self.delta <= 1.0):
             raise ValueError(f"delta must be in (0, 1], got {self.delta}")
-        if self.generator_type not in ("sine", "sea", "circle", "rotating_mnist"):
+        if self.generator_type not in (
+            "sine",
+            "sea",
+            "circle",
+            "rotating_mnist",
+            "cifar100_recurrence",
+        ):
             raise ValueError(f"Unknown generator_type: {self.generator_type}")
 
     @property

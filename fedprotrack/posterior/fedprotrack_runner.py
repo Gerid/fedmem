@@ -62,6 +62,16 @@ def _infer_n_features(generator_type: str, dataset: DriftDataset | None = None) 
     return {"sine": 2, "sea": 3, "circle": 2}.get(generator_type, 2)
 
 
+def _infer_n_classes(dataset: DriftDataset) -> int:
+    """Infer number of class labels from a dataset."""
+    all_labels: set[int] = set()
+    for _, y in dataset.data.values():
+        all_labels.update(int(v) for v in np.unique(y))
+    if not all_labels:
+        return 2
+    return max(all_labels) + 1
+
+
 @dataclass
 class FedProTrackResult:
     """Complete result from a FedProTrack simulation.
@@ -193,6 +203,7 @@ class FedProTrackRunner:
         gc = dataset.config
         K, T = gc.K, gc.T
         n_features = _infer_n_features(gc.generator_type, dataset)
+        n_classes = _infer_n_classes(dataset)
 
         # --- Dimension-adaptive scaling ---
         # Higher-dimensional features produce noisier fingerprints, requiring
@@ -228,7 +239,7 @@ class FedProTrackRunner:
             merge_every=self.config.merge_every,
             shrink_every=self.config.shrink_every,
             n_features=n_features,
-            n_classes=2,
+            n_classes=n_classes,
         )
 
         protocol = TwoPhaseFedProTrack(cfg)
@@ -238,7 +249,7 @@ class FedProTrackRunner:
         models = [
             TorchLinearClassifier(
                 n_features=n_features,
-                n_classes=2,
+                n_classes=n_classes,
                 lr=self.lr,
                 n_epochs=self.n_epochs,
                 seed=self.seed + k,
@@ -267,7 +278,7 @@ class FedProTrackRunner:
             # Per-step fingerprints: built fresh each step from current
             # data only, avoiding cross-concept contamination.
             step_fingerprints = [
-                ConceptFingerprint(n_features, 2) for _ in range(K)
+                ConceptFingerprint(n_features, n_classes) for _ in range(K)
             ]
 
             # --- Per-client: predict, detect, fingerprint, train ---
