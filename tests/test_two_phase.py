@@ -465,3 +465,99 @@ class TestPostSpawnMerge:
             assert concept_id in live_ids, (
                 f"Client {cid} assigned to dead concept {concept_id}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Soft Aggregation (phase_b_soft)
+# ---------------------------------------------------------------------------
+
+class TestSoftAggregation:
+    """Tests for posterior-weighted Phase B aggregation."""
+
+    def test_phase_b_soft_returns_result(self) -> None:
+        """Soft Phase B returns a valid PhaseBResult."""
+        cfg = TwoPhaseConfig(loss_novelty_threshold=0.5)
+        proto = TwoPhaseFedProTrack(cfg)
+
+        # Bootstrap two concepts
+        fp0 = _make_fp(seed=0, mean_shift=0.0, n_samples=50)
+        fp1 = _make_fp(seed=1, mean_shift=5.0, n_samples=50)
+        fps = {0: fp0, 1: fp1}
+        a_result = proto.phase_a(fps)
+
+        params = {0: _make_model_params(seed=0), 1: _make_model_params(seed=1)}
+        b_result = proto.phase_b_soft(params, a_result.assignments, a_result.posteriors)
+
+        assert isinstance(b_result, PhaseBResult)
+        assert b_result.bytes_up > 0
+        assert b_result.aggregated_params  # non-empty
+
+    def test_soft_vs_hard_different_when_ambiguous(self) -> None:
+        """Soft and hard produce different aggregation when posteriors are ambiguous."""
+        cfg = TwoPhaseConfig(loss_novelty_threshold=0.5)
+        proto = TwoPhaseFedProTrack(cfg)
+
+        # Two similar concepts → ambiguous posteriors
+        fp0 = _make_fp(seed=0, mean_shift=0.0, n_samples=50)
+        fp1 = _make_fp(seed=1, mean_shift=0.5, n_samples=50)
+        fps = {0: fp0, 1: fp1}
+        a_result = proto.phase_a(fps)
+
+        params = {0: _make_model_params(seed=10), 1: _make_model_params(seed=20)}
+
+        # Hard aggregation
+        hard = proto.phase_b(params, a_result.assignments)
+        # Soft aggregation
+        soft = proto.phase_b_soft(params, a_result.assignments, a_result.posteriors)
+
+        # Both should produce results for the same concepts
+        assert set(hard.aggregated_params.keys()) == set(soft.aggregated_params.keys())
+
+    def test_soft_negligible_weight_filtered(self) -> None:
+        """Clients with posterior < 0.01 for a concept are excluded from its aggregation."""
+        from fedprotrack.posterior.gibbs import PosteriorAssignment
+
+        cfg = TwoPhaseConfig(loss_novelty_threshold=0.5)
+        proto = TwoPhaseFedProTrack(cfg)
+
+        # Bootstrap a concept
+        fp0 = _make_fp(seed=0, mean_shift=0.0, n_samples=50)
+        proto.phase_a({0: fp0})
+
+        # Build fake posteriors: client 0 has 99% for concept 0, client 1 has 0.5%
+        concept_id = list(proto.memory_bank._library.keys())[0]
+        posteriors = {
+            0: PosteriorAssignment(
+                probabilities={concept_id: 0.99}, map_concept_id=concept_id,
+                is_novel=False, entropy=0.01,
+            ),
+            1: PosteriorAssignment(
+                probabilities={concept_id: 0.005}, map_concept_id=concept_id,
+                is_novel=False, entropy=0.01,
+            ),
+        }
+        assignments = {0: concept_id, 1: concept_id}
+        params = {0: _make_model_params(seed=0), 1: _make_model_params(seed=1)}
+
+        result = proto.phase_b_soft(params, assignments, posteriors)
+
+        # Client 1's weight (0.005) < 0.01 → filtered out
+        # Result should be dominated by client 0's params
+        agg = result.aggregated_params[concept_id]
+        np.testing.assert_allclose(agg["coef"], params[0]["coef"], atol=1e-10)
+
+    def test_soft_aggregation_runner_flag(self) -> None:
+        """FedProTrackRunner with soft_aggregation=True runs without error."""
+        from fedprotrack.drift_generator import GeneratorConfig, generate_drift_dataset
+        from fedprotrack.posterior.fedprotrack_runner import FedProTrackRunner
+
+        gc = GeneratorConfig(K=3, T=5, n_samples=100, generator_type="sine",
+                             rho=2.0, alpha=0.0, delta=0.5, seed=42)
+        dataset = generate_drift_dataset(gc)
+
+        runner = FedProTrackRunner(seed=42, soft_aggregation=True)
+        result = runner.run(dataset)
+
+        assert result.accuracy_matrix.shape == (3, 5)
+        assert result.total_bytes > 0
+        assert result.method_name == "FedProTrack"

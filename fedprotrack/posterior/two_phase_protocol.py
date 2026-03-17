@@ -532,3 +532,86 @@ class TwoPhaseFedProTrack:
             bytes_down=bytes_down,
         )
 
+    def phase_b_soft(
+        self,
+        client_params: dict[int, dict[str, np.ndarray]],
+        concept_assignments: dict[int, int],
+        posteriors: dict[int, PosteriorAssignment],
+    ) -> PhaseBResult:
+        """Execute Phase B with posterior-weighted (soft) aggregation.
+
+        Instead of hard MAP assignment (each client contributes 100% to one
+        concept), each client's model is distributed across concept clusters
+        weighted by its posterior probability. This reduces discrete noise
+        when posteriors are ambiguous (MAP < 0.8 in ~80% of cases).
+
+        Parameters
+        ----------
+        client_params : dict[int, dict[str, np.ndarray]]
+            Client ID -> model parameters.
+        concept_assignments : dict[int, int]
+            Client ID -> MAP concept ID (used for download routing).
+        posteriors : dict[int, PosteriorAssignment]
+            Client ID -> full posterior distribution over concepts.
+
+        Returns
+        -------
+        PhaseBResult
+        """
+        # Upload cost: each client sends its model (same as hard)
+        bytes_up = sum(
+            model_bytes(params) for params in client_params.values()
+        )
+
+        # Collect all concept IDs present in assignments
+        concept_ids = list(set(concept_assignments.values()))
+
+        aggregated: dict[int, dict[str, np.ndarray]] = {}
+        bytes_down = 0.0
+
+        for concept_id in concept_ids:
+            # Gather posterior weights from all clients for this concept
+            weights: dict[int, float] = {}
+            for client_id in client_params:
+                if client_id in posteriors:
+                    w = posteriors[client_id].probabilities.get(concept_id, 0.0)
+                else:
+                    # Fallback: hard assignment
+                    w = 1.0 if concept_assignments.get(client_id) == concept_id else 0.0
+                if w > 0.01:  # skip negligible contributions
+                    weights[client_id] = w
+
+            if not weights:
+                continue
+
+            total_w = sum(weights.values())
+
+            # Weighted average of model parameters
+            first_cid = next(iter(weights))
+            agg: dict[str, np.ndarray] = {
+                key: np.zeros_like(arr)
+                for key, arr in client_params[first_cid].items()
+            }
+            for client_id, w in weights.items():
+                for key, arr in client_params[client_id].items():
+                    agg[key] += (w / total_w) * arr
+
+            aggregated[concept_id] = agg
+
+            # Download cost: clients assigned to this concept get the model
+            n_recipients = sum(
+                1 for cid, c in concept_assignments.items()
+                if c == concept_id
+            )
+            bytes_down += n_recipients * model_bytes(agg)
+
+        # Store aggregated models in memory bank
+        for concept_id, agg_params in aggregated.items():
+            self.memory_bank.store_model_params(concept_id, agg_params)
+
+        return PhaseBResult(
+            aggregated_params=aggregated,
+            bytes_up=bytes_up,
+            bytes_down=bytes_down,
+        )
+

@@ -19,7 +19,7 @@ from ..drift_generator import DriftDataset
 from ..metrics.experiment_log import ExperimentLog
 from ..models import TorchLinearClassifier
 from .gibbs import PosteriorAssignment
-from .two_phase_protocol import TwoPhaseConfig, TwoPhaseFedProTrack
+from .two_phase_protocol import PhaseAResult, TwoPhaseConfig, TwoPhaseFedProTrack
 
 
 def _make_detector(name: str) -> BaseDriftDetector:
@@ -138,6 +138,11 @@ class FedProTrackRunner:
         (or at the first step). This reduces communication by skipping
         fingerprint exchange during stable periods. Phase B still runs
         on the ``federation_every`` schedule when assignments exist.
+    soft_aggregation : bool
+        If True, use posterior-weighted (soft) Phase B aggregation instead
+        of hard MAP assignment. Each client's model contributes to multiple
+        concept clusters proportional to its posterior probability. This
+        reduces noise when posteriors are ambiguous. Default False.
     blend_alpha : float
         Weight for momentum blend that pulls local model params toward the
         previous step's params after training. 0.0 disables it. Default 0.5.
@@ -156,6 +161,7 @@ class FedProTrackRunner:
         detector_name: str = "ADWIN",
         seed: int = 42,
         event_triggered: bool = False,
+        soft_aggregation: bool = False,
         blend_alpha: float = 0.5,
         auto_scale: bool = False,
         lr: float = 0.1,
@@ -166,6 +172,7 @@ class FedProTrackRunner:
         self.detector_name = detector_name
         self.seed = seed
         self.event_triggered = event_triggered
+        self.soft_aggregation = soft_aggregation
         self.blend_alpha = blend_alpha
         self.auto_scale = auto_scale
         self.lr = lr
@@ -254,6 +261,7 @@ class FedProTrackRunner:
         total_pruned = 0
         prev_assignments: dict[int, int] | None = None
         old_assignments: dict[int, int] | None = None
+        last_a_result: PhaseAResult | None = None
 
         for t in range(T):
             # Per-step fingerprints: built fresh each step from current
@@ -323,16 +331,16 @@ class FedProTrackRunner:
                         k: 1.0 - accuracy_matrix[k, t] for k in range(K)
                     }
                     client_fps = {k: step_fingerprints[k] for k in range(K)}
-                    a_result = protocol.phase_a(
+                    last_a_result = protocol.phase_a(
                         client_fps, prev_assignments, client_model_losses,
                     )
-                    phase_a_bytes += a_result.total_bytes
-                    total_spawned += a_result.spawned
-                    total_merged += a_result.merged
-                    total_pruned += a_result.pruned
+                    phase_a_bytes += last_a_result.total_bytes
+                    total_spawned += last_a_result.spawned
+                    total_merged += last_a_result.merged
+                    total_pruned += last_a_result.pruned
                     old_assignments = prev_assignments
-                    prev_assignments = a_result.assignments
-                    posteriors_log.append((t, a_result.posteriors))
+                    prev_assignments = last_a_result.assignments
+                    posteriors_log.append((t, last_a_result.posteriors))
 
                 # Record concept assignments
                 for k in range(K):
@@ -367,7 +375,13 @@ class FedProTrackRunner:
                 if prev_assignments:
                     client_p = {k: model_params[k] for k in range(K) if model_params[k]}
                     if client_p:
-                        b_result = protocol.phase_b(client_p, prev_assignments)
+                        if self.soft_aggregation and last_a_result is not None:
+                            b_result = protocol.phase_b_soft(
+                                client_p, prev_assignments,
+                                last_a_result.posteriors,
+                            )
+                        else:
+                            b_result = protocol.phase_b(client_p, prev_assignments)
                         phase_b_bytes += b_result.total_bytes
 
                         # Distribute aggregated models (load back to GPU)
