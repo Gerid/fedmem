@@ -13,6 +13,7 @@ def make_plan_c_config(**overrides) -> TwoPhaseConfig:
         "sticky_dampening": 1.5,
         "sticky_posterior_gate": 0.35,
         "merge_threshold": 0.85,
+        "merge_min_support": 2,
         "min_count": 5.0,
         "max_concepts": 6,
         "merge_every": 2,

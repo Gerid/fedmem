@@ -38,6 +38,7 @@ class TestMemoryBankConfig:
         cfg = MemoryBankConfig()
         assert cfg.max_concepts == 20
         assert cfg.merge_threshold == 0.85
+        assert cfg.merge_min_support == 1
         assert cfg.min_count == 5.0
 
     def test_invalid_max_concepts(self) -> None:
@@ -47,6 +48,10 @@ class TestMemoryBankConfig:
     def test_invalid_merge_threshold(self) -> None:
         with pytest.raises(ValueError, match="merge_threshold"):
             MemoryBankConfig(merge_threshold=0.0)
+
+    def test_invalid_merge_min_support(self) -> None:
+        with pytest.raises(ValueError, match="merge_min_support"):
+            MemoryBankConfig(merge_min_support=0)
 
     def test_invalid_min_count(self) -> None:
         with pytest.raises(ValueError, match="min_count"):
@@ -185,6 +190,23 @@ class TestMerge:
         bank = DynamicMemoryBank(n_features=2, n_classes=2)
         merged = bank.maybe_merge()
         assert merged == []
+
+    def test_merge_requires_min_support(self) -> None:
+        cfg = MemoryBankConfig(merge_threshold=0.5, merge_min_support=2)
+        bank = DynamicMemoryBank(config=cfg, n_features=2, n_classes=2)
+        r0 = bank.spawn_from_fingerprint(_make_fp(seed=0, mean_shift=0.0, n_samples=50))
+        r1 = bank.spawn_from_fingerprint(_make_fp(seed=0, mean_shift=0.01, n_samples=50))
+
+        merged = bank.maybe_merge()
+        assert merged == []
+        assert bank.n_concepts == 2
+
+        bank.absorb_fingerprint(r0.new_concept_id, _make_fp(seed=10, mean_shift=0.0, n_samples=20))
+        bank.absorb_fingerprint(r1.new_concept_id, _make_fp(seed=11, mean_shift=0.01, n_samples=20))
+
+        merged = bank.maybe_merge()
+        assert len(merged) >= 1
+        assert bank.n_concepts == 1
 
 
 # ---------------------------------------------------------------------------

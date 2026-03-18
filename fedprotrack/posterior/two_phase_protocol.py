@@ -17,6 +17,7 @@ from ..baselines.comm_tracker import fingerprint_bytes, model_bytes
 from ..concept_tracker.fingerprint import ConceptFingerprint
 from ..federation.aggregator import (
     FedAvgAggregator,
+    NamespacedExpertAggregator,
     has_namespaced_params,
     merge_param_namespaces,
     split_param_namespaces,
@@ -62,6 +63,10 @@ class TwoPhaseConfig:
         rounds when clients switch asynchronously. Default True.
     merge_threshold : float
         Similarity threshold for merging concepts in the memory bank.
+    merge_min_support : int
+        Minimum slot support count required before a concept is eligible
+        for merging. Prevents freshly spawned slots from collapsing
+        immediately.
     min_count : float
         Minimum fingerprint count for concept survival.
     max_concepts : int
@@ -85,6 +90,7 @@ class TwoPhaseConfig:
     model_loss_weight: float = 0.0
     post_spawn_merge: bool = True
     merge_threshold: float = 0.98
+    merge_min_support: int = 1
     min_count: float = 5.0
     max_concepts: int = 20
     merge_every: int = 2
@@ -94,6 +100,7 @@ class TwoPhaseConfig:
     key_style_weight: float = 0.25
     key_semantic_weight: float = 0.30
     key_prototype_weight: float = 0.45
+    global_shared_aggregation: bool = True
     entropy_freeze_threshold: float | None = None
     adaptive_addressing: bool = False
     addressing_min_round_interval: int = 1
@@ -175,6 +182,7 @@ class TwoPhaseFedProTrack:
         mb_config = MemoryBankConfig(
             max_concepts=config.max_concepts,
             merge_threshold=config.merge_threshold,
+            merge_min_support=config.merge_min_support,
             min_count=config.min_count,
             merge_every=config.merge_every,
             shrink_every=config.shrink_every,
@@ -334,7 +342,6 @@ class TwoPhaseFedProTrack:
             # a high loss means the concept is a poor fit.
             best_concept_key = library[assignment.map_concept_id]
             fp_loss = self.gibbs.compute_loss(fp, best_concept_key)
-
             # --- Sticky dampening (Fix #1 for async drift) ---
             # When the transition prior says "stay" (high posterior for the
             # previous concept), raise the novelty threshold. This prevents
@@ -599,7 +606,7 @@ class TwoPhaseFedProTrack:
         )
 
         global_shared: dict[str, np.ndarray] = {}
-        if uses_namespaces:
+        if uses_namespaces and self.config.global_shared_aggregation:
             shared_payloads = []
             for params in client_params.values():
                 shared, _, other = split_param_namespaces(params)
@@ -617,6 +624,17 @@ class TwoPhaseFedProTrack:
                 continue
 
             if uses_namespaces:
+                local_shared = global_shared
+                if not self.config.global_shared_aggregation:
+                    shared_payloads = []
+                    for params in group_params:
+                        shared, _, _ = split_param_namespaces(params)
+                        if shared:
+                            shared_payloads.append(shared)
+                    local_shared = (
+                        self._aggregator.aggregate(shared_payloads)
+                        if shared_payloads else {}
+                    )
                 local_payloads = []
                 for params in group_params:
                     _, expert, other = split_param_namespaces(params)
@@ -629,7 +647,7 @@ class TwoPhaseFedProTrack:
                     )
                 local_agg = self._aggregator.aggregate(local_payloads)
                 agg = merge_param_namespaces(
-                    shared=global_shared,
+                    shared=local_shared if local_shared else None,
                     expert=local_agg,
                     other=None,
                 )
@@ -691,63 +709,154 @@ class TwoPhaseFedProTrack:
             has_namespaced_params(params) for params in client_params.values()
         )
 
-        global_shared: dict[str, np.ndarray] = {}
-        if uses_namespaces:
-            shared_payloads = []
-            for params in client_params.values():
-                shared, _, other = split_param_namespaces(params)
-                if shared:
-                    shared_payloads.append(shared)
-            if shared_payloads:
-                global_shared = self._aggregator.aggregate(shared_payloads)
-
-        for concept_id in concept_ids:
-            # Gather posterior weights from all clients for this concept
-            weights: dict[int, float] = {}
-            for client_id in client_params:
+        if uses_namespaces and self.config.global_shared_aggregation:
+            namespaced_aggregator = NamespacedExpertAggregator()
+            ordered_client_ids = list(client_params.keys())
+            ordered_payloads = [client_params[client_id] for client_id in ordered_client_ids]
+            expert_weights: list[dict[int, float]] = []
+            for client_id in ordered_client_ids:
                 if client_id in posteriors:
-                    w = posteriors[client_id].probabilities.get(concept_id, 0.0)
+                    weights = {
+                        int(slot_id): float(weight)
+                        for slot_id, weight in posteriors[client_id].probabilities.items()
+                        if float(weight) > 0.01
+                    }
                 else:
-                    # Fallback: hard assignment
-                    w = 1.0 if concept_assignments.get(client_id) == concept_id else 0.0
-                if w > 0.01:  # skip negligible contributions
-                    weights[client_id] = w
+                    assigned = concept_assignments.get(client_id)
+                    weights = {int(assigned): 1.0} if assigned is not None else {}
+                expert_weights.append(weights)
 
-            if not weights:
-                continue
+            namespaced_result = namespaced_aggregator.aggregate_namespaced(
+                ordered_payloads,
+                expert_weights=expert_weights,
+            )
+            global_shared = namespaced_result.shared_params
 
-            total_w = sum(weights.values())
-            group_payloads = [client_params[client_id] for client_id in weights]
-            group_weights = [float(weight) / total_w for weight in weights.values()]
+            for concept_id in concept_ids:
+                expert_payload = namespaced_result.expert_params.get(concept_id)
+                if not expert_payload:
+                    stored = self.memory_bank.get_model_params(concept_id)
+                    if stored is not None:
+                        _, stored_expert, _ = split_param_namespaces(stored)
+                        expert_payload = stored_expert
 
-            if uses_namespaces:
-                local_payloads = []
-                for params in group_payloads:
-                    _, expert, other = split_param_namespaces(params)
-                    local_payloads.append(
-                        merge_param_namespaces(
-                            shared=None,
-                            expert=_remap_expert_payload(expert, concept_id),
-                            other=other,
-                        )
-                    )
-                local_agg = self._aggregator.aggregate(local_payloads, group_weights)
+                if not global_shared and not expert_payload:
+                    continue
+
                 agg = merge_param_namespaces(
-                    shared=global_shared,
-                    expert=local_agg,
+                    shared=global_shared if global_shared else None,
+                    expert=expert_payload if expert_payload else None,
                     other=None,
                 )
-            else:
+                aggregated[concept_id] = agg
+
+                # Download cost: clients assigned to this concept get the model
+                n_recipients = sum(
+                    1 for cid, c in concept_assignments.items()
+                    if c == concept_id
+                )
+                bytes_down += n_recipients * model_bytes(agg)
+        elif uses_namespaces:
+            for concept_id in concept_ids:
+                weights: dict[int, float] = {}
+                for client_id in client_params:
+                    if client_id in posteriors:
+                        w = posteriors[client_id].probabilities.get(concept_id, 0.0)
+                    else:
+                        w = 1.0 if concept_assignments.get(client_id) == concept_id else 0.0
+                    if w > 0.01:
+                        weights[client_id] = w
+
+                if not weights:
+                    continue
+
+                total_w = sum(weights.values())
+                group_client_ids = list(weights.keys())
+                group_weights = [
+                    float(weights[client_id]) / total_w for client_id in group_client_ids
+                ]
+
+                shared_payloads: list[dict[str, np.ndarray]] = []
+                shared_weights: list[float] = []
+                expert_payloads: list[dict[str, np.ndarray]] = []
+                expert_group_weights: list[float] = []
+                for idx, client_id in enumerate(group_client_ids):
+                    params = client_params[client_id]
+                    shared, expert, _ = split_param_namespaces(params)
+                    if shared:
+                        shared_payloads.append(shared)
+                        shared_weights.append(group_weights[idx])
+                    slot_expert = {
+                        key: value.copy()
+                        for key, value in expert.items()
+                        if key.startswith(f"expert.{concept_id}.")
+                    }
+                    if slot_expert:
+                        expert_payloads.append(slot_expert)
+                        expert_group_weights.append(group_weights[idx])
+
+                local_shared = (
+                    self._aggregator.aggregate(shared_payloads, shared_weights)
+                    if shared_payloads else {}
+                )
+                local_expert = (
+                    self._aggregator.aggregate(expert_payloads, expert_group_weights)
+                    if expert_payloads else {}
+                )
+                if not local_shared and not local_expert:
+                    stored = self.memory_bank.get_model_params(concept_id)
+                    if stored is not None:
+                        shared, expert, _ = split_param_namespaces(stored)
+                        local_shared = shared
+                        local_expert = {
+                            key: value.copy()
+                            for key, value in expert.items()
+                            if key.startswith(f"expert.{concept_id}.")
+                        }
+                if not local_shared and not local_expert:
+                    continue
+
+                agg = merge_param_namespaces(
+                    shared=local_shared if local_shared else None,
+                    expert=local_expert if local_expert else None,
+                    other=None,
+                )
+                aggregated[concept_id] = agg
+
+                n_recipients = sum(
+                    1 for cid, c in concept_assignments.items()
+                    if c == concept_id
+                )
+                bytes_down += n_recipients * model_bytes(agg)
+        else:
+            for concept_id in concept_ids:
+                # Gather posterior weights from all clients for this concept
+                weights: dict[int, float] = {}
+                for client_id in client_params:
+                    if client_id in posteriors:
+                        w = posteriors[client_id].probabilities.get(concept_id, 0.0)
+                    else:
+                        # Fallback: hard assignment
+                        w = 1.0 if concept_assignments.get(client_id) == concept_id else 0.0
+                    if w > 0.01:  # skip negligible contributions
+                        weights[client_id] = w
+
+                if not weights:
+                    continue
+
+                total_w = sum(weights.values())
+                group_payloads = [client_params[client_id] for client_id in weights]
+                group_weights = [float(weight) / total_w for weight in weights.values()]
                 agg = self._aggregator.aggregate(group_payloads, group_weights)
 
-            aggregated[concept_id] = agg
+                aggregated[concept_id] = agg
 
-            # Download cost: clients assigned to this concept get the model
-            n_recipients = sum(
-                1 for cid, c in concept_assignments.items()
-                if c == concept_id
-            )
-            bytes_down += n_recipients * model_bytes(agg)
+                # Download cost: clients assigned to this concept get the model
+                n_recipients = sum(
+                    1 for cid, c in concept_assignments.items()
+                    if c == concept_id
+                )
+                bytes_down += n_recipients * model_bytes(agg)
 
         # Store aggregated models in memory bank
         for concept_id, agg_params in aggregated.items():

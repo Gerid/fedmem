@@ -81,6 +81,20 @@ def _infer_n_classes(dataset: DriftDataset) -> int:
     return max(all_labels) + 1
 
 
+def _infer_fingerprint_n_classes(dataset: DriftDataset) -> int:
+    """Infer label cardinality for fingerprinting, allowing an alternate label view."""
+    fp_labels = getattr(dataset, "fingerprint_labels", None)
+    if not isinstance(fp_labels, dict) or not fp_labels:
+        return _infer_n_classes(dataset)
+
+    all_labels: set[int] = set()
+    for y in fp_labels.values():
+        all_labels.update(int(v) for v in np.unique(y))
+    if not all_labels:
+        return _infer_n_classes(dataset)
+    return max(all_labels) + 1
+
+
 def _make_model(
     model_type: str,
     *,
@@ -145,9 +159,16 @@ def _model_predict_loss(
     return model.predict_loss(X, y)
 
 
-def _model_fit(model, X: np.ndarray, y: np.ndarray, *, slot_id: int = 0) -> None:
+def _model_fit(
+    model,
+    X: np.ndarray,
+    y: np.ndarray,
+    *,
+    slot_id: int = 0,
+    slot_weights: dict[int, float] | None = None,
+) -> None:
     if _is_feature_adapter_model(model):
-        model.fit(X, y, slot_id=slot_id)
+        model.fit(X, y, slot_id=slot_id, slot_weights=slot_weights)
     else:
         model.fit(X, y)
 
@@ -158,9 +179,10 @@ def _model_partial_fit(
     y: np.ndarray,
     *,
     slot_id: int = 0,
+    slot_weights: dict[int, float] | None = None,
 ) -> None:
     if _is_feature_adapter_model(model):
-        model.partial_fit(X, y, slot_id=slot_id)
+        model.partial_fit(X, y, slot_id=slot_id, slot_weights=slot_weights)
     else:
         model.partial_fit(X, y)
 
@@ -203,19 +225,30 @@ def _compose_routed_payload(
         for slot_id, weight in filtered.items()
     }
 
-    shared_params: dict[str, np.ndarray] = {}
+    shared_sums: dict[str, np.ndarray] = {}
+    shared_weight_sums: dict[str, float] = {}
     expert_params: dict[str, np.ndarray] = {}
     other_params: dict[str, np.ndarray] = {}
     for slot_id in sorted(normalized):
         shared, expert, other = split_param_namespaces(candidate_payloads[slot_id])
-        if not shared_params:
-            shared_params = {key: value.copy() for key, value in shared.items()}
-        else:
-            for key, value in shared.items():
-                shared_params.setdefault(key, value.copy())
+        slot_weight = normalized[slot_id]
+        for key, value in shared.items():
+            weighted_value = slot_weight * value
+            if key in shared_sums:
+                shared_sums[key] = shared_sums[key] + weighted_value
+                shared_weight_sums[key] += slot_weight
+            else:
+                shared_sums[key] = weighted_value.copy()
+                shared_weight_sums[key] = slot_weight
         expert_params.update({key: value.copy() for key, value in expert.items()})
         for key, value in other.items():
             other_params.setdefault(key, value.copy())
+
+    shared_params = {
+        key: value / shared_weight_sums[key]
+        for key, value in shared_sums.items()
+        if shared_weight_sums[key] > 0.0
+    }
 
     return (
         merge_param_namespaces(
@@ -322,6 +355,15 @@ class FedProTrackRunner:
         on feature dimensionality. Higher-dimensional data (e.g. MNIST
         with 20 PCA features) gets higher novelty thresholds and lower
         merge thresholds to prevent over-spawning. Default False.
+    routed_local_training : bool
+        If True, feature-adapter clients reuse routed slot weights during
+        local training instead of updating only the MAP slot. Experimental
+        and default False.
+    skip_last_federation_round : bool
+        If True, do not run or charge a federation round after the final
+        evaluation step. This keeps communication accounting aligned with
+        matched-budget baselines because there is no future prediction to
+        benefit from the final sync. Default True.
     """
 
     def __init__(
@@ -334,6 +376,8 @@ class FedProTrackRunner:
         soft_aggregation: bool = False,
         blend_alpha: float = 0.5,
         auto_scale: bool = False,
+        routed_local_training: bool = False,
+        skip_last_federation_round: bool = True,
         lr: float = 0.1,
         n_epochs: int = 1,
         loss_validation: bool = False,
@@ -351,6 +395,8 @@ class FedProTrackRunner:
         self.soft_aggregation = soft_aggregation
         self.blend_alpha = blend_alpha
         self.auto_scale = auto_scale
+        self.routed_local_training = routed_local_training
+        self.skip_last_federation_round = skip_last_federation_round
         self.lr = lr
         self.n_epochs = n_epochs
         self.loss_validation = loss_validation
@@ -375,7 +421,9 @@ class FedProTrackRunner:
         gc = dataset.config
         K, T = gc.K, gc.T
         n_features = _infer_n_features(gc.generator_type, dataset)
-        n_classes = _infer_n_classes(dataset)
+        model_n_classes = _infer_n_classes(dataset)
+        fingerprint_n_classes = _infer_fingerprint_n_classes(dataset)
+        fingerprint_labels = getattr(dataset, "fingerprint_labels", None)
 
         # --- Dimension-adaptive scaling ---
         # Higher-dimensional features produce noisier fingerprints, requiring
@@ -415,12 +463,13 @@ class FedProTrackRunner:
             key_style_weight=self.config.key_style_weight,
             key_semantic_weight=self.config.key_semantic_weight,
             key_prototype_weight=self.config.key_prototype_weight,
+            global_shared_aggregation=self.config.global_shared_aggregation,
             entropy_freeze_threshold=self.config.entropy_freeze_threshold,
             adaptive_addressing=self.config.adaptive_addressing,
             addressing_min_round_interval=self.config.addressing_min_round_interval,
             addressing_drift_threshold=self.config.addressing_drift_threshold,
             n_features=n_features,
-            n_classes=n_classes,
+            n_classes=fingerprint_n_classes,
         )
 
         protocol = TwoPhaseFedProTrack(cfg)
@@ -435,7 +484,7 @@ class FedProTrackRunner:
             _make_model(
                 self.model_type,
                 n_features=n_features,
-                n_classes=n_classes,
+                n_classes=model_n_classes,
                 lr=self.lr,
                 n_epochs=self.n_epochs,
                 seed=self.seed + k,
@@ -467,7 +516,7 @@ class FedProTrackRunner:
             # Per-step fingerprints: built fresh each step from current
             # data only, avoiding cross-concept contamination.
             step_fingerprints = [
-                ConceptFingerprint(n_features, n_classes) for _ in range(K)
+                ConceptFingerprint(n_features, fingerprint_n_classes) for _ in range(K)
             ]
 
             # --- Per-client: predict, detect, fingerprint, train ---
@@ -505,7 +554,10 @@ class FedProTrackRunner:
                     any_drift = True
 
                 # 3. Build per-step fingerprint (fresh, no accumulation)
-                step_fingerprints[k].update(X_train, y_train)
+                y_fingerprint = y_train
+                if isinstance(fingerprint_labels, dict) and (k, t) in fingerprint_labels:
+                    y_fingerprint = fingerprint_labels[(k, t)][mid:]
+                step_fingerprints[k].update(X_train, y_fingerprint)
 
                 # 4. Local training on GPU
                 if self.n_epochs > 1:
@@ -514,6 +566,10 @@ class FedProTrackRunner:
                         X_train,
                         y_train,
                         slot_id=current_slot_id,
+                        slot_weights=(
+                            client_slot_weights[k]
+                            if self.routed_local_training else None
+                        ),
                     )
                 else:
                     _model_partial_fit(
@@ -521,6 +577,10 @@ class FedProTrackRunner:
                         X_train,
                         y_train,
                         slot_id=current_slot_id,
+                        slot_weights=(
+                            client_slot_weights[k]
+                            if self.routed_local_training else None
+                        ),
                     )
 
                 if (
@@ -542,6 +602,8 @@ class FedProTrackRunner:
 
             # --- Federation ---
             is_federation_step = (t + 1) % self.federation_every == 0
+            if self.skip_last_federation_round and t == T - 1:
+                is_federation_step = False
             if is_federation_step:
                 # Decide whether to run Phase A
                 # In event-triggered mode: only run Phase A when drift
@@ -620,7 +682,7 @@ class FedProTrackRunner:
                                 probe = _make_model(
                                     self.model_type,
                                     n_features=n_features,
-                                    n_classes=n_classes,
+                                    n_classes=model_n_classes,
                                     lr=self.lr,
                                     n_epochs=1,
                                     seed=self.seed,
@@ -673,7 +735,7 @@ class FedProTrackRunner:
                             probe = _make_model(
                                 self.model_type,
                                 n_features=n_features,
-                                n_classes=n_classes,
+                                n_classes=model_n_classes,
                                 lr=self.lr,
                                 n_epochs=1,
                                 seed=self.seed,
@@ -723,9 +785,10 @@ class FedProTrackRunner:
 
                 # Concept-model warm-start on concept SWITCHES only:
                 # When a client switches to a different concept (recurrence),
-                # restore the stored model for that concept. If the client
-                # stays on the same concept, keep its locally trained model
-                # (which is already specialised for that concept).
+                # restore the stored model for that concept before Phase B.
+                # This prevents a freshly switched feature-adapter client
+                # from uploading the previous slot's expert into the new
+                # concept cluster.
                 if prev_assignments and old_assignments is not None:
                     for k in range(K):
                         new_cid = prev_assignments.get(k)
@@ -734,7 +797,6 @@ class FedProTrackRunner:
                             new_cid is not None
                             and old_cid is not None
                             and new_cid != old_cid
-                            and self.model_type == "linear"
                         ):
                             stored = protocol.memory_bank.get_model_params(new_cid)
                             if stored is not None:
@@ -743,6 +805,8 @@ class FedProTrackRunner:
                                     key: arr.copy()
                                     for key, arr in stored.items()
                                 }
+                                if self.model_type == "feature_adapter":
+                                    client_slot_weights[k] = {int(new_cid): 1.0}
 
                 # Phase B: model aggregation (always runs on federation steps
                 # when assignments exist, even if Phase A was skipped)

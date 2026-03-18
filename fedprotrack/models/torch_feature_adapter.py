@@ -92,24 +92,72 @@ class TorchFeatureAdapterClassifier:
             )
         return nn.functional.cross_entropy(logits, y_t)
 
-    def fit(self, X: np.ndarray, y: np.ndarray, slot_id: int = 0) -> None:
-        self._ensure_slot(slot_id)
-        self._active_slot = slot_id
+    def _normalise_training_weights(
+        self,
+        slot_id: int,
+        slot_weights: dict[int, float] | None = None,
+    ) -> dict[int, float]:
+        if not slot_weights:
+            self._ensure_slot(slot_id)
+            return {int(slot_id): 1.0}
+
+        filtered = {
+            int(current_slot): float(weight)
+            for current_slot, weight in slot_weights.items()
+            if float(weight) > 0.01
+        }
+        if not filtered:
+            self._ensure_slot(slot_id)
+            return {int(slot_id): 1.0}
+
+        total = float(sum(filtered.values()))
+        normalised = {
+            current_slot: weight / total
+            for current_slot, weight in filtered.items()
+        }
+        for current_slot in normalised:
+            self._ensure_slot(int(current_slot))
+        return normalised
+
+    def fit(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        slot_id: int = 0,
+        slot_weights: dict[int, float] | None = None,
+    ) -> None:
+        training_weights = self._normalise_training_weights(slot_id, slot_weights)
+        self._active_slot = max(training_weights, key=training_weights.get)
         X_t = to_tensor(X, device=self.device)
         y_t = to_tensor(y, dtype=torch.long, device=self.device)
         for _ in range(self.n_epochs):
-            self._step(X_t, y_t, slot_id)
+            for current_slot, weight in training_weights.items():
+                self._step(X_t, y_t, current_slot, loss_scale=weight)
         self._fitted = True
 
-    def partial_fit(self, X: np.ndarray, y: np.ndarray, slot_id: int = 0) -> None:
-        self._ensure_slot(slot_id)
-        self._active_slot = slot_id
+    def partial_fit(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        slot_id: int = 0,
+        slot_weights: dict[int, float] | None = None,
+    ) -> None:
+        training_weights = self._normalise_training_weights(slot_id, slot_weights)
+        self._active_slot = max(training_weights, key=training_weights.get)
         X_t = to_tensor(X, device=self.device)
         y_t = to_tensor(y, dtype=torch.long, device=self.device)
-        self._step(X_t, y_t, slot_id)
+        for current_slot, weight in training_weights.items():
+            self._step(X_t, y_t, current_slot, loss_scale=weight)
         self._fitted = True
 
-    def _step(self, X_t: torch.Tensor, y_t: torch.Tensor, slot_id: int) -> None:
+    def _step(
+        self,
+        X_t: torch.Tensor,
+        y_t: torch.Tensor,
+        slot_id: int,
+        *,
+        loss_scale: float = 1.0,
+    ) -> None:
         self._trunk.train()
         adapter, head = self._experts[slot_id]
         adapter.train()
@@ -117,7 +165,7 @@ class TorchFeatureAdapterClassifier:
         optimizer = self._optimizers[slot_id]
         optimizer.zero_grad()
         logits = self._forward_slot(X_t, slot_id)
-        loss = self._loss(logits, y_t)
+        loss = self._loss(logits, y_t) * float(loss_scale)
         loss.backward()
         optimizer.step()
 

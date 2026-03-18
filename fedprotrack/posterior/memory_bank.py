@@ -21,6 +21,7 @@ class MemoryBankConfig:
 
     max_concepts: int = 20
     merge_threshold: float = 0.85
+    merge_min_support: int = 1
     min_count: float = 5.0
     merge_every: int = 5
     shrink_every: int = 5
@@ -33,6 +34,10 @@ class MemoryBankConfig:
         if not 0.0 < self.merge_threshold <= 1.0:
             raise ValueError(
                 f"merge_threshold must be in (0, 1], got {self.merge_threshold}"
+            )
+        if self.merge_min_support < 1:
+            raise ValueError(
+                f"merge_min_support must be >= 1, got {self.merge_min_support}"
             )
         if self.min_count < 0:
             raise ValueError(f"min_count must be >= 0, got {self.min_count}")
@@ -182,7 +187,18 @@ class DynamicMemoryBank:
                     continue
                 keep_slot = self._slots[keep_id]
                 remove_slot = self._slots[remove_id]
-                sim = keep_slot.center_key.similarity(remove_slot.center_key)
+                if (
+                    keep_slot.support_count < self.config.merge_min_support
+                    or remove_slot.support_count < self.config.merge_min_support
+                ):
+                    continue
+                key_sim = float(keep_slot.center_key.similarity(remove_slot.center_key))
+                semantic_sim = float(
+                    keep_slot.semantic_anchor_set.similarity(
+                        remove_slot.semantic_anchor_set,
+                    )
+                )
+                sim = min(key_sim, semantic_sim)
                 if sim > self.config.merge_threshold:
                     _merge_fingerprint_into(
                         keep_slot.semantic_anchor_set,

@@ -167,21 +167,25 @@ def build_subset_dataset(
     actual_n_concepts = int(concept_matrix.max()) + 1
 
     concept_pools: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    fingerprint_label_pools: dict[int, np.ndarray] = {}
     for cid in range(actual_n_concepts):
         cls_subset = concept_classes[cid]
         mask = np.isin(coarse_labels, cls_subset)
         X_pool = features[mask]
-        y_raw = coarse_labels[mask]
+        y_raw = coarse_labels[mask].astype(np.int64, copy=False)
         label_map = {c: i for i, c in enumerate(sorted(set(cls_subset)))}
         y_pool = np.array([label_map[int(y)] for y in y_raw], dtype=np.int64)
         concept_pools[cid] = (X_pool, y_pool)
+        fingerprint_label_pools[cid] = y_raw
 
     data: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
+    fingerprint_labels: dict[tuple[int, int], np.ndarray] = {}
     for k in range(config.K):
         for t in range(config.T):
             cid = int(concept_matrix[k, t])
             rng = np.random.RandomState(config.seed + 10000 + k * config.T + t)
             X_pool, y_pool = concept_pools[cid]
+            y_fp_pool = fingerprint_label_pools[cid]
             classes = np.unique(y_pool)
             per_class = config.n_samples // len(classes)
             remainder = config.n_samples % len(classes)
@@ -193,6 +197,7 @@ def build_subset_dataset(
             batch_idx = np.concatenate(chosen)
             rng.shuffle(batch_idx)
             data[(k, t)] = (X_pool[batch_idx], y_pool[batch_idx])
+            fingerprint_labels[(k, t)] = y_fp_pool[batch_idx].copy()
 
     gen_config = GeneratorConfig(
         K=config.K,
@@ -213,19 +218,29 @@ def build_subset_dataset(
         )
         for cid in range(actual_n_concepts)
     ]
-    return DriftDataset(
+    dataset = DriftDataset(
         concept_matrix=concept_matrix,
         data=data,
         config=gen_config,
         concept_specs=concept_specs,
     )
+    setattr(dataset, "fingerprint_labels", fingerprint_labels)
+    return dataset
+
+
+def _infer_dataset_n_classes(ds: DriftDataset) -> int:
+    labels: set[int] = set()
+    for X, y in ds.data.values():
+        del X
+        labels.update(int(v) for v in np.unique(y))
+    return (max(labels) + 1) if labels else 2
 
 
 def run_local(ds: DriftDataset, epochs: int, lr: float, seed: int) -> tuple[np.ndarray, float]:
     """Run local-only training on a prepared subset dataset."""
     K, T = ds.config.K, ds.config.T
     nf = ds.data[(0, 0)][0].shape[1]
-    nc = max(len(np.unique(ds.data[(k, t)][1])) for k in range(K) for t in range(T))
+    nc = _infer_dataset_n_classes(ds)
     models = [
         TorchLinearClassifier(
             n_features=nf, n_classes=nc, lr=lr, n_epochs=epochs, seed=seed + k
@@ -256,7 +271,7 @@ def run_oracle(
     K, T = ds.config.K, ds.config.T
     gt = ds.concept_matrix
     nf = ds.data[(0, 0)][0].shape[1]
-    nc = max(len(np.unique(ds.data[(k, t)][1])) for k in range(K) for t in range(T))
+    nc = _infer_dataset_n_classes(ds)
     models = [
         TorchLinearClassifier(
             n_features=nf, n_classes=nc, lr=lr, n_epochs=epochs, seed=seed + k
@@ -309,7 +324,7 @@ def run_fedavg(
     """Run FedAvg on a prepared subset dataset."""
     K, T = ds.config.K, ds.config.T
     nf = ds.data[(0, 0)][0].shape[1]
-    nc = max(len(np.unique(ds.data[(k, t)][1])) for k in range(K) for t in range(T))
+    nc = _infer_dataset_n_classes(ds)
     gm = TorchLinearClassifier(n_features=nf, n_classes=nc, lr=lr, n_epochs=epochs, seed=seed)
     cms = [
         TorchLinearClassifier(
@@ -356,18 +371,23 @@ def run_fpt(
     model_type: str = "linear",
     hidden_dim: int = 64,
     adapter_dim: int = 16,
+    global_shared_aggregation: bool | None = None,
+    routed_local_training: bool = False,
 ) -> tuple[np.ndarray, float, int, int, int]:
     """Run FedProTrack on a prepared subset dataset."""
     from ..posterior.fedprotrack_runner import FedProTrackRunner
-    from ..posterior.two_phase_protocol import TwoPhaseConfig
 
     gt = ds.concept_matrix
     n_concepts = int(gt.max()) + 1
+    config_overrides: dict[str, object] = {}
+    if global_shared_aggregation is not None:
+        config_overrides["global_shared_aggregation"] = global_shared_aggregation
     runner = FedProTrackRunner(
         config=make_plan_c_config(
             loss_novelty_threshold=loss_novelty_threshold,
             merge_threshold=merge_threshold,
             max_concepts=max(max_concepts, n_concepts + 2),
+            **config_overrides,
         ),
         federation_every=fed_every,
         detector_name="ADWIN",
@@ -380,6 +400,7 @@ def run_fpt(
         model_type=model_type,
         hidden_dim=hidden_dim,
         adapter_dim=adapter_dim,
+        routed_local_training=routed_local_training,
     )
     result = runner.run(ds)
     return (

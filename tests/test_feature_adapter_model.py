@@ -69,3 +69,30 @@ class TestTorchFeatureAdapterClassifier:
         preds = model.predict(X, slot_weights={0: 0.75, 1: 0.25})
         assert preds.shape == (len(X),)
         assert set(np.unique(preds)).issubset({0, 1})
+
+    def test_weighted_training_updates_multiple_slots(self) -> None:
+        X, y = _toy_data(seed=5)
+        model = TorchFeatureAdapterClassifier(
+            n_features=6,
+            n_classes=2,
+            hidden_dim=8,
+            adapter_dim=3,
+            n_epochs=1,
+            seed=17,
+        )
+        model.partial_fit(X, y, slot_id=0)
+        params_before = model.get_params(slot_id=0)
+        params_before_slot1 = model.get_params(slot_id=1)
+
+        model.partial_fit(X, y, slot_id=0, slot_weights={0: 0.4, 1: 0.6})
+        params_after_slot0 = model.get_params(slot_id=0)
+        params_after_slot1 = model.get_params(slot_id=1)
+
+        assert not np.allclose(
+            params_before["expert.0.head.weight"],
+            params_after_slot0["expert.0.head.weight"],
+        )
+        assert not np.allclose(
+            params_before_slot1["expert.1.head.weight"],
+            params_after_slot1["expert.1.head.weight"],
+        )

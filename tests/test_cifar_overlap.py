@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
+from types import SimpleNamespace
 
 from fedprotrack.drift_generator import GeneratorConfig
 from fedprotrack.experiments.cifar_overlap import (
     build_overlap_concept_classes,
     build_phase_concept_matrix,
+    run_fpt,
 )
 from fedprotrack.experiments.tables import export_summary_csv
 from fedprotrack.metrics import compute_all_metrics
@@ -96,3 +99,57 @@ class TestCIFARGeneratorAliases:
     def test_generator_config_accepts_overlap_aliases(self) -> None:
         GeneratorConfig(generator_type="cifar100_overlap")
         GeneratorConfig(generator_type="cifar100_label_overlap")
+
+
+class TestSubsetBenchmarkRunnerOverrides:
+    def test_run_fpt_forwards_global_shared_override(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_make_plan_c_config(**overrides):
+            captured["overrides"] = overrides
+            return {"fake": True}
+
+        class DummyRunner:
+            def __init__(self, **kwargs):
+                captured["runner_kwargs"] = kwargs
+
+            def run(self, ds):
+                del ds
+                return SimpleNamespace(
+                    accuracy_matrix=np.ones((1, 1), dtype=np.float64),
+                    total_bytes=12.0,
+                    spawned_concepts=1,
+                    merged_concepts=0,
+                    active_concepts=2,
+                )
+
+        monkeypatch.setattr(
+            "fedprotrack.experiments.cifar_overlap.make_plan_c_config",
+            fake_make_plan_c_config,
+        )
+        monkeypatch.setattr(
+            "fedprotrack.posterior.fedprotrack_runner.FedProTrackRunner",
+            DummyRunner,
+        )
+
+        ds = SimpleNamespace(concept_matrix=np.array([[0, 1]], dtype=np.int32))
+        acc, total_bytes, spawned, merged, active = run_fpt(
+            ds,
+            fed_every=2,
+            epochs=1,
+            lr=0.1,
+            seed=7,
+            global_shared_aggregation=False,
+            routed_local_training=True,
+        )
+
+        assert acc.shape == (1, 1)
+        assert total_bytes == 12.0
+        assert spawned == 1
+        assert merged == 0
+        assert active == 2
+        assert captured["overrides"]["global_shared_aggregation"] is False
+        assert captured["runner_kwargs"]["routed_local_training"] is True

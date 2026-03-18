@@ -107,7 +107,7 @@ class CompositeRetrievalKey:
     def similarity(self, other: object) -> float:
         other_style, other_semantic, other_proto = _components_from_any(other)
         style_sim = _vector_similarity(self.style_vec, other_style)
-        semantic_sim = _vector_similarity(self.semantic_vec, other_semantic)
+        semantic_sim = _distribution_similarity(self.semantic_vec, other_semantic)
         proto_sim = _vector_similarity(self.prototype_vec, other_proto)
         return float(
             self.style_weight * style_sim
@@ -163,3 +163,33 @@ def _vector_similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
     scale = np.maximum(np.mean(np.abs(vec_a)) + np.mean(np.abs(vec_b)), 1e-8)
     sq_dist = float(np.mean(diff ** 2) / scale)
     return float(np.exp(-0.5 * sq_dist))
+
+
+def _distribution_similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
+    """Probability-distribution similarity via Hellinger distance."""
+    vec_a = np.asarray(vec_a, dtype=np.float64).reshape(-1)
+    vec_b = np.asarray(vec_b, dtype=np.float64).reshape(-1)
+    if vec_a.shape != vec_b.shape:
+        n = min(len(vec_a), len(vec_b))
+        vec_a = vec_a[:n]
+        vec_b = vec_b[:n]
+    if vec_a.size == 0:
+        return 1.0
+
+    p = np.clip(vec_a, 0.0, None)
+    q = np.clip(vec_b, 0.0, None)
+    p_sum = float(p.sum())
+    q_sum = float(q.sum())
+    if p_sum <= 0.0 and q_sum <= 0.0:
+        return 1.0
+    if p_sum <= 0.0:
+        p = np.ones_like(p) / float(len(p))
+    else:
+        p = p / p_sum
+    if q_sum <= 0.0:
+        q = np.ones_like(q) / float(len(q))
+    else:
+        q = q / q_sum
+
+    hellinger = float(np.sqrt(0.5 * np.sum((np.sqrt(p) - np.sqrt(q)) ** 2)))
+    return float(1.0 - hellinger)

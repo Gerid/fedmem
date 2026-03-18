@@ -37,6 +37,16 @@ CONCEPT_CLASSES = {
 PHASE_CONCEPTS = [[0, 1, 2], [3, 4, 5], [0, 1, 2]]
 
 
+def _next_federation_t(start_t: int, federation_every: int, horizon: int) -> int | None:
+    """Return the first time index at or after ``start_t`` that federates."""
+    t = start_t
+    while t < horizon:
+        if (t + 1) % federation_every == 0:
+            return t
+        t += 1
+    return None
+
+
 def main() -> None:
     results_dir = Path("results_cifar100_recurrence_gap")
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -45,7 +55,10 @@ def main() -> None:
     n_samples = 200
     n_features = 128
     epochs, lr = 5, 0.05
+    federation_every = 2
     seeds = [42, 123, 456]
+    phase3_start = 20
+    recovery_eval_t = _next_federation_t(phase3_start, federation_every, T)
 
     print("=" * 65)
     print("Recurrence-with-Gap Experiment")
@@ -76,41 +89,47 @@ def main() -> None:
         print(f"  Concept matrix sample (client 0): {gt[0].tolist()}")
 
         fpt_configs = [
-            ("FPT", False, 0.15, 0.85, 10),
-            ("FPT-tight", False, 0.5, 0.6, 8),
-            ("FPT-tight+DR", True, 0.5, 0.6, 8),
+            ("FPT", False, 0.15, 0.85, 10, True),
+            ("FPT-tight", False, 0.5, 0.6, 8, True),
+            ("FPT-tight+DR", True, 0.5, 0.6, 8, True),
+            ("FPT-tight+DR+LS", True, 0.5, 0.6, 8, False),
+            ("FPT-recur+DR+LS", True, 0.575, 0.6, 8, False),
         ]
 
-        all_methods: list[tuple[str, tuple[bool, float, float, int] | None]] = [
+        all_methods: list[tuple[str, tuple[bool, float, float, int, bool] | None]] = [
             ("LocalOnly", None),
             ("FedAvg f=2", None),
             ("IFCA-3 f=2", None),
             ("IFCA-8 f=2", None),
             ("Oracle f=2", None),
         ]
-        for cfg_name, dr, lnt, mt, mc in fpt_configs:
-            all_methods.append((f"{cfg_name} f=2", (dr, lnt, mt, mc)))
+        for cfg_name, dr, lnt, mt, mc, global_shared in fpt_configs:
+            all_methods.append((f"{cfg_name} f=2", (dr, lnt, mt, mc, global_shared)))
 
         for name, fpt_cfg in all_methods:
             extra = ""
             if name == "LocalOnly":
                 acc_mat, tb = run_local(ds, epochs, lr, seed)
             elif name == "FedAvg f=2":
-                acc_mat, tb = run_fedavg(ds, 2, epochs, lr, seed)
+                acc_mat, tb = run_fedavg(ds, federation_every, epochs, lr, seed)
             elif name.startswith("IFCA"):
                 n_clusters = 3 if "3" in name else 8
                 ifca_res = run_ifca_full(
-                    ds, federation_every=2, n_clusters=n_clusters, lr=lr, n_epochs=epochs
+                    ds,
+                    federation_every=federation_every,
+                    n_clusters=n_clusters,
+                    lr=lr,
+                    n_epochs=epochs,
                 )
                 acc_mat, tb = ifca_res.accuracy_matrix, ifca_res.total_bytes
             elif name == "Oracle f=2":
-                acc_mat, tb = run_oracle(ds, 2, epochs, lr, seed)
+                acc_mat, tb = run_oracle(ds, federation_every, epochs, lr, seed)
             else:
                 assert fpt_cfg is not None
-                dr, lnt, mt, mc = fpt_cfg
+                dr, lnt, mt, mc, global_shared = fpt_cfg
                 acc_mat, tb, sp, mg, ac = run_fpt(
                     ds,
-                    2,
+                    federation_every,
                     epochs,
                     lr,
                     seed,
@@ -121,14 +140,23 @@ def main() -> None:
                     model_type="feature_adapter",
                     hidden_dim=64,
                     adapter_dim=16,
+                    global_shared_aggregation=global_shared,
                 )
-                extra = f" spawn={sp} merge={mg} active={ac}"
+                extra = (
+                    f" spawn={sp} merge={mg} active={ac}"
+                    f" local_shared={int(not global_shared)}"
+                )
 
             final = float(acc_mat[:, -1].mean())
             phase1_acc = float(acc_mat[:, :10].mean())
             phase2_acc = float(acc_mat[:, 10:20].mean())
             phase3_acc = float(acc_mat[:, 20:].mean())
-            recovery_t20 = float(acc_mat[:, 20].mean()) if T > 20 else 0.0
+            recovery_t20 = float(acc_mat[:, phase3_start].mean()) if T > phase3_start else 0.0
+            recovery_next_fed = (
+                float(acc_mat[:, recovery_eval_t].mean())
+                if recovery_eval_t is not None
+                else 0.0
+            )
 
             all_rows.append({
                 "method": name,
@@ -138,6 +166,7 @@ def main() -> None:
                 "phase2": phase2_acc,
                 "phase3": phase3_acc,
                 "recovery_t20": recovery_t20,
+                "recovery_next_fed": recovery_next_fed,
                 "bytes": tb,
             })
             all_curves.setdefault(name, []).append(acc_mat.mean(axis=0))
@@ -145,13 +174,15 @@ def main() -> None:
             print(
                 f"  {name:18s} final={final:.4f} "
                 f"P1={phase1_acc:.3f} P2={phase2_acc:.3f} P3={phase3_acc:.3f} "
-                f"recov@20={recovery_t20:.3f} bytes={tb:.0f}{extra}"
+                f"recov@20={recovery_t20:.3f} "
+                f"recov@next-fed={recovery_next_fed:.3f} "
+                f"bytes={tb:.0f}{extra}"
             )
 
     print("\n" + "=" * 65)
     print(
         f"{'Method':14s} {'Final':>8s} {'Phase1':>8s} {'Phase2':>8s} "
-        f"{'Phase3':>8s} {'Recov@20':>9s} {'Bytes':>10s}"
+        f"{'Phase3':>8s} {'Recov@20':>9s} {'Recov@Fed':>10s} {'Bytes':>10s}"
     )
     print("-" * 65)
 
@@ -163,6 +194,8 @@ def main() -> None:
         "FPT f=2",
         "FPT-tight f=2",
         "FPT-tight+DR f=2",
+        "FPT-tight+DR+LS f=2",
+        "FPT-recur+DR+LS f=2",
         "Oracle f=2",
     ]
     for method in method_names:
@@ -174,10 +207,11 @@ def main() -> None:
         p2 = np.mean([float(r["phase2"]) for r in rows])
         p3 = np.mean([float(r["phase3"]) for r in rows])
         rc = np.mean([float(r["recovery_t20"]) for r in rows])
+        rf = np.mean([float(r["recovery_next_fed"]) for r in rows])
         mb = np.mean([float(r["bytes"]) for r in rows])
         print(
             f"{method:14s} {mf:8.4f} {p1:8.4f} {p2:8.4f} "
-            f"{p3:8.4f} {rc:9.4f} {mb:10.0f}"
+            f"{p3:8.4f} {rc:9.4f} {rf:10.4f} {mb:10.0f}"
         )
 
     fig, ax = plt.subplots(figsize=(14, 6))
@@ -189,9 +223,15 @@ def main() -> None:
         "FPT f=2": "C0",
         "FPT-tight f=2": "C4",
         "FPT-tight+DR f=2": "C5",
+        "FPT-tight+DR+LS f=2": "C7",
+        "FPT-recur+DR+LS f=2": "C8",
         "Oracle f=2": "C6",
     }
-    linestyles = {"Oracle f=2": "--"}
+    linestyles = {
+        "Oracle f=2": "--",
+        "FPT-tight+DR+LS f=2": "-.",
+        "FPT-recur+DR+LS f=2": "-.",
+    }
 
     for method in method_names:
         curves = all_curves.get(method, [])

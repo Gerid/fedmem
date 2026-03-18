@@ -7,6 +7,7 @@ import pytest
 
 from fedprotrack.drift_generator import GeneratorConfig, generate_drift_dataset
 from fedprotrack.posterior.fedprotrack_runner import (
+    _compose_routed_payload,
     FedProTrackResult,
     FedProTrackRunner,
 )
@@ -120,6 +121,16 @@ class TestFedProTrackRunner:
         result = runner.run(dataset)
         assert result.method_name == "FedProTrack"
 
+    def test_run_supports_alternate_fingerprint_labels(self) -> None:
+        dataset = _small_dataset()
+        dataset.fingerprint_labels = {
+            key: (y.astype(np.int64) + 10)
+            for key, (_, y) in dataset.data.items()
+        }
+        runner = FedProTrackRunner(seed=42)
+        result = runner.run(dataset)
+        assert result.accuracy_matrix.shape == (3, 5)
+
     def test_feature_adapter_model_runs_end_to_end(self) -> None:
         dataset = _small_dataset()
         runner = FedProTrackRunner(
@@ -132,6 +143,39 @@ class TestFedProTrackRunner:
         assert result.accuracy_matrix.shape == (3, 5)
         assert result.assignment_switch_rate is not None
         assert result.routing_consistency is not None
+
+    def test_compose_routed_payload_blends_shared_params_by_weights(self) -> None:
+        payload, filtered = _compose_routed_payload(
+            {
+                0: {
+                    "shared.trunk.weight": np.array([[1.0]], dtype=np.float64),
+                    "shared.trunk.bias": np.array([0.0], dtype=np.float64),
+                    "expert.0.head.weight": np.array([[2.0]], dtype=np.float64),
+                    "expert.0.head.bias": np.array([0.0], dtype=np.float64),
+                },
+                1: {
+                    "shared.trunk.weight": np.array([[3.0]], dtype=np.float64),
+                    "shared.trunk.bias": np.array([2.0], dtype=np.float64),
+                    "expert.1.head.weight": np.array([[10.0]], dtype=np.float64),
+                    "expert.1.head.bias": np.array([1.0], dtype=np.float64),
+                },
+            },
+            {0: 0.25, 1: 0.75},
+        )
+
+        np.testing.assert_allclose(
+            payload["shared.trunk.weight"],
+            np.array([[2.5]], dtype=np.float64),
+            atol=1e-10,
+        )
+        np.testing.assert_allclose(
+            payload["shared.trunk.bias"],
+            np.array([1.5], dtype=np.float64),
+            atol=1e-10,
+        )
+        assert "expert.0.head.weight" in payload
+        assert "expert.1.head.weight" in payload
+        assert filtered == pytest.approx({0: 0.25, 1: 0.75})
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +197,22 @@ class TestRunnerConfig:
 
         # More frequent federation = more bytes
         assert r1.total_bytes > r2.total_bytes
+
+    def test_skip_last_federation_round_reduces_bytes_without_changing_accuracy(self) -> None:
+        dataset = _small_dataset()
+        skipped = FedProTrackRunner(
+            federation_every=1,
+            skip_last_federation_round=True,
+            seed=42,
+        ).run(dataset)
+        kept = FedProTrackRunner(
+            federation_every=1,
+            skip_last_federation_round=False,
+            seed=42,
+        ).run(dataset)
+
+        np.testing.assert_allclose(skipped.accuracy_matrix, kept.accuracy_matrix)
+        assert skipped.total_bytes < kept.total_bytes
 
     def test_different_detectors(self) -> None:
         dataset = _small_dataset()
