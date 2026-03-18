@@ -10,6 +10,16 @@ from fedprotrack.drift_generator import GeneratorConfig, generate_drift_dataset
 from fedprotrack.metrics.experiment_log import MetricsResult
 from fedprotrack.baselines.runners import (
     MethodResult,
+    run_apfl_full,
+    run_atp_full,
+    run_cfl_full,
+    run_fedem_full,
+    run_fedrc_full,
+    run_fesem_full,
+    run_fedccfa_full,
+    run_flux_full,
+    run_flux_prior_full,
+    run_pfedme_full,
     run_fedproto_full,
     run_tracked_summary_full,
 )
@@ -71,6 +81,15 @@ class TestMethodResult:
 # ---------------------------------------------------------------------------
 
 class TestBaselineRunners:
+    def test_fedccfa_full(self) -> None:
+        dataset = _small_dataset()
+        result = run_fedccfa_full(dataset)
+        assert result.method_name == "FedCCFA"
+        assert result.accuracy_matrix.shape == (3, 5)
+        assert result.predicted_concept_matrix.shape == (3, 5)
+        assert np.all(result.accuracy_matrix >= 0)
+        assert np.all(result.accuracy_matrix <= 1)
+
     def test_fedproto_full(self) -> None:
         dataset = _small_dataset()
         result = run_fedproto_full(dataset)
@@ -86,6 +105,29 @@ class TestBaselineRunners:
         assert result.method_name == "TrackedSummary"
         assert result.accuracy_matrix.shape == (3, 5)
         assert result.predicted_concept_matrix.shape == (3, 5)
+
+    @pytest.mark.parametrize(
+        ("runner", "expected_name"),
+        [
+            (run_pfedme_full, "pFedMe"),
+            (run_apfl_full, "APFL"),
+            (run_fedem_full, "FedEM"),
+            (run_cfl_full, "CFL"),
+            (run_fesem_full, "FeSEM"),
+            (run_fedrc_full, "FedRC"),
+            (run_atp_full, "ATP"),
+            (run_flux_full, "FLUX"),
+            (run_flux_prior_full, "FLUX-prior"),
+        ],
+    )
+    def test_new_baseline_full_runners(self, runner, expected_name: str) -> None:
+        dataset = _small_dataset()
+        result = runner(dataset)
+        assert result.method_name == expected_name
+        assert result.accuracy_matrix.shape == (3, 5)
+        assert result.predicted_concept_matrix.shape == (3, 5)
+        assert np.all(result.accuracy_matrix >= 0)
+        assert np.all(result.accuracy_matrix <= 1)
 
     def test_fedproto_federation_every(self) -> None:
         dataset = _small_dataset()

@@ -177,7 +177,7 @@ def cmd_phase_diagram(args: argparse.Namespace) -> None:
 
 
 def cmd_budget_sweep(args: argparse.Namespace) -> None:
-    """Run matched-budget sweep across FedAvg-Full, FedProto, TrackedSummary."""
+    """Run matched-budget sweep across the baseline suite."""
     from .drift_generator.generator import DriftDataset
     from .baselines.budget_sweep import BudgetPoint, run_budget_sweep, find_crossover_points
     import json
@@ -359,7 +359,7 @@ def main() -> None:
     pd.add_argument("--output", type=str, default=None)
 
     # budget-sweep
-    bs = sub.add_parser("budget-sweep", help="Matched-budget comparison of FedAvg/FedProto/TrackedSummary")
+    bs = sub.add_parser("budget-sweep", help="Matched-budget comparison of baseline methods")
     bs.add_argument("--dataset-dir", type=str, required=True, help="Path to saved DriftDataset directory")
     bs.add_argument("--federation-every-list", type=str, default="1,2,5,10",
                     help="Comma-separated federation_every values (default: 1,2,5,10)")

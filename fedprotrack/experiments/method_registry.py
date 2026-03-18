@@ -20,9 +20,13 @@ from dataclasses import dataclass
 IDENTITY_CAPABLE_METHODS: frozenset[str] = frozenset({
     "FedProTrack",
     "Oracle",
+    "FedEM",
+    "FedCCFA",
     "TrackedSummary",
     "FedDrift",
     "IFCA",
+    "FeSEM",
+    "FedRC",
 })
 
 # Methods whose ``predicted_concept_matrix`` is always all-zeros (or
@@ -33,6 +37,12 @@ NON_IDENTITY_METHODS: frozenset[str] = frozenset({
     "Flash",
     "CompressedFedAvg",
     "LocalOnly",
+    "pFedMe",
+    "APFL",
+    "ATP",
+    "CFL",
+    "FLUX",
+    "FLUX-prior",
 })
 
 # The three identity-specific metric field names on MetricsResult.

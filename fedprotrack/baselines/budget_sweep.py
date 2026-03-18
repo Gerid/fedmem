@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-"""Budget sweep: compare FedAvg-Full, FedProto, and TrackedSummary across
-federation frequencies to produce Pareto-style (bytes, AUC) trade-off curves.
-"""
+"""Budget sweep across baseline methods for budget-vs-accuracy frontiers."""
 
 from dataclasses import dataclass
 
@@ -86,6 +84,16 @@ def _accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     if len(y_true) == 0:
         return 0.0
     return float(np.mean(y_true == y_pred))
+
+
+def _budget_point_from_full_result(result: object, federation_every: int) -> BudgetPoint:
+    accuracy_matrix = np.asarray(getattr(result, "accuracy_matrix"), dtype=np.float64)
+    return BudgetPoint(
+        method_name=str(getattr(result, "method_name")),
+        federation_every=federation_every,
+        total_bytes=float(getattr(result, "total_bytes")),
+        accuracy_auc=compute_accuracy_auc(accuracy_matrix),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +223,145 @@ def _run_fedproto(dataset: DriftDataset, federation_every: int) -> BudgetPoint:
         federation_every=federation_every,
         total_bytes=total_bytes,
         accuracy_auc=auc,
+    )
+
+
+def _run_fedccfa(
+    dataset: DriftDataset,
+    federation_every: int,
+    cluster_eps: float = 0.35,
+) -> BudgetPoint:
+    """Run FedCCFA baseline.
+
+    Parameters
+    ----------
+    dataset : DriftDataset
+    federation_every : int
+    cluster_eps : float
+        DBSCAN epsilon for label-wise classifier clustering.
+
+    Returns
+    -------
+    BudgetPoint
+    """
+    from .runners import run_fedccfa_full
+
+    result = run_fedccfa_full(
+        dataset,
+        federation_every=federation_every,
+        cluster_eps=cluster_eps,
+    )
+    auc = compute_accuracy_auc(result.accuracy_matrix)
+    return BudgetPoint(
+        method_name="FedCCFA",
+        federation_every=federation_every,
+        total_bytes=result.total_bytes,
+        accuracy_auc=auc,
+    )
+
+
+def _run_pfedme(dataset: DriftDataset, federation_every: int) -> BudgetPoint:
+    from .runners import run_pfedme_full
+
+    return _budget_point_from_full_result(
+        run_pfedme_full(dataset, federation_every=federation_every),
+        federation_every,
+    )
+
+
+def _run_apfl(dataset: DriftDataset, federation_every: int) -> BudgetPoint:
+    from .runners import run_apfl_full
+
+    return _budget_point_from_full_result(
+        run_apfl_full(dataset, federation_every=federation_every),
+        federation_every,
+    )
+
+
+def _run_fedem(dataset: DriftDataset, federation_every: int) -> BudgetPoint:
+    from .runners import run_fedem_full
+
+    return _budget_point_from_full_result(
+        run_fedem_full(dataset, federation_every=federation_every),
+        federation_every,
+    )
+
+
+def _run_cfl(dataset: DriftDataset, federation_every: int) -> BudgetPoint:
+    from .runners import run_cfl_full
+
+    return _budget_point_from_full_result(
+        run_cfl_full(dataset, federation_every=federation_every),
+        federation_every,
+    )
+
+
+def _run_fesem(
+    dataset: DriftDataset,
+    federation_every: int,
+    n_clusters: int = 3,
+) -> BudgetPoint:
+    from .runners import run_fesem_full
+
+    return _budget_point_from_full_result(
+        run_fesem_full(
+            dataset,
+            federation_every=federation_every,
+            n_clusters=n_clusters,
+        ),
+        federation_every,
+    )
+
+
+def _run_fedrc(
+    dataset: DriftDataset,
+    federation_every: int,
+    n_clusters: int = 3,
+) -> BudgetPoint:
+    from .runners import run_fedrc_full
+
+    return _budget_point_from_full_result(
+        run_fedrc_full(
+            dataset,
+            federation_every=federation_every,
+            n_clusters=n_clusters,
+        ),
+        federation_every,
+    )
+
+
+def _run_atp(dataset: DriftDataset, federation_every: int) -> BudgetPoint:
+    from .runners import run_atp_full
+
+    return _budget_point_from_full_result(
+        run_atp_full(dataset, federation_every=federation_every),
+        federation_every,
+    )
+
+
+def _run_flux(dataset: DriftDataset, federation_every: int) -> BudgetPoint:
+    from .runners import run_flux_full
+
+    return _budget_point_from_full_result(
+        run_flux_full(dataset, federation_every=federation_every),
+        federation_every,
+    )
+
+
+def _run_flux_prior(
+    dataset: DriftDataset,
+    federation_every: int,
+    n_clusters: int = 3,
+) -> BudgetPoint:
+    from .runners import run_flux_prior_full
+
+    return _budget_point_from_full_result(
+        run_flux_prior_full(
+            dataset,
+            federation_every=federation_every,
+            n_clusters=n_clusters,
+        ),
+        federation_every,
     )
 
 
@@ -536,10 +683,10 @@ def run_budget_sweep(
     federation_every_values: list[int] | None = None,
     similarity_threshold: float = 0.5,
 ) -> list[BudgetPoint]:
-    """Run all seven methods across a range of federation frequencies.
+    """Run all baseline methods across a range of federation frequencies.
 
     For each combination of method and ``federation_every`` value one
-    ``BudgetPoint`` is produced, yielding ``7 * len(federation_every_values)``
+    ``BudgetPoint`` is produced, yielding ``17 * len(federation_every_values)``
     points in total.
 
     Parameters
@@ -564,11 +711,21 @@ def run_budget_sweep(
     results: list[BudgetPoint] = []
     for fe in federation_every_values:
         results.append(_run_fedavg_full(dataset, fe))
+        results.append(_run_ifca(dataset, fe))
+        results.append(_run_fedrc(dataset, fe))
+        results.append(_run_fedem(dataset, fe))
+        results.append(_run_fesem(dataset, fe))
+        results.append(_run_feddrift(dataset, fe, similarity_threshold))
+        results.append(_run_cfl(dataset, fe))
+        results.append(_run_pfedme(dataset, fe))
+        results.append(_run_apfl(dataset, fe))
+        results.append(_run_atp(dataset, fe))
+        results.append(_run_flux(dataset, fe))
+        results.append(_run_flux_prior(dataset, fe))
         results.append(_run_fedproto(dataset, fe))
+        results.append(_run_fedccfa(dataset, fe))
         results.append(_run_tracked_summary(dataset, fe, similarity_threshold))
         results.append(_run_flash(dataset, fe))
-        results.append(_run_feddrift(dataset, fe, similarity_threshold))
-        results.append(_run_ifca(dataset, fe))
         results.append(_run_compressed_fedavg(dataset, fe))
 
     return results

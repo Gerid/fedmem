@@ -219,7 +219,7 @@ class TestFindCrossoverPoints:
 
 class TestRunBudgetSweep:
     def test_run_budget_sweep_smoke(self) -> None:
-        """Smoke test on a tiny dataset: 7 methods x 4 federation_every = 28 points."""
+        """Smoke test on a tiny dataset: 17 methods x 4 federation_every = 68 points."""
         dataset = _make_small_dataset(K=2, T=4, n_samples=30)
         federation_every_values = [1, 2, 3, 4]
 
@@ -230,15 +230,25 @@ class TestRunBudgetSweep:
         )
 
         # 7 methods × 4 federation_every values
-        assert len(results) == 28, f"Expected 28 BudgetPoints, got {len(results)}"
+        assert len(results) == 68, f"Expected 68 BudgetPoints, got {len(results)}"
 
         method_names = {bp.method_name for bp in results}
         assert "FedAvg-Full" in method_names
+        assert "IFCA" in method_names
+        assert "FedRC" in method_names
+        assert "FedEM" in method_names
+        assert "FeSEM" in method_names
+        assert "CFL" in method_names
+        assert "pFedMe" in method_names
+        assert "APFL" in method_names
+        assert "ATP" in method_names
+        assert "FLUX" in method_names
+        assert "FLUX-prior" in method_names
         assert "FedProto" in method_names
         assert "TrackedSummary" in method_names
+        assert "FedCCFA" in method_names
         assert "Flash" in method_names
         assert "FedDrift" in method_names
-        assert "IFCA" in method_names
         assert "CompressedFedAvg" in method_names
 
         for bp in results:
@@ -261,10 +271,10 @@ class TestRunBudgetSweep:
             )
 
     def test_run_budget_sweep_default_values(self) -> None:
-        """Default federation_every_values produce 28 points (7 methods x 4)."""
+        """Default federation_every_values produce 68 points (17 methods x 4)."""
         dataset = _make_small_dataset(K=2, T=10, n_samples=20)
         results = run_budget_sweep(dataset)
-        assert len(results) == 28
+        assert len(results) == 68
 
     def test_run_budget_sweep_accuracy_auc_range(self) -> None:
         """accuracy_auc is non-negative for all methods."""

@@ -1,10 +1,16 @@
 from __future__ import annotations
 
-"""Tests for Flash, FedDrift, IFCA, and CompressedFedAvg baselines."""
+"""Tests for FedCCFA, Flash, FedDrift, IFCA, and CompressedFedAvg baselines."""
 
 import numpy as np
 import pytest
 
+from fedprotrack.baselines.fedccfa import (
+    FedCCFAClient,
+    FedCCFAServer,
+    FedCCFAUpload,
+    FedCCFAUpdate,
+)
 from fedprotrack.baselines.flash import FlashClient, FlashAggregator, FlashUpload
 from fedprotrack.baselines.feddrift import FedDriftClient, FedDriftServer, FedDriftUpload
 from fedprotrack.baselines.ifca import IFCAClient, IFCAServer, IFCAUpload
@@ -14,6 +20,7 @@ from fedprotrack.baselines.compressed_fedavg import (
     CompressedUpload,
 )
 from fedprotrack.baselines.runners import (
+    run_fedccfa_full,
     run_flash_full,
     run_feddrift_full,
     run_ifca_full,
@@ -56,6 +63,94 @@ def _make_data(n: int = 50, d: int = 4, seed: int = 42) -> tuple[np.ndarray, np.
     X = rng.randn(n, d).astype(np.float64)
     y = (X[:, 0] > 0).astype(np.int64)
     return X, y
+
+
+# ===========================================================================
+# FedCCFA
+# ===========================================================================
+
+class TestFedCCFAClient:
+    def test_predict_before_fit_returns_zeros(self) -> None:
+        client = FedCCFAClient(0, 4, 2)
+        X, _ = _make_data()
+        preds = client.predict(X)
+        assert preds.shape == (50,)
+        assert np.all(preds == 0)
+
+    def test_fit_and_predict(self) -> None:
+        client = FedCCFAClient(0, 4, 2, seed=42)
+        X, y = _make_data()
+        client.fit(X, y)
+        preds = client.predict(X)
+        assert np.mean(preds == y) > 0.5
+
+    def test_get_upload_structure(self) -> None:
+        client = FedCCFAClient(0, 4, 2, seed=42)
+        X, y = _make_data()
+        client.fit(X, y)
+        upload = client.get_upload()
+        assert isinstance(upload, FedCCFAUpload)
+        assert upload.client_id == 0
+        assert "coef" in upload.model_params
+        assert len(upload.local_prototypes) > 0
+
+    def test_personalized_state_updates_signature(self) -> None:
+        client = FedCCFAClient(0, 4, 2, seed=42)
+        update = FedCCFAUpdate(
+            label_vectors={0: np.ones(4), 1: np.ones(4) * 2.0},
+            label_biases={0: -1.0, 1: 1.0},
+            global_prototypes={0: np.ones(4), 1: np.zeros(4)},
+            label_cluster_ids={0: 3, 1: 5},
+        )
+        client.set_personalized_state(update)
+        assert client.cluster_signature == (3, 5)
+
+
+class TestFedCCFAServer:
+    def test_aggregate_empty(self) -> None:
+        server = FedCCFAServer(n_features=4, n_classes=2)
+        assert server.aggregate([]) == {}
+
+    def test_similar_clients_share_cluster_ids(self) -> None:
+        server = FedCCFAServer(n_features=4, n_classes=2, eps=0.5)
+        shared_params = {
+            "coef": np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64),
+            "intercept": np.array([0.0], dtype=np.float64),
+        }
+        u1 = FedCCFAUpload(
+            client_id=0,
+            model_params=shared_params,
+            local_prototypes={
+                0: np.array([-1.0, 0.0, 0.0, 0.0]),
+                1: np.array([1.0, 0.0, 0.0, 0.0]),
+            },
+            label_counts={0: 10, 1: 10},
+            n_samples=20,
+        )
+        u2 = FedCCFAUpload(
+            client_id=1,
+            model_params=shared_params,
+            local_prototypes={
+                0: np.array([-1.0, 0.0, 0.0, 0.0]),
+                1: np.array([1.0, 0.0, 0.0, 0.0]),
+            },
+            label_counts={0: 10, 1: 10},
+            n_samples=20,
+        )
+        updates = server.aggregate([u1, u2])
+        assert updates[0].label_cluster_ids == updates[1].label_cluster_ids
+
+    def test_download_bytes_positive(self) -> None:
+        server = FedCCFAServer(n_features=4, n_classes=2)
+        updates = {
+            0: FedCCFAUpdate(
+                label_vectors={0: np.ones(4)},
+                label_biases={0: 0.0},
+                global_prototypes={0: np.ones(4)},
+                label_cluster_ids={0: 1},
+            ),
+        }
+        assert server.download_bytes(updates) > 0
 
 
 # ===========================================================================
@@ -422,6 +517,14 @@ class TestCompressedFedAvgServer:
 # ===========================================================================
 
 class TestFullRunners:
+    def test_run_fedccfa_full(self) -> None:
+        dataset = _make_small_dataset()
+        result = run_fedccfa_full(dataset, federation_every=2)
+        assert result.method_name == "FedCCFA"
+        assert result.accuracy_matrix.shape == (2, 4)
+        assert result.predicted_concept_matrix.shape == (2, 4)
+        assert result.total_bytes >= 0
+
     def test_run_flash_full(self) -> None:
         dataset = _make_small_dataset()
         result = run_flash_full(dataset, federation_every=2)
@@ -451,7 +554,13 @@ class TestFullRunners:
 
     def test_all_runners_produce_valid_accuracy(self) -> None:
         dataset = _make_small_dataset()
-        for runner in [run_flash_full, run_feddrift_full, run_ifca_full, run_compressed_fedavg_full]:
+        for runner in [
+            run_fedccfa_full,
+            run_flash_full,
+            run_feddrift_full,
+            run_ifca_full,
+            run_compressed_fedavg_full,
+        ]:
             result = runner(dataset, federation_every=1)
             assert np.all(result.accuracy_matrix >= 0.0)
             assert np.all(result.accuracy_matrix <= 1.0)
@@ -474,12 +583,25 @@ class TestBudgetSweepNewBaselines:
         dataset = _make_small_dataset()
         points = run_budget_sweep(dataset, federation_every_values=[2])
         method_names = {p.method_name for p in points}
+        assert "FedAvg-Full" in method_names
+        assert "FedRC" in method_names
+        assert "FedEM" in method_names
+        assert "FeSEM" in method_names
+        assert "CFL" in method_names
+        assert "pFedMe" in method_names
+        assert "APFL" in method_names
+        assert "ATP" in method_names
+        assert "FLUX" in method_names
+        assert "FLUX-prior" in method_names
+        assert "FedProto" in method_names
+        assert "FedCCFA" in method_names
+        assert "TrackedSummary" in method_names
         assert "Flash" in method_names
         assert "FedDrift" in method_names
         assert "IFCA" in method_names
         assert "CompressedFedAvg" in method_names
         # Total: 7 methods × 1 fe = 7 points
-        assert len(points) == 7
+        assert len(points) == 17
 
     def test_all_budget_points_valid(self) -> None:
         from fedprotrack.baselines.budget_sweep import run_budget_sweep
