@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from fedprotrack.concept_tracker.fingerprint import ConceptFingerprint
+from fedprotrack.posterior import make_plan_c_config
 from fedprotrack.posterior.two_phase_protocol import (
     PhaseAResult,
     PhaseBResult,
@@ -52,6 +53,7 @@ class TestTwoPhaseConfig:
         assert cfg.post_spawn_merge is True
         assert cfg.merge_threshold == 0.98
         assert cfg.merge_every == 2
+        assert cfg.key_mode == "fingerprint"
         assert cfg.n_features == 2
 
     def test_custom(self) -> None:
@@ -62,6 +64,19 @@ class TestTwoPhaseConfig:
     def test_loss_novelty_threshold(self) -> None:
         cfg = TwoPhaseConfig(loss_novelty_threshold=0.1)
         assert cfg.loss_novelty_threshold == 0.1
+
+    def test_entropy_freeze_and_adaptive_defaults(self) -> None:
+        cfg = TwoPhaseConfig()
+        assert cfg.entropy_freeze_threshold is None
+        assert cfg.adaptive_addressing is False
+        assert cfg.addressing_min_round_interval == 1
+
+    def test_plan_c_preset(self) -> None:
+        cfg = make_plan_c_config(max_concepts=9)
+        assert cfg.key_mode == "multi_scale"
+        assert cfg.adaptive_addressing is True
+        assert cfg.entropy_freeze_threshold == 0.75
+        assert cfg.max_concepts == 9
 
 
 # ---------------------------------------------------------------------------

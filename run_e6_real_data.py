@@ -21,8 +21,7 @@ from fedprotrack.real_data.rotating_mnist import (
     RotatingMNISTConfig,
     generate_rotating_mnist_dataset,
 )
-from fedprotrack.posterior.fedprotrack_runner import FedProTrackRunner
-from fedprotrack.posterior.two_phase_protocol import TwoPhaseConfig
+from fedprotrack.posterior import FedProTrackRunner, make_plan_c_config
 from fedprotrack.baselines.runners import (
     run_ifca_full,
     run_feddrift_full,
@@ -64,7 +63,17 @@ def run_single_setting(
         return compute_all_metrics(log, identity_capable=identity_metrics_valid(name))
 
     # FedProTrack
-    fpt_runner = FedProTrackRunner(config=TwoPhaseConfig(), seed=seed)
+    fpt_runner = FedProTrackRunner(
+        config=make_plan_c_config(),
+        seed=seed,
+        lr=0.05,
+        n_epochs=3,
+        soft_aggregation=True,
+        blend_alpha=0.0,
+        model_type="feature_adapter",
+        hidden_dim=64,
+        adapter_dim=16,
+    )
     fpt_res = fpt_runner.run(ds)
     results["FedProTrack"] = _compute("FedProTrack", fpt_res.to_experiment_log())
 
@@ -160,11 +169,23 @@ def main() -> None:
         reids = [r.concept_re_id_accuracy for r in results
                  if r.concept_re_id_accuracy is not None]
         accs = [r.final_accuracy for r in results if r.final_accuracy is not None]
+        switches = [r.assignment_switch_rate for r in results
+                    if r.assignment_switch_rate is not None]
+        singletons = [r.singleton_group_ratio for r in results
+                      if r.singleton_group_ratio is not None]
+        routings = [r.routing_consistency for r in results
+                    if r.routing_consistency is not None]
+        reuse = [r.memory_reuse_rate for r in results
+                 if r.memory_reuse_rate is not None]
         summary[mn] = {
             "n_settings": len(results),
             "mean_re_id_accuracy": float(np.mean(reids)) if reids else None,
             "std_re_id_accuracy": float(np.std(reids)) if reids else None,
             "mean_final_accuracy": float(np.mean(accs)) if accs else None,
+            "mean_assignment_switch_rate": float(np.mean(switches)) if switches else None,
+            "mean_singleton_group_ratio": float(np.mean(singletons)) if singletons else None,
+            "mean_routing_consistency": float(np.mean(routings)) if routings else None,
+            "mean_memory_reuse_rate": float(np.mean(reuse)) if reuse else None,
         }
     with open(results_dir / "summary.json", "w") as f:
         json.dump(summary, f, indent=2)
@@ -250,7 +271,15 @@ def main() -> None:
             if info.get("mean_final_accuracy") is not None
             else ""
         )
-        print(f"  {mn:15s}: {reid_str}{acc_str} (n={info['n_settings']})")
+        diag_parts = []
+        if info.get("mean_assignment_switch_rate") is not None:
+            diag_parts.append(f"switch = {info['mean_assignment_switch_rate']:.4f}")
+        if info.get("mean_singleton_group_ratio") is not None:
+            diag_parts.append(f"singleton = {info['mean_singleton_group_ratio']:.4f}")
+        if info.get("mean_routing_consistency") is not None:
+            diag_parts.append(f"routing = {info['mean_routing_consistency']:.4f}")
+        diag_str = f", {'; '.join(diag_parts)}" if diag_parts else ""
+        print(f"  {mn:15s}: {reid_str}{acc_str}{diag_str} (n={info['n_settings']})")
 
 
 if __name__ == "__main__":

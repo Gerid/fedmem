@@ -17,8 +17,16 @@ from ..baselines.comm_tracker import model_bytes
 from ..concept_tracker.fingerprint import ConceptFingerprint
 from ..drift_detector import BaseDriftDetector
 from ..drift_generator import DriftDataset
+from ..federation import merge_param_namespaces, split_param_namespaces
+from ..metrics.concept_metrics import (
+    assignment_switch_rate as compute_assignment_switch_rate,
+    avg_clients_per_concept as compute_avg_clients_per_concept,
+    memory_reuse_rate as compute_memory_reuse_rate,
+    routing_consistency as compute_routing_consistency,
+    singleton_group_ratio as compute_singleton_group_ratio,
+)
 from ..metrics.experiment_log import ExperimentLog
-from ..models import TorchLinearClassifier
+from ..models import TorchFeatureAdapterClassifier, TorchLinearClassifier
 from .gibbs import PosteriorAssignment
 from .two_phase_protocol import PhaseAResult, TwoPhaseConfig, TwoPhaseFedProTrack
 
@@ -73,6 +81,152 @@ def _infer_n_classes(dataset: DriftDataset) -> int:
     return max(all_labels) + 1
 
 
+def _make_model(
+    model_type: str,
+    *,
+    n_features: int,
+    n_classes: int,
+    lr: float,
+    n_epochs: int,
+    seed: int,
+    hidden_dim: int,
+    adapter_dim: int,
+):
+    """Instantiate the configured client model."""
+    if model_type == "linear":
+        return TorchLinearClassifier(
+            n_features=n_features,
+            n_classes=n_classes,
+            lr=lr,
+            n_epochs=n_epochs,
+            seed=seed,
+        )
+    if model_type == "feature_adapter":
+        return TorchFeatureAdapterClassifier(
+            n_features=n_features,
+            n_classes=n_classes,
+            hidden_dim=hidden_dim,
+            adapter_dim=adapter_dim,
+            lr=lr,
+            n_epochs=n_epochs,
+            seed=seed,
+        )
+    raise ValueError(
+        f"Unknown model_type: {model_type}. Choose from ['linear', 'feature_adapter']"
+    )
+
+
+def _is_feature_adapter_model(model) -> bool:
+    return isinstance(model, TorchFeatureAdapterClassifier)
+
+
+def _model_predict(
+    model,
+    X: np.ndarray,
+    *,
+    slot_id: int = 0,
+    slot_weights: dict[int, float] | None = None,
+) -> np.ndarray:
+    if _is_feature_adapter_model(model):
+        return model.predict(X, slot_id=slot_id, slot_weights=slot_weights)
+    return model.predict(X)
+
+
+def _model_predict_loss(
+    model,
+    X: np.ndarray,
+    y: np.ndarray,
+    *,
+    slot_id: int = 0,
+    slot_weights: dict[int, float] | None = None,
+) -> float:
+    if _is_feature_adapter_model(model):
+        return model.predict_loss(X, y, slot_id=slot_id, slot_weights=slot_weights)
+    return model.predict_loss(X, y)
+
+
+def _model_fit(model, X: np.ndarray, y: np.ndarray, *, slot_id: int = 0) -> None:
+    if _is_feature_adapter_model(model):
+        model.fit(X, y, slot_id=slot_id)
+    else:
+        model.fit(X, y)
+
+
+def _model_partial_fit(
+    model,
+    X: np.ndarray,
+    y: np.ndarray,
+    *,
+    slot_id: int = 0,
+) -> None:
+    if _is_feature_adapter_model(model):
+        model.partial_fit(X, y, slot_id=slot_id)
+    else:
+        model.partial_fit(X, y)
+
+
+def _model_get_params(model, *, slot_id: int = 0) -> dict[str, np.ndarray]:
+    if _is_feature_adapter_model(model):
+        return model.get_params(slot_id=slot_id)
+    return model.get_params()
+
+
+def _model_set_params(model, params: dict[str, np.ndarray]) -> None:
+    model.set_params(params)
+
+
+def _model_blend_params(
+    model,
+    params: dict[str, np.ndarray],
+    *,
+    alpha: float,
+) -> None:
+    model.blend_params(params, alpha=alpha)
+
+
+def _compose_routed_payload(
+    candidate_payloads: dict[int, dict[str, np.ndarray]],
+    slot_weights: dict[int, float],
+) -> tuple[dict[str, np.ndarray], dict[int, float]]:
+    """Compose a client read payload from multiple slot states."""
+    filtered = {
+        int(slot_id): float(weight)
+        for slot_id, weight in slot_weights.items()
+        if float(weight) > 0.0 and int(slot_id) in candidate_payloads
+    }
+    if not filtered:
+        return {}, {}
+
+    total = float(sum(filtered.values()))
+    normalized = {
+        slot_id: weight / total
+        for slot_id, weight in filtered.items()
+    }
+
+    shared_params: dict[str, np.ndarray] = {}
+    expert_params: dict[str, np.ndarray] = {}
+    other_params: dict[str, np.ndarray] = {}
+    for slot_id in sorted(normalized):
+        shared, expert, other = split_param_namespaces(candidate_payloads[slot_id])
+        if not shared_params:
+            shared_params = {key: value.copy() for key, value in shared.items()}
+        else:
+            for key, value in shared.items():
+                shared_params.setdefault(key, value.copy())
+        expert_params.update({key: value.copy() for key, value in expert.items()})
+        for key, value in other.items():
+            other_params.setdefault(key, value.copy())
+
+    return (
+        merge_param_namespaces(
+            shared=shared_params,
+            expert=expert_params,
+            other=other_params,
+        ),
+        normalized,
+    )
+
+
 @dataclass
 class FedProTrackResult:
     """Complete result from a FedProTrack simulation.
@@ -112,6 +266,11 @@ class FedProTrackResult:
     pruned_concepts: int = 0
     active_concepts: int = 0
     soft_assignments: np.ndarray | None = None
+    assignment_switch_rate: float | None = None
+    avg_clients_per_concept: float | None = None
+    singleton_group_ratio: float | None = None
+    memory_reuse_rate: float | None = None
+    routing_consistency: float | None = None
     method_name: str = "FedProTrack"
 
     def to_experiment_log(self) -> ExperimentLog:
@@ -180,6 +339,9 @@ class FedProTrackRunner:
         loss_validation: bool = False,
         loss_val_top_k: int = 3,
         dormant_recall: bool = False,
+        model_type: str = "linear",
+        hidden_dim: int = 64,
+        adapter_dim: int = 16,
     ):
         self.config = config or TwoPhaseConfig()
         self.federation_every = federation_every
@@ -194,6 +356,9 @@ class FedProTrackRunner:
         self.loss_validation = loss_validation
         self.loss_val_top_k = loss_val_top_k
         self.dormant_recall = dormant_recall
+        self.model_type = model_type
+        self.hidden_dim = hidden_dim
+        self.adapter_dim = adapter_dim
 
     def run(self, dataset: DriftDataset) -> FedProTrackResult:
         """Execute the full FedProTrack simulation.
@@ -245,6 +410,15 @@ class FedProTrackRunner:
             max_concepts=max_concepts,
             merge_every=self.config.merge_every,
             shrink_every=self.config.shrink_every,
+            key_mode=self.config.key_mode,
+            key_ema_decay=self.config.key_ema_decay,
+            key_style_weight=self.config.key_style_weight,
+            key_semantic_weight=self.config.key_semantic_weight,
+            key_prototype_weight=self.config.key_prototype_weight,
+            entropy_freeze_threshold=self.config.entropy_freeze_threshold,
+            adaptive_addressing=self.config.adaptive_addressing,
+            addressing_min_round_interval=self.config.addressing_min_round_interval,
+            addressing_drift_threshold=self.config.addressing_drift_threshold,
             n_features=n_features,
             n_classes=n_classes,
         )
@@ -258,16 +432,20 @@ class FedProTrackRunner:
         # Per-client state
         detectors = [_make_detector(self.detector_name) for _ in range(K)]
         models = [
-            TorchLinearClassifier(
+            _make_model(
+                self.model_type,
                 n_features=n_features,
                 n_classes=n_classes,
                 lr=self.lr,
                 n_epochs=self.n_epochs,
                 seed=self.seed + k,
+                hidden_dim=self.hidden_dim,
+                adapter_dim=self.adapter_dim,
             )
             for k in range(K)
         ]
         model_params: list[dict[str, np.ndarray]] = [{}] * K
+        client_slot_weights: list[dict[int, float] | None] = [None] * K
 
         # Results
         accuracy_matrix = np.zeros((K, T), dtype=np.float64)
@@ -299,9 +477,17 @@ class FedProTrackRunner:
                 mid = len(X) // 2
                 X_test, y_test = X[:mid], y[:mid]
                 X_train, y_train = X[mid:], y[mid:]
+                current_slot_id = (
+                    prev_assignments.get(k, 0) if prev_assignments is not None else 0
+                )
 
                 # 1. Prequential prediction (on GPU via TorchLinearClassifier)
-                y_pred = models[k].predict(X_test)
+                y_pred = _model_predict(
+                    models[k],
+                    X_test,
+                    slot_id=current_slot_id,
+                    slot_weights=client_slot_weights[k],
+                )
 
                 acc = float(np.mean(y_pred == y_test)) if len(y_test) > 0 else 0.0
                 accuracy_matrix[k, t] = acc
@@ -323,19 +509,36 @@ class FedProTrackRunner:
 
                 # 4. Local training on GPU
                 if self.n_epochs > 1:
-                    models[k].fit(X_train, y_train)
+                    _model_fit(
+                        models[k],
+                        X_train,
+                        y_train,
+                        slot_id=current_slot_id,
+                    )
                 else:
-                    models[k].partial_fit(X_train, y_train)
+                    _model_partial_fit(
+                        models[k],
+                        X_train,
+                        y_train,
+                        slot_id=current_slot_id,
+                    )
 
                 if (
                     blend_alpha > 0.0
                     and not is_drift
-                    and model_params[k].get("coef") is not None
+                    and model_params[k]
                 ):
                     # Warm-start with momentum only when no drift detected
-                    models[k].blend_params(model_params[k], alpha=blend_alpha)
+                    _model_blend_params(
+                        models[k],
+                        model_params[k],
+                        alpha=blend_alpha,
+                    )
 
-                model_params[k] = models[k].get_params()
+                model_params[k] = _model_get_params(
+                    models[k],
+                    slot_id=current_slot_id,
+                )
 
             # --- Federation ---
             is_federation_step = (t + 1) % self.federation_every == 0
@@ -414,16 +617,26 @@ class FedProTrackRunner:
                                 # Evaluate each candidate
                                 best_cid = cur_cid
                                 best_acc = -1.0
-                                probe = TorchLinearClassifier(
+                                probe = _make_model(
+                                    self.model_type,
                                     n_features=n_features,
                                     n_classes=n_classes,
                                     lr=self.lr,
                                     n_epochs=1,
                                     seed=self.seed,
+                                    hidden_dim=self.hidden_dim,
+                                    adapter_dim=self.adapter_dim,
                                 )
                                 for cid in top_cids:
-                                    probe.set_params(candidate_models[cid])
-                                    preds = probe.predict(X_val)
+                                    _model_set_params(probe, candidate_models[cid])
+                                    preds = _model_predict(
+                                        probe,
+                                        X_val,
+                                        slot_id=cid,
+                                        slot_weights={cid: 1.0}
+                                        if self.model_type == "feature_adapter"
+                                        else None,
+                                    )
                                     acc = float(np.mean(preds == y_val))
                                     if acc > best_acc:
                                         best_acc = acc
@@ -457,12 +670,15 @@ class FedProTrackRunner:
                         if len(all_stored) >= 2:
                             n_probe = 30  # samples per client
                             probe_bytes_up = 0.0
-                            probe = TorchLinearClassifier(
+                            probe = _make_model(
+                                self.model_type,
                                 n_features=n_features,
                                 n_classes=n_classes,
                                 lr=self.lr,
                                 n_epochs=1,
                                 seed=self.seed,
+                                hidden_dim=self.hidden_dim,
+                                adapter_dim=self.adapter_dim,
                             )
                             for k in range(K):
                                 X_k, y_k = dataset.data[(k, t)]
@@ -474,8 +690,15 @@ class FedProTrackRunner:
                                 best_cid = prev_assignments[k]
                                 best_acc = -1.0
                                 for cid, params in all_stored.items():
-                                    probe.set_params(params)
-                                    preds = probe.predict(X_val)
+                                    _model_set_params(probe, params)
+                                    preds = _model_predict(
+                                        probe,
+                                        X_val,
+                                        slot_id=cid,
+                                        slot_weights={cid: 1.0}
+                                        if self.model_type == "feature_adapter"
+                                        else None,
+                                    )
                                     acc = float(np.mean(preds == y_val))
                                     if acc > best_acc:
                                         best_acc = acc
@@ -511,10 +734,11 @@ class FedProTrackRunner:
                             new_cid is not None
                             and old_cid is not None
                             and new_cid != old_cid
+                            and self.model_type == "linear"
                         ):
                             stored = protocol.memory_bank.get_model_params(new_cid)
                             if stored is not None:
-                                models[k].set_params(stored)
+                                _model_set_params(models[k], stored)
                                 model_params[k] = {
                                     key: arr.copy()
                                     for key, arr in stored.items()
@@ -538,11 +762,40 @@ class FedProTrackRunner:
                         for k in range(K):
                             cid = prev_assignments.get(k)
                             if cid is not None and cid in b_result.aggregated_params:
-                                agg_p = b_result.aggregated_params[cid]
-                                model_params[k] = {
-                                    key: arr.copy() for key, arr in agg_p.items()
-                                }
-                                models[k].set_params(model_params[k])
+                                if self.model_type == "feature_adapter":
+                                    routing_weights = (
+                                        last_a_result.posteriors.get(k).probabilities
+                                        if last_a_result is not None
+                                        and k in last_a_result.posteriors
+                                        else {cid: 1.0}
+                                    )
+                                    candidate_payloads: dict[int, dict[str, np.ndarray]] = {}
+                                    for slot_id in routing_weights:
+                                        params = b_result.aggregated_params.get(slot_id)
+                                        if params is None:
+                                            params = protocol.memory_bank.get_model_params(slot_id)
+                                        if params is not None:
+                                            candidate_payloads[int(slot_id)] = params
+
+                                    agg_p, filtered_weights = _compose_routed_payload(
+                                        candidate_payloads,
+                                        routing_weights,
+                                    )
+                                    if not agg_p:
+                                        agg_p = {
+                                            key: arr.copy()
+                                            for key, arr in b_result.aggregated_params[cid].items()
+                                        }
+                                        filtered_weights = {cid: 1.0}
+                                    model_params[k] = agg_p
+                                    client_slot_weights[k] = filtered_weights
+                                else:
+                                    model_params[k] = {
+                                        key: arr.copy()
+                                        for key, arr in b_result.aggregated_params[cid].items()
+                                    }
+                                    client_slot_weights[k] = None
+                                _model_set_params(models[k], model_params[k])
             else:
                 # No federation this step — carry forward previous assignments
                 if prev_assignments:
@@ -570,6 +823,18 @@ class FedProTrackRunner:
                             if cid in cid_to_idx:
                                 soft_assignments[k, t_step, cid_to_idx[cid]] = prob
 
+        result_assignment_switch_rate = compute_assignment_switch_rate(predicted_matrix)
+        result_avg_clients_per_concept = compute_avg_clients_per_concept(predicted_matrix)
+        result_singleton_group_ratio = compute_singleton_group_ratio(predicted_matrix)
+        result_memory_reuse_rate = compute_memory_reuse_rate(
+            dataset.concept_matrix,
+            predicted_matrix,
+        )
+        result_routing_consistency = compute_routing_consistency(
+            soft_assignments,
+            predicted_matrix,
+        )
+
         return FedProTrackResult(
             accuracy_matrix=accuracy_matrix,
             predicted_concept_matrix=predicted_matrix,
@@ -584,4 +849,9 @@ class FedProTrackRunner:
             pruned_concepts=total_pruned,
             active_concepts=protocol.memory_bank.n_concepts,
             soft_assignments=soft_assignments,
+            assignment_switch_rate=result_assignment_switch_rate,
+            avg_clients_per_concept=result_avg_clients_per_concept,
+            singleton_group_ratio=result_singleton_group_ratio,
+            memory_reuse_rate=result_memory_reuse_rate,
+            routing_consistency=result_routing_consistency,
         )

@@ -167,6 +167,22 @@ class MetricsResult:
     assignment_entropy : float or None
         Mean entropy of the concept assignment distribution.  ``None`` when
         the method does not perform identity inference.
+    assignment_switch_rate : float or None
+        Fraction of client transitions that switch hard assignment. ``None``
+        when the method does not perform identity inference.
+    avg_clients_per_concept : float or None
+        Mean active concept-group size induced by the hard assignments.
+        ``None`` when the method does not perform identity inference.
+    singleton_group_ratio : float or None
+        Fraction of active concept groups that contain a single client.
+        ``None`` when the method does not perform identity inference.
+    memory_reuse_rate : float or None
+        Fraction of aligned client-time cells where the predicted concept
+        reuses a concept already seen in that client's history. ``None`` when
+        the method does not perform identity inference.
+    routing_consistency : float or None
+        Temporal smoothness score of routing assignments in ``[0, 1]``.
+        ``None`` when the method does not perform identity inference.
     wrong_memory_reuse_rate : float or None
         Fraction of (k, t) cells where the aligned prediction is wrong
         (1 - concept_re_id_accuracy).  ``None`` when the method does not
@@ -185,12 +201,17 @@ class MetricsResult:
 
     concept_re_id_accuracy: float | None
     assignment_entropy: float | None
-    wrong_memory_reuse_rate: float | None
-    worst_window_dip: float | None
-    worst_window_recovery: int | None
-    budget_normalized_score: float | None
-    per_client_re_id: np.ndarray | None
-    per_timestep_re_id: np.ndarray | None
+    assignment_switch_rate: float | None = None
+    avg_clients_per_concept: float | None = None
+    singleton_group_ratio: float | None = None
+    memory_reuse_rate: float | None = None
+    routing_consistency: float | None = None
+    wrong_memory_reuse_rate: float | None = None
+    worst_window_dip: float | None = None
+    worst_window_recovery: int | None = None
+    budget_normalized_score: float | None = None
+    per_client_re_id: np.ndarray | None = None
+    per_timestep_re_id: np.ndarray | None = None
     final_accuracy: float | None = None
     accuracy_auc: float | None = None
 
@@ -216,6 +237,31 @@ class MetricsResult:
             "assignment_entropy": (
                 float(self.assignment_entropy)
                 if self.assignment_entropy is not None
+                else None
+            ),
+            "assignment_switch_rate": (
+                float(self.assignment_switch_rate)
+                if self.assignment_switch_rate is not None
+                else None
+            ),
+            "avg_clients_per_concept": (
+                float(self.avg_clients_per_concept)
+                if self.avg_clients_per_concept is not None
+                else None
+            ),
+            "singleton_group_ratio": (
+                float(self.singleton_group_ratio)
+                if self.singleton_group_ratio is not None
+                else None
+            ),
+            "memory_reuse_rate": (
+                float(self.memory_reuse_rate)
+                if self.memory_reuse_rate is not None
+                else None
+            ),
+            "routing_consistency": (
+                float(self.routing_consistency)
+                if self.routing_consistency is not None
                 else None
             ),
             "wrong_memory_reuse_rate": (

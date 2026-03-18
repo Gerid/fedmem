@@ -24,6 +24,11 @@ METRIC_NAMES = [
 METRIC_LABELS = {
     "concept_re_id_accuracy": "Re-ID Acc",
     "assignment_entropy": "Assign Ent",
+    "assignment_switch_rate": "Switch Rate",
+    "avg_clients_per_concept": "Avg Clients/Concept",
+    "singleton_group_ratio": "Singleton Ratio",
+    "memory_reuse_rate": "Mem Reuse",
+    "routing_consistency": "Routing Cons",
     "wrong_memory_reuse_rate": "Wrong Mem",
     "budget_normalized_score": "Budget Score",
     "final_accuracy": "Final Acc",
@@ -38,6 +43,11 @@ METRIC_LABELS = {
 HIGHER_IS_BETTER = {
     "concept_re_id_accuracy": True,
     "assignment_entropy": False,
+    "assignment_switch_rate": False,
+    "avg_clients_per_concept": True,
+    "singleton_group_ratio": False,
+    "memory_reuse_rate": True,
+    "routing_consistency": True,
     "wrong_memory_reuse_rate": False,
     "budget_normalized_score": True,
     "final_accuracy": True,
@@ -458,6 +468,9 @@ def export_summary_csv(
 
     all_metrics = [
         "concept_re_id_accuracy", "assignment_entropy",
+        "assignment_switch_rate", "avg_clients_per_concept",
+        "singleton_group_ratio", "memory_reuse_rate",
+        "routing_consistency",
         "wrong_memory_reuse_rate", "budget_normalized_score",
         "final_accuracy", "accuracy_auc",
         "worst_window_dip", "worst_window_recovery",

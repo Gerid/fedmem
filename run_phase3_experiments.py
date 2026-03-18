@@ -41,8 +41,7 @@ from fedprotrack.baselines.runners import (
 from fedprotrack.metrics import compute_all_metrics
 from fedprotrack.metrics.budget_metrics import compute_accuracy_auc
 from fedprotrack.metrics.experiment_log import ExperimentLog, MetricsResult
-from fedprotrack.posterior.fedprotrack_runner import FedProTrackRunner
-from fedprotrack.posterior.two_phase_protocol import TwoPhaseConfig
+from fedprotrack.posterior import FedProTrackRunner, make_plan_c_config
 from fedprotrack.experiments.tables import (
     generate_main_table,
     generate_per_axis_table,
@@ -134,7 +133,7 @@ def run_single_setting(
         return compute_all_metrics(log, identity_capable=identity_metrics_valid(name))
 
     # 1. FedProTrack (our method)
-    fpt_cfg = TwoPhaseConfig()
+    fpt_cfg = make_plan_c_config()
     fpt_runner = FedProTrackRunner(config=fpt_cfg, seed=seed)
     fpt_result = fpt_runner.run(dataset)
     fpt_log = fpt_result.to_experiment_log()
@@ -274,7 +273,9 @@ def _run_budget_study(
 
             # FedProTrack
             fpt_runner = FedProTrackRunner(
-                config=TwoPhaseConfig(), federation_every=fe, seed=42,
+                config=make_plan_c_config(),
+                federation_every=fe,
+                seed=42,
             )
             fpt_result = fpt_runner.run(dataset)
             method_aucs["FedProTrack"] = float(compute_accuracy_auc(fpt_result.accuracy_matrix))
@@ -742,7 +743,7 @@ def _collect_overhead_stats(
 
     # FedProTrack
     t0 = time.time()
-    fpt_runner = FedProTrackRunner(config=TwoPhaseConfig(), seed=42)
+    fpt_runner = FedProTrackRunner(config=make_plan_c_config(), seed=42)
     fpt_result = fpt_runner.run(dataset)
     stats["FedProTrack"] = {
         "total_bytes": fpt_result.total_bytes,

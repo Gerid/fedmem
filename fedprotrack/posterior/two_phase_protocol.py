@@ -15,9 +15,15 @@ import numpy as np
 
 from ..baselines.comm_tracker import fingerprint_bytes, model_bytes
 from ..concept_tracker.fingerprint import ConceptFingerprint
-from ..federation.aggregator import FedAvgAggregator
+from ..federation.aggregator import (
+    FedAvgAggregator,
+    has_namespaced_params,
+    merge_param_namespaces,
+    split_param_namespaces,
+)
 from .gibbs import GibbsPosterior, PosteriorAssignment, TransitionPrior
 from .memory_bank import DynamicMemoryBank, MemoryBankConfig
+from .retrieval_keys import RetrievalKeyConfig
 
 
 @dataclass
@@ -83,6 +89,15 @@ class TwoPhaseConfig:
     max_concepts: int = 20
     merge_every: int = 2
     shrink_every: int = 5
+    key_mode: str = "fingerprint"
+    key_ema_decay: float = 0.0
+    key_style_weight: float = 0.25
+    key_semantic_weight: float = 0.30
+    key_prototype_weight: float = 0.45
+    entropy_freeze_threshold: float | None = None
+    adaptive_addressing: bool = False
+    addressing_min_round_interval: int = 1
+    addressing_drift_threshold: float = 0.0
     n_features: int = 2
     n_classes: int = 2
 
@@ -110,6 +125,12 @@ class PhaseAResult:
     spawned: int = 0
     merged: int = 0
     pruned: int = 0
+    addressing_performed: bool = True
+    avg_posterior_entropy: float | None = None
+    assignment_switch_rate: float | None = None
+    avg_clients_per_concept: float | None = None
+    singleton_group_ratio: float | None = None
+    routing_consistency: float | None = None
 
     @property
     def total_bytes(self) -> float:
@@ -157,6 +178,13 @@ class TwoPhaseFedProTrack:
             min_count=config.min_count,
             merge_every=config.merge_every,
             shrink_every=config.shrink_every,
+            retrieval_key_config=RetrievalKeyConfig(
+                mode=config.key_mode,
+                ema_decay=config.key_ema_decay,
+                style_weight=config.key_style_weight,
+                semantic_weight=config.key_semantic_weight,
+                prototype_weight=config.key_prototype_weight,
+            ),
         )
         self.memory_bank = DynamicMemoryBank(
             config=mb_config,
@@ -172,6 +200,7 @@ class TwoPhaseFedProTrack:
 
         self._aggregator = FedAvgAggregator()
         self._round: int = 0
+        self._last_addressing_round: int = -1
 
     def phase_a(
         self,
@@ -218,6 +247,47 @@ class TwoPhaseFedProTrack:
                 bytes_up=0.0, bytes_down=0.0,
             )
 
+        if (
+            prev_assignments is not None
+            and self.config.adaptive_addressing
+            and self.memory_bank.n_concepts > 0
+        ):
+            drift_scores: list[float] = []
+            routing_library = self.memory_bank.routing_library
+            for client_id, fp in client_fingerprints.items():
+                prev_cid = prev_assignments.get(client_id)
+                if prev_cid is None or prev_cid not in routing_library:
+                    continue
+                drift_scores.append(
+                    self.gibbs.compute_loss(fp, routing_library[prev_cid])
+                )
+            mean_drift = float(np.mean(drift_scores)) if drift_scores else 0.0
+            if (
+                mean_drift <= self.config.addressing_drift_threshold
+                and (self._round - self._last_addressing_round)
+                < self.config.addressing_min_round_interval
+            ):
+                frozen_posteriors: dict[int, PosteriorAssignment] = {}
+                for client_id, concept_id in prev_assignments.items():
+                    frozen_posteriors[client_id] = PosteriorAssignment(
+                        probabilities={concept_id: 1.0},
+                        map_concept_id=concept_id,
+                        is_novel=False,
+                        entropy=0.0,
+                    )
+                return PhaseAResult(
+                    assignments=dict(prev_assignments),
+                    posteriors=frozen_posteriors,
+                    bytes_up=bytes_up,
+                    bytes_down=K * 4.0,
+                    addressing_performed=False,
+                    avg_posterior_entropy=0.0,
+                    assignment_switch_rate=0.0,
+                    avg_clients_per_concept=_avg_clients_per_concept(prev_assignments),
+                    singleton_group_ratio=_singleton_group_ratio(prev_assignments),
+                    routing_consistency=1.0,
+                )
+
         # --- Bootstrap: if no concepts yet, create the first from all clients ---
         if self.memory_bank.n_concepts == 0:
             # Spawn first concept from the first client
@@ -251,7 +321,7 @@ class TwoPhaseFedProTrack:
             prev_cid = (
                 prev_assignments.get(client_id) if prev_assignments else None
             )
-            library = self.memory_bank.concept_library
+            library = self.memory_bank.routing_library
 
             assignment = self.gibbs.compute_posterior(fp, library, prev_cid)
             posteriors[client_id] = assignment
@@ -262,8 +332,8 @@ class TwoPhaseFedProTrack:
             # Additional loss-based novelty check (critical for single-concept
             # escape): even if posterior is high (e.g. 1.0 with 1 concept),
             # a high loss means the concept is a poor fit.
-            best_concept_fp = library[assignment.map_concept_id]
-            fp_loss = self.gibbs.compute_loss(fp, best_concept_fp)
+            best_concept_key = library[assignment.map_concept_id]
+            fp_loss = self.gibbs.compute_loss(fp, best_concept_key)
 
             # --- Sticky dampening (Fix #1 for async drift) ---
             # When the transition prior says "stay" (high posterior for the
@@ -306,6 +376,16 @@ class TwoPhaseFedProTrack:
 
             if fp_loss > effective_threshold and not model_suppresses:
                 is_novel = True
+
+            if (
+                self.config.entropy_freeze_threshold is not None
+                and prev_cid is not None
+                and assignment.entropy >= self.config.entropy_freeze_threshold
+                and prev_cid in library
+            ):
+                is_novel = False
+                assigned_clients[client_id] = prev_cid
+                continue
 
             if is_novel:
                 novel_clients.append(client_id)
@@ -370,6 +450,7 @@ class TwoPhaseFedProTrack:
 
         # Download cost: 4 bytes per client (concept ID as int32)
         bytes_down = K * 4.0
+        self._last_addressing_round = self._round
 
         return PhaseAResult(
             assignments=assignments,
@@ -379,6 +460,12 @@ class TwoPhaseFedProTrack:
             spawned=n_spawned,
             merged=n_merged,
             pruned=n_pruned,
+            addressing_performed=True,
+            avg_posterior_entropy=_avg_assignment_entropy(posteriors),
+            assignment_switch_rate=_assignment_switch_rate(assignments, prev_assignments),
+            avg_clients_per_concept=_avg_clients_per_concept(assignments),
+            singleton_group_ratio=_singleton_group_ratio(assignments),
+            routing_consistency=_routing_consistency(assignments, prev_assignments),
         )
 
     def _remap_merged_assignments(
@@ -507,6 +594,20 @@ class TwoPhaseFedProTrack:
         aggregated: dict[int, dict[str, np.ndarray]] = {}
         bytes_down = 0.0
 
+        uses_namespaces = any(
+            has_namespaced_params(params) for params in client_params.values()
+        )
+
+        global_shared: dict[str, np.ndarray] = {}
+        if uses_namespaces:
+            shared_payloads = []
+            for params in client_params.values():
+                shared, _, other = split_param_namespaces(params)
+                if shared:
+                    shared_payloads.append(shared)
+            if shared_payloads:
+                global_shared = self._aggregator.aggregate(shared_payloads)
+
         for concept_id, client_ids in concept_groups.items():
             group_params = [
                 client_params[cid] for cid in client_ids
@@ -515,7 +616,25 @@ class TwoPhaseFedProTrack:
             if not group_params:
                 continue
 
-            agg = self._aggregator.aggregate(group_params)
+            if uses_namespaces:
+                local_payloads = []
+                for params in group_params:
+                    _, expert, other = split_param_namespaces(params)
+                    local_payloads.append(
+                        merge_param_namespaces(
+                            shared=None,
+                            expert=_remap_expert_payload(expert, concept_id),
+                            other=other,
+                        )
+                    )
+                local_agg = self._aggregator.aggregate(local_payloads)
+                agg = merge_param_namespaces(
+                    shared=global_shared,
+                    expert=local_agg,
+                    other=None,
+                )
+            else:
+                agg = self._aggregator.aggregate(group_params)
             aggregated[concept_id] = agg
 
             # Download cost: each client in this cluster gets the aggregated model
@@ -568,6 +687,19 @@ class TwoPhaseFedProTrack:
 
         aggregated: dict[int, dict[str, np.ndarray]] = {}
         bytes_down = 0.0
+        uses_namespaces = any(
+            has_namespaced_params(params) for params in client_params.values()
+        )
+
+        global_shared: dict[str, np.ndarray] = {}
+        if uses_namespaces:
+            shared_payloads = []
+            for params in client_params.values():
+                shared, _, other = split_param_namespaces(params)
+                if shared:
+                    shared_payloads.append(shared)
+            if shared_payloads:
+                global_shared = self._aggregator.aggregate(shared_payloads)
 
         for concept_id in concept_ids:
             # Gather posterior weights from all clients for this concept
@@ -585,16 +717,28 @@ class TwoPhaseFedProTrack:
                 continue
 
             total_w = sum(weights.values())
+            group_payloads = [client_params[client_id] for client_id in weights]
+            group_weights = [float(weight) / total_w for weight in weights.values()]
 
-            # Weighted average of model parameters
-            first_cid = next(iter(weights))
-            agg: dict[str, np.ndarray] = {
-                key: np.zeros_like(arr)
-                for key, arr in client_params[first_cid].items()
-            }
-            for client_id, w in weights.items():
-                for key, arr in client_params[client_id].items():
-                    agg[key] += (w / total_w) * arr
+            if uses_namespaces:
+                local_payloads = []
+                for params in group_payloads:
+                    _, expert, other = split_param_namespaces(params)
+                    local_payloads.append(
+                        merge_param_namespaces(
+                            shared=None,
+                            expert=_remap_expert_payload(expert, concept_id),
+                            other=other,
+                        )
+                    )
+                local_agg = self._aggregator.aggregate(local_payloads, group_weights)
+                agg = merge_param_namespaces(
+                    shared=global_shared,
+                    expert=local_agg,
+                    other=None,
+                )
+            else:
+                agg = self._aggregator.aggregate(group_payloads, group_weights)
 
             aggregated[concept_id] = agg
 
@@ -614,4 +758,84 @@ class TwoPhaseFedProTrack:
             bytes_up=bytes_up,
             bytes_down=bytes_down,
         )
+
+
+def _avg_assignment_entropy(
+    posteriors: dict[int, PosteriorAssignment],
+) -> float | None:
+    if not posteriors:
+        return None
+    return float(np.mean([assignment.entropy for assignment in posteriors.values()]))
+
+
+def _remap_expert_payload(
+    expert_payload: dict[str, np.ndarray],
+    target_concept_id: int,
+) -> dict[str, np.ndarray]:
+    """Rename a client's expert payload so it contributes to one slot.
+
+    Local models export their active expert under the slot they trained on.
+    During Phase B we need every contributor to aggregate into the target
+    concept's expert namespace for that round.
+    """
+    remapped: dict[str, np.ndarray] = {}
+    for key, value in expert_payload.items():
+        if not key.startswith("expert."):
+            remapped[key] = value.copy()
+            continue
+        parts = key.split(".", 2)
+        if len(parts) < 3:
+            remapped[key] = value.copy()
+            continue
+        remapped[f"expert.{target_concept_id}.{parts[2]}"] = value.copy()
+    return remapped
+
+
+def _assignment_switch_rate(
+    assignments: dict[int, int],
+    prev_assignments: dict[int, int] | None,
+) -> float | None:
+    if not assignments or not prev_assignments:
+        return None
+    switches = 0
+    total = 0
+    for client_id, concept_id in assignments.items():
+        if client_id not in prev_assignments:
+            continue
+        switches += int(prev_assignments[client_id] != concept_id)
+        total += 1
+    if total == 0:
+        return None
+    return float(switches / total)
+
+
+def _avg_clients_per_concept(assignments: dict[int, int]) -> float | None:
+    if not assignments:
+        return None
+    counts: dict[int, int] = {}
+    for concept_id in assignments.values():
+        counts[concept_id] = counts.get(concept_id, 0) + 1
+    return float(np.mean(list(counts.values()))) if counts else None
+
+
+def _singleton_group_ratio(assignments: dict[int, int]) -> float | None:
+    if not assignments:
+        return None
+    counts: dict[int, int] = {}
+    for concept_id in assignments.values():
+        counts[concept_id] = counts.get(concept_id, 0) + 1
+    if not counts:
+        return None
+    singletons = sum(1 for count in counts.values() if count == 1)
+    return float(singletons / len(counts))
+
+
+def _routing_consistency(
+    assignments: dict[int, int],
+    prev_assignments: dict[int, int] | None,
+) -> float | None:
+    switch_rate = _assignment_switch_rate(assignments, prev_assignments)
+    if switch_rate is None:
+        return None
+    return float(1.0 - switch_rate)
 

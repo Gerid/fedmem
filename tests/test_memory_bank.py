@@ -262,3 +262,19 @@ class TestConceptLibrary:
     def test_get_fingerprint_missing(self) -> None:
         bank = DynamicMemoryBank(n_features=2, n_classes=2)
         assert bank.get_fingerprint(42) is None
+
+    def test_slot_schema_tracks_support_and_key(self) -> None:
+        bank = DynamicMemoryBank(n_features=2, n_classes=2)
+        result = bank.spawn_from_fingerprint(_make_fp(seed=0))
+        slot = bank.get_slot(result.new_concept_id)
+        assert slot is not None
+        assert slot.support_count == 1
+        assert slot.center_key is not None
+        assert slot.semantic_anchor_set is not None
+
+    def test_routing_library_uses_slot_keys(self) -> None:
+        bank = DynamicMemoryBank(n_features=2, n_classes=2)
+        r = bank.spawn_from_fingerprint(_make_fp(seed=0))
+        routing = bank.routing_library
+        assert r.new_concept_id in routing
+        assert hasattr(routing[r.new_concept_id], "similarity")

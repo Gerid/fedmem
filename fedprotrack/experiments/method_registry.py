@@ -4,7 +4,9 @@ from __future__ import annotations
 
 Defines which methods support identity-level concept inference and
 therefore produce meaningful identity metrics (concept_re_id_accuracy,
-assignment_entropy, wrong_memory_reuse_rate).
+assignment_entropy, assignment_switch_rate, avg_clients_per_concept,
+singleton_group_ratio, memory_reuse_rate, routing_consistency,
+wrong_memory_reuse_rate).
 
 Methods that do **not** perform identity inference (e.g. FedAvg, FedProto,
 Flash, CompressedFedAvg, LocalOnly) should have their identity metrics
@@ -49,6 +51,11 @@ NON_IDENTITY_METHODS: frozenset[str] = frozenset({
 IDENTITY_METRIC_FIELDS: tuple[str, ...] = (
     "concept_re_id_accuracy",
     "assignment_entropy",
+    "assignment_switch_rate",
+    "avg_clients_per_concept",
+    "singleton_group_ratio",
+    "memory_reuse_rate",
+    "routing_consistency",
     "wrong_memory_reuse_rate",
 )
 

@@ -50,6 +50,28 @@ class TestFedProTrackResult:
         assert log.total_bytes == 1000.0
         assert log.method_name == "FedProTrack"
 
+    def test_result_exposes_plan_c_diagnostics(self) -> None:
+        result = FedProTrackResult(
+            accuracy_matrix=np.ones((2, 3)),
+            predicted_concept_matrix=np.zeros((2, 3), dtype=np.int32),
+            true_concept_matrix=np.zeros((2, 3), dtype=np.int32),
+            total_bytes=10.0,
+            phase_a_bytes=4.0,
+            phase_b_bytes=6.0,
+            mean_accuracy=1.0,
+            final_accuracy=1.0,
+            assignment_switch_rate=0.0,
+            avg_clients_per_concept=2.0,
+            singleton_group_ratio=0.0,
+            memory_reuse_rate=1.0,
+            routing_consistency=1.0,
+        )
+        assert result.assignment_switch_rate == pytest.approx(0.0)
+        assert result.avg_clients_per_concept == pytest.approx(2.0)
+        assert result.singleton_group_ratio == pytest.approx(0.0)
+        assert result.memory_reuse_rate == pytest.approx(1.0)
+        assert result.routing_consistency == pytest.approx(1.0)
+
 
 # ---------------------------------------------------------------------------
 # FedProTrackRunner - basic
@@ -97,6 +119,19 @@ class TestFedProTrackRunner:
         runner = FedProTrackRunner(seed=42)
         result = runner.run(dataset)
         assert result.method_name == "FedProTrack"
+
+    def test_feature_adapter_model_runs_end_to_end(self) -> None:
+        dataset = _small_dataset()
+        runner = FedProTrackRunner(
+            seed=42,
+            model_type="feature_adapter",
+            soft_aggregation=True,
+            config=TwoPhaseConfig(key_mode="multi_scale"),
+        )
+        result = runner.run(dataset)
+        assert result.accuracy_matrix.shape == (3, 5)
+        assert result.assignment_switch_rate is not None
+        assert result.routing_consistency is not None
 
 
 # ---------------------------------------------------------------------------

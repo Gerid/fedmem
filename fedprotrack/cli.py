@@ -132,6 +132,14 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
         print(f"  assignment_entropy       : {result.assignment_entropy:.4f}")
     else:
         print(f"  assignment_entropy       : --  (method does not track identity)")
+    if result.assignment_switch_rate is not None:
+        print(f"  assignment_switch_rate   : {result.assignment_switch_rate:.4f}")
+        print(f"  avg_clients_per_concept  : {result.avg_clients_per_concept:.4f}")
+        print(f"  singleton_group_ratio    : {result.singleton_group_ratio:.4f}")
+        print(f"  memory_reuse_rate        : {result.memory_reuse_rate:.4f}")
+        print(f"  routing_consistency      : {result.routing_consistency:.4f}")
+    else:
+        print(f"  assignment_switch_rate   : --  (method does not track identity)")
     if result.wrong_memory_reuse_rate is not None:
         print(f"  wrong_memory_reuse_rate  : {result.wrong_memory_reuse_rate:.4f}")
     else:
@@ -353,7 +361,9 @@ def main() -> None:
     pd.add_argument("--row", type=str, default="rho")
     pd.add_argument("--col", type=str, default="delta")
     pd.add_argument("--metric", type=str, default="concept_re_id_accuracy",
-        choices=["concept_re_id_accuracy","assignment_entropy","wrong_memory_reuse_rate",
+        choices=["concept_re_id_accuracy","assignment_entropy","assignment_switch_rate",
+                 "avg_clients_per_concept","singleton_group_ratio","memory_reuse_rate",
+                 "routing_consistency","wrong_memory_reuse_rate",
                  "worst_window_dip","worst_window_recovery","budget_normalized_score"])
     pd.add_argument("--method-name", type=str, default=None)
     pd.add_argument("--output", type=str, default=None)

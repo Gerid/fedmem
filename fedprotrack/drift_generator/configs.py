@@ -21,7 +21,7 @@ class GeneratorConfig:
     delta: float = 0.5       # separability [0.1, 1.0]
 
     # Data generation
-    generator_type: str = "sine"  # "sine", "sea", "circle"
+    generator_type: str = "sine"  # "sine", "sea", "circle", real-data variants
     seed: int = 42
 
     # Output
@@ -42,6 +42,8 @@ class GeneratorConfig:
             "circle",
             "rotating_mnist",
             "cifar100_recurrence",
+            "cifar100_overlap",
+            "cifar100_label_overlap",
         ):
             raise ValueError(f"Unknown generator_type: {self.generator_type}")
 

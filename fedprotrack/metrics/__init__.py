@@ -9,7 +9,12 @@ from .budget_metrics import (
 )
 from .concept_metrics import (
     assignment_entropy,
+    assignment_switch_rate,
+    avg_clients_per_concept,
     concept_re_id_accuracy,
+    memory_reuse_rate,
+    routing_consistency,
+    singleton_group_ratio,
     wrong_memory_reuse_rate,
 )
 from .drift_metrics import find_drift_points, worst_window_dip_recovery
@@ -45,6 +50,11 @@ def compute_all_metrics(
     # Concept identity metrics -- only compute when the method supports them
     acc: float | None = None
     ent: float | None = None
+    switch_rate: float | None = None
+    clients_per_concept: float | None = None
+    singleton_ratio: float | None = None
+    reuse_rate: float | None = None
+    consistency: float | None = None
     wmrr: float | None = None
     per_client: np.ndarray | None = None
     per_ts: np.ndarray | None = None
@@ -55,6 +65,11 @@ def compute_all_metrics(
         )
         n_concepts = int(log.ground_truth.max()) + 1
         ent = assignment_entropy(log.soft_assignments, log.predicted, n_concepts)
+        switch_rate = assignment_switch_rate(log.predicted)
+        clients_per_concept = avg_clients_per_concept(log.predicted)
+        singleton_ratio = singleton_group_ratio(log.predicted)
+        reuse_rate = memory_reuse_rate(log.ground_truth, log.predicted)
+        consistency = routing_consistency(log.soft_assignments, log.predicted)
         wmrr = wrong_memory_reuse_rate(log.ground_truth, log.predicted)
 
     # Drift window metrics (optional)
@@ -78,6 +93,11 @@ def compute_all_metrics(
     return MetricsResult(
         concept_re_id_accuracy=acc,
         assignment_entropy=ent,
+        assignment_switch_rate=switch_rate,
+        avg_clients_per_concept=clients_per_concept,
+        singleton_group_ratio=singleton_ratio,
+        memory_reuse_rate=reuse_rate,
+        routing_consistency=consistency,
         wrong_memory_reuse_rate=wmrr,
         worst_window_dip=dip,
         worst_window_recovery=recovery,
@@ -100,6 +120,11 @@ __all__ = [
     # Concept metrics
     "concept_re_id_accuracy",
     "assignment_entropy",
+    "assignment_switch_rate",
+    "avg_clients_per_concept",
+    "singleton_group_ratio",
+    "memory_reuse_rate",
+    "routing_consistency",
     "wrong_memory_reuse_rate",
     # Drift metrics
     "find_drift_points",

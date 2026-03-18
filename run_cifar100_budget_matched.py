@@ -23,8 +23,7 @@ from fedprotrack.baselines.comm_tracker import model_bytes
 from fedprotrack.metrics import compute_all_metrics
 from fedprotrack.metrics.experiment_log import ExperimentLog
 from fedprotrack.models import TorchLinearClassifier
-from fedprotrack.posterior.fedprotrack_runner import FedProTrackRunner
-from fedprotrack.posterior.two_phase_protocol import TwoPhaseConfig
+from fedprotrack.posterior import FedProTrackRunner, make_plan_c_config
 from fedprotrack.real_data import (
     CIFAR100RecurrenceConfig,
     generate_cifar100_recurrence_dataset,
@@ -109,17 +108,8 @@ def run_one(method: str, dataset, ground_truth, cfg: dict) -> dict:
     if method == "FedProTrack":
         n_concepts = int(ground_truth.max()) + 1
         runner = FedProTrackRunner(
-            config=TwoPhaseConfig(
-                omega=2.0,
-                kappa=0.7,
-                novelty_threshold=0.25,
-                loss_novelty_threshold=0.15,
-                sticky_dampening=1.5,
-                sticky_posterior_gate=0.35,
-                merge_threshold=0.85,
-                min_count=5.0,
+            config=make_plan_c_config(
                 max_concepts=max(6, n_concepts + 2),
-                merge_every=2,
                 shrink_every=6,
             ),
             federation_every=fed_every,
@@ -129,6 +119,9 @@ def run_one(method: str, dataset, ground_truth, cfg: dict) -> dict:
             n_epochs=epochs,
             soft_aggregation=True,
             blend_alpha=0.0,
+            model_type="feature_adapter",
+            hidden_dim=64,
+            adapter_dim=16,
         )
         result = runner.run(dataset)
         log = result.to_experiment_log()
@@ -178,6 +171,11 @@ def run_one(method: str, dataset, ground_truth, cfg: dict) -> dict:
         "final_accuracy": metrics.final_accuracy,
         "accuracy_auc": metrics.accuracy_auc,
         "concept_re_id_accuracy": metrics.concept_re_id_accuracy,
+        "assignment_switch_rate": metrics.assignment_switch_rate,
+        "avg_clients_per_concept": metrics.avg_clients_per_concept,
+        "singleton_group_ratio": metrics.singleton_group_ratio,
+        "memory_reuse_rate": metrics.memory_reuse_rate,
+        "routing_consistency": metrics.routing_consistency,
         "total_bytes": total_bytes,
         "wall_clock_s": elapsed,
     }

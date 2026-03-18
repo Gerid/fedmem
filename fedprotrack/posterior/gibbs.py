@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from ..concept_tracker.fingerprint import ConceptFingerprint
+from .retrieval_keys import SupportsSimilarity
 
 
 @dataclass
@@ -171,7 +172,7 @@ class GibbsPosterior:
     def compute_loss(
         self,
         observation_fp: ConceptFingerprint,
-        concept_fp: ConceptFingerprint,
+        concept_fp: SupportsSimilarity | ConceptFingerprint,
     ) -> float:
         """Compute the loss ℓ(o, m_k) between an observation and a concept.
 
@@ -190,13 +191,16 @@ class GibbsPosterior:
         float
             Loss in [0, 1]. Lower means better match.
         """
-        sim = observation_fp.similarity(concept_fp)
+        try:
+            sim = float(concept_fp.similarity(observation_fp))
+        except Exception:
+            sim = float(observation_fp.similarity(concept_fp))
         return 1.0 - sim
 
     def compute_posterior(
         self,
         observation_fp: ConceptFingerprint,
-        concept_library: dict[int, ConceptFingerprint],
+        concept_library: dict[int, SupportsSimilarity | ConceptFingerprint],
         prev_concept_id: int | None = None,
     ) -> PosteriorAssignment:
         """Compute the full Gibbs posterior over concept identities.
