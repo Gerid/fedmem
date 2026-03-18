@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from ..baselines.comm_tracker import model_bytes
 from ..concept_tracker.fingerprint import ConceptFingerprint
 from ..drift_detector import BaseDriftDetector
 from ..drift_generator import DriftDataset
@@ -176,6 +177,9 @@ class FedProTrackRunner:
         auto_scale: bool = False,
         lr: float = 0.1,
         n_epochs: int = 1,
+        loss_validation: bool = False,
+        loss_val_top_k: int = 3,
+        dormant_recall: bool = False,
     ):
         self.config = config or TwoPhaseConfig()
         self.federation_every = federation_every
@@ -187,6 +191,9 @@ class FedProTrackRunner:
         self.auto_scale = auto_scale
         self.lr = lr
         self.n_epochs = n_epochs
+        self.loss_validation = loss_validation
+        self.loss_val_top_k = loss_val_top_k
+        self.dormant_recall = dormant_recall
 
     def run(self, dataset: DriftDataset) -> FedProTrackResult:
         """Execute the full FedProTrack simulation.
@@ -243,6 +250,10 @@ class FedProTrackRunner:
         )
 
         protocol = TwoPhaseFedProTrack(cfg)
+
+        # Enable dormant model preservation when dormant recall is active
+        if self.dormant_recall:
+            protocol.memory_bank.config.preserve_dormant_models = True
 
         # Per-client state
         detectors = [_make_detector(self.detector_name) for _ in range(K)]
@@ -352,6 +363,134 @@ class FedProTrackRunner:
                     old_assignments = prev_assignments
                     prev_assignments = last_a_result.assignments
                     posteriors_log.append((t, last_a_result.posteriors))
+
+                    # --- Loss-based concept validation ---
+                    # After fingerprint-based assignment, validate by
+                    # evaluating candidate models on local data. This
+                    # corrects fingerprint errors in high-dimensional or
+                    # class-subset-heterogeneous settings.
+                    if (
+                        self.loss_validation
+                        and protocol.memory_bank.n_concepts >= 2
+                    ):
+                        all_cids = list(
+                            protocol.memory_bank.concept_library.keys()
+                        )
+                        # Collect candidate models (top-K by posterior)
+                        candidate_models: dict[int, dict[str, np.ndarray]] = {}
+                        for cid in all_cids:
+                            m = protocol.memory_bank.get_model_params(cid)
+                            if m is not None:
+                                candidate_models[cid] = m
+
+                        if len(candidate_models) >= 2:
+                            val_bytes_down = 0.0
+                            for k in range(K):
+                                X_k, y_k = dataset.data[(k, t)]
+                                mid = len(X_k) // 2
+                                X_val, y_val = X_k[:mid], y_k[:mid]
+
+                                # Pick top-K candidates by posterior
+                                post = last_a_result.posteriors.get(k)
+                                if post is not None:
+                                    ranked = sorted(
+                                        post.probabilities.items(),
+                                        key=lambda x: -x[1],
+                                    )
+                                    top_cids = [
+                                        c for c, _ in ranked[:self.loss_val_top_k]
+                                        if c in candidate_models
+                                    ]
+                                else:
+                                    top_cids = list(candidate_models.keys())[
+                                        :self.loss_val_top_k
+                                    ]
+
+                                # Ensure current assignment is included
+                                cur_cid = prev_assignments[k]
+                                if cur_cid not in top_cids and cur_cid in candidate_models:
+                                    top_cids.append(cur_cid)
+
+                                # Evaluate each candidate
+                                best_cid = cur_cid
+                                best_acc = -1.0
+                                probe = TorchLinearClassifier(
+                                    n_features=n_features,
+                                    n_classes=n_classes,
+                                    lr=self.lr,
+                                    n_epochs=1,
+                                    seed=self.seed,
+                                )
+                                for cid in top_cids:
+                                    probe.set_params(candidate_models[cid])
+                                    preds = probe.predict(X_val)
+                                    acc = float(np.mean(preds == y_val))
+                                    if acc > best_acc:
+                                        best_acc = acc
+                                        best_cid = cid
+
+                                # Override if different
+                                if best_cid != prev_assignments[k]:
+                                    prev_assignments[k] = best_cid
+
+                                # Comm cost: download top-K models
+                                for cid in top_cids:
+                                    val_bytes_down += model_bytes(
+                                        candidate_models[cid],
+                                        precision_bits=32,
+                                    )
+
+                            phase_a_bytes += val_bytes_down
+
+                    # --- Server-side model probing (Insight 3: φ quality) ---
+                    # Instead of relying on fingerprint matching (noisy in
+                    # high dim), each client uploads a small validation batch.
+                    # The server evaluates ALL stored concept models on this
+                    # batch and returns the best-matching concept ID.
+                    #
+                    # Communication: client uploads n_probe samples (cheap),
+                    # server evaluates locally, returns concept ID (4 bytes).
+                    # Much cheaper than IFCA (no model download) but uses
+                    # the model-prediction signal (stronger than fingerprint).
+                    if self.dormant_recall:
+                        all_stored = dict(protocol.memory_bank._model_store)
+                        if len(all_stored) >= 2:
+                            n_probe = 30  # samples per client
+                            probe_bytes_up = 0.0
+                            probe = TorchLinearClassifier(
+                                n_features=n_features,
+                                n_classes=n_classes,
+                                lr=self.lr,
+                                n_epochs=1,
+                                seed=self.seed,
+                            )
+                            for k in range(K):
+                                X_k, y_k = dataset.data[(k, t)]
+                                mid = len(X_k) // 2
+                                X_val = X_k[:min(n_probe, mid)]
+                                y_val = y_k[:min(n_probe, mid)]
+
+                                # Server evaluates all stored models
+                                best_cid = prev_assignments[k]
+                                best_acc = -1.0
+                                for cid, params in all_stored.items():
+                                    probe.set_params(params)
+                                    preds = probe.predict(X_val)
+                                    acc = float(np.mean(preds == y_val))
+                                    if acc > best_acc:
+                                        best_acc = acc
+                                        best_cid = cid
+
+                                prev_assignments[k] = best_cid
+
+                                # Comm: upload probe samples (features + labels)
+                                probe_bytes_up += (
+                                    len(X_val) * n_features * 4  # features
+                                    + len(y_val) * 4  # labels
+                                )
+
+                            # Download: just concept ID per client (4 bytes)
+                            phase_a_bytes += probe_bytes_up + K * 4.0
 
                 # Record concept assignments
                 for k in range(K):

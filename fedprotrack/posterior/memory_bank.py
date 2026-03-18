@@ -37,6 +37,7 @@ class MemoryBankConfig:
     min_count: float = 5.0
     merge_every: int = 5
     shrink_every: int = 5
+    preserve_dormant_models: bool = False
 
     def __post_init__(self) -> None:
         if self.max_concepts < 1:
@@ -242,7 +243,10 @@ class DynamicMemoryBank:
     def maybe_shrink(self) -> list[int]:
         """Remove concepts with fingerprint count below min_count.
 
-        Never removes the last concept.
+        Never removes the last concept. When ``preserve_dormant_models``
+        is True, only the fingerprint entry is removed — the stored
+        model parameters are preserved in ``_model_store`` for potential
+        concept recurrence.
 
         Returns
         -------
@@ -265,7 +269,8 @@ class DynamicMemoryBank:
 
         for cid in to_remove:
             del self._library[cid]
-            self._model_store.pop(cid, None)
+            if not self.config.preserve_dormant_models:
+                self._model_store.pop(cid, None)
 
         return to_remove
 

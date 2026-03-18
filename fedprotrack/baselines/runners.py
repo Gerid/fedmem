@@ -332,6 +332,8 @@ def run_ifca_full(
     dataset: DriftDataset,
     federation_every: int = 1,
     n_clusters: int = 3,
+    lr: float = 0.01,
+    n_epochs: int = 5,
 ) -> MethodResult:
     """Run IFCA (iterative federated clustering) and return full results.
 
@@ -340,6 +342,10 @@ def run_ifca_full(
     dataset : DriftDataset
     federation_every : int
     n_clusters : int
+    lr : float
+        Local SGD learning rate. Default 0.01.
+    n_epochs : int
+        Number of local training epochs per round. Default 5.
 
     Returns
     -------
@@ -347,7 +353,7 @@ def run_ifca_full(
     """
     K, T, n_features, n_classes = _extract_dims(dataset)
     clients = [
-        IFCAClient(k, n_features, n_classes, seed=42 + k)
+        IFCAClient(k, n_features, n_classes, seed=42 + k, lr=lr, n_epochs=n_epochs)
         for k in range(K)
     ]
     server = IFCAServer(
