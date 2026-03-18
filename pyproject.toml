@@ -5,20 +5,25 @@ description = "Federated Proactive Concept Identity Tracking"
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",
-    "river>=0.21",
+    "river>=0.23",
     "matplotlib>=3.7",
     "pyyaml>=6.0",
     "scikit-learn>=1.3",
     "scipy>=1.10",
+    "torch>=2.1",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+real-data = ["torchvision>=0.16"]
 
 [tool.pytest.ini_options]
 # Keep cache inside the worktree so Windows PermissionError on system temp is avoided.
 cache_dir = ".pytest_cache"
 tmp_path_retention_policy = "none"
+markers = [
+    "slow: tests that may download datasets or build real-data feature caches",
+]
 
 [project.scripts]
 fedprotrack = "fedprotrack.cli:main"

@@ -4,16 +4,18 @@
 
 **FedProTrack** — Federated Proactive Concept Identity Tracking
 
-面向 NeurIPS 2026 投稿的研究项目，核心问题：在联邦概念漂移下，服务器如何在通信受限条件下推断潜在概念身份（latent concept identity）——记忆何时有益、何时因误归属而有害？
+面向 NeurIPS 2026 投稿的研究项目，核心问题是：在联邦概念漂移下，服务器如何在通信受限条件下推断潜在概念身份（latent concept identity），以及记忆何时有益、何时会因误归属而有害。
 
-**当前状态**：Phase 1 已完成（合成漂移生成器 + 指标管线 + baseline 族 + matched-budget 对比框架）。141 个测试全部通过。正处于 Phase 0（文献精读）与 Phase 2（核心方法实现：Gibbs 后验 + 动态记忆库）之间。
+**当前状态**：合成漂移管线、Gibbs 后验 / 两阶段协议、动态记忆库、Phase 4 记忆修复、扩展 baseline 套件、Rotating-MNIST 与 CIFAR-100 真实数据 benchmark 都已落地。当前重点是维持 matched-budget 对比、真实数据实验和项目元数据的一致性。当前测试树用 `pytest --collect-only` 可收集 381 个测试。
 
 **技术栈**：
-- Python 3.10+（Windows 环境，**必须用** `conda run -n base python`，`python` / `python3` 是 Windows Store 重定向）
-- numpy >= 1.24, river 0.23（仅用 `river.drift` 检测器和 `river.datasets.synth` 生成器）, scikit-learn >= 1.3, matplotlib >= 3.7, scipy >= 1.10, pyyaml >= 6.0
-- 测试：pytest >= 7.0
+- Python 3.10+（Windows 环境优先用 `conda run -n base python`）
+- 核心依赖：numpy >= 1.24、river >= 0.23、scikit-learn >= 1.3、scipy >= 1.10、matplotlib >= 3.7、pyyaml >= 6.0、torch >= 2.1
+- 真实数据依赖：torchvision >= 0.16（Rotating-MNIST / CIFAR-100），缓存目录为 `.mnist_cache/`、`.cifar100_cache/`、`.feature_cache/`
+- CUDA：由当前 PyTorch 安装决定；设备路由统一走 `fedprotrack/device.py`，可用 `FEDPROTRACK_FORCE_CPU=1` 强制 CPU，用 `FEDPROTRACK_GPU_THRESHOLD=0` 总是优先 GPU
+- 测试：pytest >= 7.0，`slow` marker 用于可能下载或构建真实数据缓存的测试
 
-**架构概览**：`fedprotrack/` 下 7 个子模块沿数据管线排列——`drift_generator/` 生成可控的 K×T 概念矩阵与流数据 → `drift_detector/` 封装 River 的 ADWIN/PageHinkley/KSWIN 做在线漂移检测 → `concept_tracker/` 用 ConceptFingerprint（增量均值/协方差/标签分布）+ ConceptTracker 做概念身份追踪 → `federation/` 实现 FedAvg 与 ConceptAwareFedAvg 聚合 → `metrics/` 计算五类论文指标（re-ID accuracy, assignment entropy, wrong-memory reuse, dip/recovery, budget-normalized score）并输出 phase diagram + budget frontier → `baselines/` 实现三种 matched-budget baseline（FedAvg-Full / FedProto / TrackedSummary）+ 通信字节计数 + budget sweep → `experiment/` 编排 runner、baselines（LocalOnly / FedAvg / Oracle）和可视化。入口脚本是 `run_experiments.py`，CLI 入口是 `fedprotrack/cli.py`（含 `budget-sweep` 子命令）。
+**架构概览**：`fedprotrack/` 现在包含 10 个核心子模块——`drift_generator/` 生成可控的 K×T 概念矩阵与流数据；`drift_detector/` 封装 River 的 ADWIN / PageHinkley / KSWIN；`concept_tracker/` 负责概念身份追踪；`federation/` 提供基础聚合逻辑；`metrics/` 与 `evaluation/` 负责论文指标和可视化；`posterior/` 实现 Gibbs 后验、动态记忆库和两阶段 / soft aggregation 的 FedProTrack 主流程；`baselines/` 维护 17 个 matched-budget baseline（FedAvg-Full、FedProto、TrackedSummary、FedCCFA、Flash、FedDrift、IFCA、CFL、FeSEM、FedRC、FedEM、pFedMe、APFL、ATP、FLUX、FLUX-prior、CompressedFedAvg）；`models/` + `device.py` 提供 Torch 线性模型与 CPU/CUDA 设备管理；`real_data/` 提供 Rotating-MNIST 和 CIFAR-100 recurrence 数据集；`experiment/` / `experiments/` 输出 Phase 3/4 分析、表格和可视化。主要入口脚本是 `run_experiments.py`、`run_phase3_experiments.py`、`run_cifar100_comparison.py`、`run_cifar100_budget_matched.py`，CLI 入口是 `fedprotrack/cli.py`。
 
 ---
 
@@ -23,7 +25,7 @@
 
 **文件头**：每个 `.py` 文件的第一行必须是 `from __future__ import annotations`。
 
-**文档字符串**：NumPy 风格，包含 Parameters / Returns / Raises 节：
+**文档字符串**：NumPy 风格，包含 Parameters / Returns / Raises 节。
 
 ```python
 def budget_normalized_score(
@@ -53,7 +55,7 @@ def budget_normalized_score(
 
 **类型注解**：使用 Python 3.10+ 的 `|` 联合语法（`float | None`），不用 `Optional`。
 
-**数据容器**：用 `@dataclass`，指定显式 numpy dtype：
+**数据容器**：优先用 `@dataclass`，并在 numpy 数组边界显式约定 dtype。
 
 ```python
 @dataclass
@@ -63,74 +65,56 @@ class DriftResult:
     detector_name: str = ""
 ```
 
-**随机种子**：确定性递增，公式为 `seed + k * T + t + 10000`，禁止使用全局随机状态。
+**随机种子**：数据采样和概念轨迹遵循确定性递增规则，优先使用 `seed + k * T + t + 10000` 这类可推导公式，禁止依赖全局随机状态。
 
-**抽象基类模式**（以 drift detector 为例）：
-
-```python
-class BaseDriftDetector(ABC):
-    @abstractmethod
-    def update(self, value: float) -> DriftResult: ...
-    @abstractmethod
-    def reset(self) -> None: ...
-    @property
-    @abstractmethod
-    def name(self) -> str: ...
-    @abstractmethod
-    def _init_kwargs(self) -> dict: ...
-
-    def clone(self) -> BaseDriftDetector:
-        return self.__class__(**self._init_kwargs())
-```
+**抽象基类模式**：共享接口优先定义抽象基类并提供 `clone()` / `_init_kwargs()` 之类的最小复用点。
 
 ### 错误处理模式
 
-- **`__post_init__` 校验**：`@dataclass` 的配置类在构造时立即用 `ValueError` 拒绝非法参数（见 `GeneratorConfig`）。
-- **防御性返回**：统计量不足时返回安全默认值而非抛异常（如 `ConceptFingerprint.covariance` 在 count < 2 时返回单位矩阵，`similarity()` 返回 0.0）。
-- **业务层 ValueError**：指标函数对不合理输入显式抛出（如 `total_bytes <= 0`、`T < 2`），附带具体值的 f-string 消息。
+- `@dataclass` 配置类在 `__post_init__` 中尽早抛出 `ValueError` 拒绝非法参数。
+- 统计量不足时返回安全默认值，而不是在内部路径上无意义地抛异常。
+- 业务层输入错误要显式抛出 `ValueError`，并附带具体值。
 - 不使用裸 `except`；不吞异常。
 
 ### 测试要求
 
-- 测试文件位于 `tests/`，命名 `test_<module>.py`。
-- 运行命令：`conda run -n base python -m pytest tests/ -v`
-- 当前 141 个测试全部通过，**任何改动后必须确保测试仍全部通过**。
-- 新增功能必须附带测试。测试要覆盖：正常路径、边界条件、异常输入。
+- 测试文件位于 `tests/`，命名为 `test_<module>.py`。
+- 完整测试命令：`conda run -n base python -m pytest tests/ -v`
+- 快速校验命令：`conda run -n base python -m pytest tests/ -m "not slow" -v`
+- 研究摘要管理命令：`conda run -n base python manage_findings.py save/list/show/promote ...`
+- 当前测试树用 `pytest --collect-only` 可收集 381 个测试；`slow` 测试可能下载 MNIST / CIFAR-100 或构建特征缓存。任何改动后都必须保持测试为绿。
+- 新增功能必须附带测试，至少覆盖正常路径、边界条件和异常输入。
 - River 0.23 中 `drift.DDM` 已被移除，**不要使用**，用 `drift.PageHinkley` 替代。
 
 ---
 
 ## 当前优先事项
 
-### 当前迭代目标（Phase 2，目标 4 月 26 日前完成）
+### 当前迭代目标（Phase 4 稳定化 + 真实数据实验）
 
-1. **实现 Gibbs 后验概念分配模块**——基于 Factorial HMM 的后验推断：$p(z_t^{(i)}=k) \propto \exp\{-\omega \cdot \ell(o, m_k)\} \cdot p(z_t^{(i)}=k \mid z_{t-1}^{(i)})$
-2. **实现动态记忆库**——在线 EM 风格收缩更新 + spawn/merge 策略
-3. **实现两阶段通信协议**——Phase A 轻量 prototype 交换做概念识别，Phase B 在已识别集群内做 full-model 聚合
-4. 在 SINE 合成数据上端到端跑通 FedProTrack，与现有 baselines 产出可比结果
+1. **稳定 FedProTrack 主流程**：保持 Gibbs 后验、模型记忆、两阶段通信和 soft aggregation 在合成数据与真实数据上行为一致。
+2. **维护 17 方法 matched-budget 对比**：新增 baseline 时必须同步更新 `baselines/`、`experiments/method_registry.py`、预算脚本和指标解释。
+3. **校准真实数据 benchmark**：持续维护 Rotating-MNIST 与 CIFAR-100 recurrence 的缓存、预算设置、入口脚本和结果可复现性。
+4. **保持元数据同步**：当依赖、数据集、CUDA 路径或脚本入口变化时，同步更新 `AGENTS.md`、`CLAUDE.md`、`pyproject.toml` 和测试配置。
 
 ### 已知要规避的问题
 
-- **River 兼容性**：River 0.23 移除了 `drift.DDM`，只能用 ADWIN / PageHinkley / KSWIN
-- **Windows 环境**：`python` / `python3` 命令指向 Windows Store，必须用 `conda run -n base python`
-- **实验可比性**：所有 baseline 必须在 matched-budget 条件下公平比较（total bytes 而非 per-round）
-- **代码膨胀**：任何改动必须服务于论文主线，不做泛化重构；优先复用现有 pipeline、config 和日志系统
-- **种子管理**：不要用全局 `np.random.seed()`，按 `seed + k*T + t + 10000` 确定性递增
+- **River 兼容性**：River 0.23 移除了 `drift.DDM`，只能用 ADWIN / PageHinkley / KSWIN。
+- **Windows 环境**：`python` / `python3` 可能指向 Windows Store，优先用 `conda run -n base python`。
+- **PyTorch CUDA 安装**：`pyproject.toml` 只声明 `torch` 依赖，是否启用 CUDA 取决于环境里安装的 PyTorch build，变更环境后必须重新确认 `torch.cuda.is_available()`。
+- **Windows + MKL / KMeans warning**：`sklearn` 在 Windows 上可能提示 KMeans memory leak warning；如需压制该环境问题，可在运行前设置 `OMP_NUM_THREADS=1`。
+- **实验可比性**：所有 baseline 必须在 matched-budget 条件下公平比较（total bytes，而不是 per-round）。
+- **真实数据缓存**：`.mnist_cache/`、`.cifar100_cache/`、`.feature_cache/` 会显著影响首次运行耗时，改动数据入口时必须考虑缓存命名和复用。
+- **结论摘要沉淀**：agent 产出的 root-cause / finding / summary 不要只留在线程或 worktree 里，统一先落到共享 ledger，再把稳定结论 promote 到 `docs/findings/`。
+- **代码膨胀**：任何改动必须服务于论文主线，不做泛化重构；优先复用现有 pipeline、config 和日志系统。
+- **种子管理**：不要用全局 `np.random.seed()`；改动随机流程时必须保留可推导、可复现实验路径。
 
 ### 最近完成的工作（避免重复）
 
-- ✅ `drift_generator/`：可控合成漂移生成器（SINE/SEA/CIRCLE），支持 (rho, alpha, delta) 三轴 sweep，输出 K×T 概念矩阵 + ground truth concept ID
-- ✅ `drift_detector/`：ADWIN、PageHinkley、KSWIN、NoDrift 四种检测器，统一 `BaseDriftDetector` 接口
-- ✅ `concept_tracker/`：ConceptFingerprint（增量均值/协方差/标签分布 + Hellinger 相似度）+ ConceptTracker（新概念检测 / 复现检测）
-- ✅ `federation/`：FedAvg + ConceptAwareFedAvg 聚合器
-- ✅ `metrics/`：完整五类指标（concept_re_id_accuracy, assignment_entropy, wrong_memory_reuse_rate, worst_window_dip_recovery, budget_normalized_score）+ Hungarian 对齐 + phase diagram 构建与可视化
-- ✅ `experiment/`：ExperimentRunner + 三族 baseline（LocalOnly / FedAvg / Oracle）+ 可视化管线
-- ✅ `run_experiments.py`：完整实验入口，支持 `--quick` 模式
-- ✅ `baselines/`：matched-budget baseline skeleton
-  - `comm_tracker.py`：`model_bytes` / `prototype_bytes` / `fingerprint_bytes`（纯解析字节计数）
-  - `fedproto.py`：FedProto 原文实现（nearest prototype 分类 + per-class 加权聚合）
-  - `tracked_summary.py`：ConceptFingerprint cosine 聚类 → 组内 FedAvg
-  - `budget_sweep.py`：`BudgetPoint`、`run_budget_sweep`（3 方法 × federation_every）、`find_crossover_points`
-- ✅ `metrics/visualization.py`：新增 `plot_budget_frontier()`
-- ✅ `cli.py`：新增 `budget-sweep` 子命令（`--dataset-dir / --federation-every-list / --output-dir`）
-- ✅ 141 个测试全部通过
+- `drift_generator/`：可控合成漂移生成器（SINE / SEA / CIRCLE）和 K×T 概念矩阵生成器。
+- `posterior/`：Gibbs 后验、动态记忆库、两阶段协议、soft aggregation、Phase 4 概念-模型记忆修复。
+- `baselines/`：从早期的 3 方法扩展到 17 方法 matched-budget baseline 套件，并补齐 `runners.py`、`budget_sweep.py` 和 capability registry。
+- `models/` + `device.py`：引入 `TorchLinearClassifier` 和统一 CPU / CUDA 设备管理。
+- `real_data/`：新增 `rotating_mnist.py` 与 `cifar100_recurrence.py`，支持真实数据实验和特征缓存。
+- 根目录脚本：新增 / 维护 `run_phase3_experiments.py`、`run_phase4_analysis.py`、`run_cifar100_comparison.py`、`run_cifar100_budget_matched.py`、`run_cifar100_recurrence_gap.py`。
+- 测试树：当前仓库 `pytest --collect-only` 收集 381 个测试项。
