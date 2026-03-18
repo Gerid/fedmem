@@ -63,6 +63,10 @@ class IFCAClient:
         Number of possible class labels.
     seed : int
         Random seed. Default 0.
+    lr : float
+        Local SGD learning rate. Default 0.01.
+    n_epochs : int
+        Number of local training epochs per round. Default 5.
     """
 
     def __init__(
@@ -71,6 +75,8 @@ class IFCAClient:
         n_features: int,
         n_classes: int,
         seed: int = 0,
+        lr: float = 0.01,
+        n_epochs: int = 5,
     ) -> None:
         self.client_id = client_id
         self.n_features = n_features
@@ -82,7 +88,7 @@ class IFCAClient:
         self._selected_cluster: int = 0
         self._model = TorchLinearClassifier(
             n_features=n_features, n_classes=n_classes,
-            lr=0.01, n_epochs=5, seed=seed,
+            lr=lr, n_epochs=n_epochs, seed=seed,
         )
         self._model_params: dict[str, np.ndarray] = {}
         self._n_samples: int = 0

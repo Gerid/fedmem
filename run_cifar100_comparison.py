@@ -75,12 +75,12 @@ def _run_task(task: dict) -> dict:
                 omega=2.0,
                 kappa=0.7,
                 novelty_threshold=0.25,
-                loss_novelty_threshold=0.08,
+                loss_novelty_threshold=0.15,
                 sticky_dampening=1.5,
                 sticky_posterior_gate=0.35,
-                merge_threshold=0.90,
+                merge_threshold=0.85,
                 min_count=5.0,
-                max_concepts=max(8, n_concepts + 2),
+                max_concepts=max(6, n_concepts + 2),
                 merge_every=2,
                 shrink_every=6,
             ),
@@ -89,6 +89,8 @@ def _run_task(task: dict) -> dict:
             seed=seed,
             lr=task["fpt_lr"],
             n_epochs=task["fpt_epochs"],
+            soft_aggregation=True,
+            blend_alpha=0.0,
         )
         result = runner.run(dataset)
         log = result.to_experiment_log()
@@ -285,7 +287,7 @@ def main() -> None:
     parser.add_argument("--ifca-clusters", type=int, default=4)
     parser.add_argument("--detector-name", default="ADWIN")
     parser.add_argument("--fpt-lr", type=float, default=0.1)
-    parser.add_argument("--fpt-epochs", type=int, default=1)
+    parser.add_argument("--fpt-epochs", type=int, default=10)
     parser.add_argument("--n-workers", type=int, default=2)
     parser.add_argument("--data-root", default=".cifar100_cache")
     parser.add_argument("--feature-cache-dir", default=".feature_cache")
