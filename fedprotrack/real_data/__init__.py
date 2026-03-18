@@ -5,11 +5,19 @@ from .cifar100_recurrence import (
     generate_cifar100_recurrence_dataset,
     prepare_cifar100_recurrence_feature_cache,
 )
+from .fmow import (
+    FMOWConfig,
+    generate_fmow_dataset,
+    prepare_fmow_feature_cache,
+)
 from .rotating_mnist import generate_rotating_mnist_dataset
 
 __all__ = [
     "CIFAR100RecurrenceConfig",
+    "FMOWConfig",
     "generate_cifar100_recurrence_dataset",
+    "generate_fmow_dataset",
     "generate_rotating_mnist_dataset",
     "prepare_cifar100_recurrence_feature_cache",
+    "prepare_fmow_feature_cache",
 ]
