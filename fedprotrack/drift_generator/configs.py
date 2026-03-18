@@ -42,6 +42,7 @@ class GeneratorConfig:
             "circle",
             "rotating_mnist",
             "cifar100_recurrence",
+            "fmow",
         ):
             raise ValueError(f"Unknown generator_type: {self.generator_type}")
 

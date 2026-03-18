@@ -16,6 +16,11 @@ results*/
 outputs/
 .mnist_cache/
 .cifar100_cache/
+.fmow_*_cache/
+.fmow_hf_cache/
+.fmow_metadata_tmp/
+.fmow_val_extracted/
+.test_fmow_cache*/
 .feature_cache/
 sweep_*/
 .tmp/
