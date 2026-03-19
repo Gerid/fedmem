@@ -52,6 +52,8 @@ class TestTwoPhaseConfig:
         assert cfg.model_loss_weight == 0.0
         assert cfg.post_spawn_merge is True
         assert cfg.merge_threshold == 0.98
+        assert cfg.max_spawn_clusters_per_round is None
+        assert cfg.novelty_hysteresis_rounds == 1
         assert cfg.merge_every == 2
         assert cfg.key_mode == "fingerprint"
         assert cfg.n_features == 2
@@ -157,6 +159,54 @@ class TestPhaseA:
         fps = {0: _make_fp(seed=0)}
         result = proto.phase_a(fps)
         assert 0 in result.posteriors
+
+    def test_max_spawn_clusters_per_round_caps_bootstrap_overspawn(self) -> None:
+        cfg = TwoPhaseConfig(
+            n_features=2,
+            n_classes=2,
+            novelty_threshold=0.99,
+            loss_novelty_threshold=0.01,
+            merge_threshold=0.999,
+            max_spawn_clusters_per_round=1,
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+
+        fps = {
+            0: _make_fp(seed=0, mean_shift=0.0),
+            1: _make_fp(seed=1, mean_shift=25.0),
+            2: _make_fp(seed=2, mean_shift=50.0),
+            3: _make_fp(seed=3, mean_shift=75.0),
+        }
+        result = proto.phase_a(fps)
+
+        assert result.spawned == 1
+        assert proto.memory_bank.n_concepts == 2
+        assert len(set(result.assignments.values())) == 2
+
+    def test_novelty_hysteresis_requires_repeated_novel_signal(self) -> None:
+        cfg = TwoPhaseConfig(
+            n_features=2,
+            n_classes=2,
+            novelty_threshold=0.99,
+            loss_novelty_threshold=0.01,
+            novelty_hysteresis_rounds=2,
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+
+        proto.memory_bank.spawn_from_fingerprint(_make_fp(seed=0, mean_shift=0.0))
+        proto.memory_bank.spawn_from_fingerprint(_make_fp(seed=1, mean_shift=10.0))
+        r1 = PhaseAResult(assignments={2: 0}, posteriors={}, bytes_up=0.0, bytes_down=0.0)
+        n_before = proto.memory_bank.n_concepts
+        assert n_before >= 2
+
+        fps2 = {2: _make_fp(seed=10, mean_shift=100.0)}
+        r2 = proto.phase_a(fps2, prev_assignments=r1.assignments)
+        assert r2.spawned == 0
+        assert proto.memory_bank.n_concepts == n_before
+
+        r3 = proto.phase_a(fps2, prev_assignments=r2.assignments)
+        assert r3.spawned >= 1
+        assert proto.memory_bank.n_concepts >= n_before + 1
 
     def test_bytes_accounting(self) -> None:
         cfg = TwoPhaseConfig(n_features=2, n_classes=2)

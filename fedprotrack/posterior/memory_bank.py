@@ -264,7 +264,11 @@ class DynamicMemoryBank:
             self.maybe_shrink()
 
     def _build_slot(self, concept_id: int, fp: ConceptFingerprint) -> MemorySlot:
-        new_fp = ConceptFingerprint(self.n_features, self.n_classes)
+        new_fp = ConceptFingerprint(
+            self.n_features,
+            self.n_classes,
+            feature_groups=fp.feature_groups,
+        )
         _merge_fingerprint_into(new_fp, fp)
         return MemorySlot(
             slot_id=concept_id,
@@ -315,6 +319,8 @@ def _merge_fingerprint_into(target: ConceptFingerprint, source: ConceptFingerpri
     """Merge source fingerprint statistics into target (parallel Welford)."""
     if source.count == 0:
         return
+    if target.feature_groups is None and source.feature_groups is not None:
+        target._feature_groups = source.feature_groups
 
     n_a = target._count
     n_b = source._count

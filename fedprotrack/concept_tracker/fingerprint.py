@@ -11,6 +11,64 @@ from __future__ import annotations
 import numpy as np
 
 
+def _normalize_feature_groups(
+    n_features: int,
+    feature_groups: list[tuple[int, int, float]] | tuple[tuple[int, int, float], ...] | None,
+) -> tuple[tuple[int, int, float], ...] | None:
+    if not feature_groups:
+        return None
+
+    normalized: list[tuple[int, int, float]] = []
+    total_weight = 0.0
+    for start, end, weight in feature_groups:
+        start_i = int(start)
+        end_i = int(end)
+        weight_f = float(weight)
+        if not 0 <= start_i < end_i <= n_features:
+            raise ValueError(
+                f"feature group span must satisfy 0 <= start < end <= {n_features}, "
+                f"got {(start, end)}"
+            )
+        if weight_f < 0.0:
+            raise ValueError(f"feature group weights must be non-negative, got {weight}")
+        if weight_f == 0.0:
+            continue
+        normalized.append((start_i, end_i, weight_f))
+        total_weight += weight_f
+
+    if not normalized or total_weight <= 0.0:
+        raise ValueError("feature_groups must contain at least one positive-weight span")
+
+    return tuple(
+        (start_i, end_i, weight_f / total_weight)
+        for start_i, end_i, weight_f in normalized
+    )
+
+
+def _group_similarity(
+    vec_a: np.ndarray,
+    vec_b: np.ndarray,
+    pooled_var: np.ndarray,
+    feature_groups: tuple[tuple[int, int, float], ...] | None,
+) -> float:
+    if not feature_groups:
+        diff = vec_a - vec_b
+        sq_dist = np.sum(diff ** 2 / pooled_var)
+        return float(np.exp(-0.5 * sq_dist))
+
+    total = 0.0
+    accum = 0.0
+    for start, end, weight in feature_groups:
+        diff = vec_a[start:end] - vec_b[start:end]
+        local_var = pooled_var[start:end]
+        sq_dist = float(np.sum(diff ** 2 / local_var))
+        accum += weight * float(np.exp(-0.5 * sq_dist))
+        total += weight
+    if total <= 0.0:
+        return 0.0
+    return float(accum / total)
+
+
 class ConceptFingerprint:
     """Incremental distributional fingerprint for a data concept.
 
@@ -36,10 +94,17 @@ class ConceptFingerprint:
         to recent observations. Default 1.0 (no decay, equal weighting).
     """
 
-    def __init__(self, n_features: int, n_classes: int = 2, decay: float = 1.0):
+    def __init__(
+        self,
+        n_features: int,
+        n_classes: int = 2,
+        decay: float = 1.0,
+        feature_groups: list[tuple[int, int, float]] | tuple[tuple[int, int, float], ...] | None = None,
+    ):
         self.n_features = n_features
         self.n_classes = n_classes
         self.decay = decay
+        self._feature_groups = _normalize_feature_groups(n_features, feature_groups)
 
         # Running statistics (Welford's online algorithm with optional decay)
         self._count: float = 0.0
@@ -78,6 +143,10 @@ class ConceptFingerprint:
     def class_means(self) -> np.ndarray:
         """Per-class conditional means E[X | Y = c], shape (n_classes, n_features)."""
         return self._class_means.copy()
+
+    @property
+    def feature_groups(self) -> tuple[tuple[int, int, float], ...] | None:
+        return self._feature_groups
 
     def update(self, X: np.ndarray, y: np.ndarray) -> None:
         """Incorporate a batch of observations.
@@ -145,14 +214,37 @@ class ConceptFingerprint:
         cc_sim = self._class_conditional_similarity(other)
         return 0.25 * feat_sim + 0.30 * label_sim + 0.45 * cc_sim
 
+    def _compatible_feature_groups(
+        self,
+        other: ConceptFingerprint,
+    ) -> tuple[tuple[int, int, float], ...] | None:
+        if self._feature_groups is None:
+            return None
+
+        other_groups = getattr(other, "feature_groups", None)
+        if other_groups is None:
+            return self._feature_groups
+        if len(self._feature_groups) != len(other_groups):
+            return None
+        for (start_a, end_a, _), (start_b, end_b, _) in zip(
+            self._feature_groups,
+            other_groups,
+        ):
+            if start_a != start_b or end_a != end_b:
+                return None
+        return self._feature_groups
+
     def _feature_similarity(self, other: ConceptFingerprint) -> float:
         """Feature-space similarity via squared Euclidean on means,
         scaled by pooled variance."""
-        diff = self._mean - other._mean
         pooled_var = (np.diag(self.covariance) + np.diag(other.covariance)) / 2.0
         pooled_var = np.maximum(pooled_var, 1e-8)
-        sq_dist = np.sum(diff ** 2 / pooled_var)
-        return float(np.exp(-0.5 * sq_dist))
+        return _group_similarity(
+            self._mean,
+            other._mean,
+            pooled_var,
+            self._compatible_feature_groups(other),
+        )
 
     def _label_similarity(self, other: ConceptFingerprint) -> float:
         """Label distribution similarity via Hellinger distance."""
@@ -178,15 +270,21 @@ class ConceptFingerprint:
         min_class_count = 3.0
         pooled_var = (np.diag(self.covariance) + np.diag(other.covariance)) / 2.0
         pooled_var = np.maximum(pooled_var, 1e-8)
+        feature_groups = self._compatible_feature_groups(other)
 
         sims: list[float] = []
         for c in range(self.n_classes):
             if (self._class_counts[c] < min_class_count
                     or other._class_counts[c] < min_class_count):
                 continue
-            diff = self._class_means[c] - other._class_means[c]
-            sq_dist = float(np.sum(diff ** 2 / pooled_var))
-            sims.append(float(np.exp(-0.5 * sq_dist)))
+            sims.append(
+                _group_similarity(
+                    self._class_means[c],
+                    other._class_means[c],
+                    pooled_var,
+                    feature_groups,
+                )
+            )
 
         if not sims:
             return 0.0

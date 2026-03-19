@@ -73,6 +73,7 @@ class CompositeRetrievalKey:
     style_weight: float = 0.25
     semantic_weight: float = 0.30
     prototype_weight: float = 0.45
+    feature_groups: tuple[tuple[int, int, float], ...] | None = None
 
     @classmethod
     def from_fingerprint(
@@ -102,13 +103,30 @@ class CompositeRetrievalKey:
             style_weight=style_weight,
             semantic_weight=semantic_weight,
             prototype_weight=prototype_weight,
+            feature_groups=fingerprint.feature_groups,
         )
 
     def similarity(self, other: object) -> float:
         other_style, other_semantic, other_proto = _components_from_any(other)
-        style_sim = _vector_similarity(self.style_vec, other_style)
+        feature_groups = _compatible_feature_groups(
+            self.feature_groups,
+            _feature_groups_from_any(other),
+        )
+        style_sim = _vector_similarity(
+            self.style_vec,
+            other_style,
+            feature_groups=feature_groups,
+        )
         semantic_sim = _distribution_similarity(self.semantic_vec, other_semantic)
-        proto_sim = _vector_similarity(self.prototype_vec, other_proto)
+        proto_sim = _vector_similarity(
+            self.prototype_vec,
+            other_proto,
+            feature_groups=_expand_feature_groups(
+                feature_groups,
+                self.n_features,
+                self.n_classes,
+            ),
+        )
         return float(
             self.style_weight * style_sim
             + self.semantic_weight * semantic_sim
@@ -150,7 +168,53 @@ def _components_from_any(obj: object) -> tuple[np.ndarray, np.ndarray, np.ndarra
     raise TypeError(f"Unsupported retrieval-key object: {type(obj)!r}")
 
 
-def _vector_similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
+def _feature_groups_from_any(
+    obj: object,
+) -> tuple[tuple[int, int, float], ...] | None:
+    if isinstance(obj, CompositeRetrievalKey):
+        return obj.feature_groups
+    if isinstance(obj, ConceptFingerprint):
+        return obj.feature_groups
+    return None
+
+
+def _compatible_feature_groups(
+    feature_groups: tuple[tuple[int, int, float], ...] | None,
+    other_groups: tuple[tuple[int, int, float], ...] | None,
+) -> tuple[tuple[int, int, float], ...] | None:
+    if feature_groups is None:
+        return None
+    if other_groups is None:
+        return feature_groups
+    if len(feature_groups) != len(other_groups):
+        return None
+    for (start_a, end_a, _), (start_b, end_b, _) in zip(feature_groups, other_groups):
+        if start_a != start_b or end_a != end_b:
+            return None
+    return feature_groups
+
+
+def _expand_feature_groups(
+    feature_groups: tuple[tuple[int, int, float], ...] | None,
+    n_features: int,
+    n_classes: int,
+) -> tuple[tuple[int, int, float], ...] | None:
+    if feature_groups is None:
+        return None
+    expanded: list[tuple[int, int, float]] = []
+    for class_idx in range(n_classes):
+        offset = class_idx * n_features
+        for start, end, weight in feature_groups:
+            expanded.append((offset + start, offset + end, weight))
+    return tuple(expanded)
+
+
+def _vector_similarity(
+    vec_a: np.ndarray,
+    vec_b: np.ndarray,
+    *,
+    feature_groups: tuple[tuple[int, int, float], ...] | None = None,
+) -> float:
     vec_a = np.asarray(vec_a, dtype=np.float64).reshape(-1)
     vec_b = np.asarray(vec_b, dtype=np.float64).reshape(-1)
     if vec_a.shape != vec_b.shape:
@@ -159,6 +223,27 @@ def _vector_similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
         vec_b = vec_b[:n]
     if vec_a.size == 0:
         return 1.0
+
+    if feature_groups is not None:
+        total = 0.0
+        accum = 0.0
+        for start, end, weight in feature_groups:
+            if start >= vec_a.size:
+                continue
+            end = min(end, vec_a.size)
+            if end <= start:
+                continue
+            diff = vec_a[start:end] - vec_b[start:end]
+            scale = np.maximum(
+                np.mean(np.abs(vec_a[start:end])) + np.mean(np.abs(vec_b[start:end])),
+                1e-8,
+            )
+            sq_dist = float(np.mean(diff ** 2) / scale)
+            accum += weight * float(np.exp(-0.5 * sq_dist))
+            total += weight
+        if total > 0.0:
+            return float(accum / total)
+
     diff = vec_a - vec_b
     scale = np.maximum(np.mean(np.abs(vec_a)) + np.mean(np.abs(vec_b)), 1e-8)
     sq_dist = float(np.mean(diff ** 2) / scale)

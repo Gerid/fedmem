@@ -78,11 +78,18 @@ class TorchFeatureAdapterClassifier:
         params = list(self._trunk.parameters()) + list(adapter.parameters()) + list(head.parameters())
         self._optimizers[slot_id] = torch.optim.SGD(params, lr=self.lr)
 
-    def _forward_slot(self, X_t: torch.Tensor, slot_id: int) -> torch.Tensor:
+    def _trunk_embed_tensor(self, X_t: torch.Tensor) -> torch.Tensor:
+        return self._trunk(X_t)
+
+    def _embed_slot_tensor(self, X_t: torch.Tensor, slot_id: int) -> torch.Tensor:
         self._ensure_slot(slot_id)
-        adapter, head = self._experts[slot_id]
-        hidden = self._trunk(X_t)
-        hidden = adapter(hidden)
+        adapter, _ = self._experts[slot_id]
+        hidden = self._trunk_embed_tensor(X_t)
+        return adapter(hidden)
+
+    def _forward_slot(self, X_t: torch.Tensor, slot_id: int) -> torch.Tensor:
+        _, head = self._experts[slot_id]
+        hidden = self._embed_slot_tensor(X_t, slot_id)
         return head(hidden)
 
     def _loss(self, logits: torch.Tensor, y_t: torch.Tensor) -> torch.Tensor:
@@ -125,6 +132,7 @@ class TorchFeatureAdapterClassifier:
         y: np.ndarray,
         slot_id: int = 0,
         slot_weights: dict[int, float] | None = None,
+        update_shared: bool = True,
     ) -> None:
         training_weights = self._normalise_training_weights(slot_id, slot_weights)
         self._active_slot = max(training_weights, key=training_weights.get)
@@ -132,7 +140,13 @@ class TorchFeatureAdapterClassifier:
         y_t = to_tensor(y, dtype=torch.long, device=self.device)
         for _ in range(self.n_epochs):
             for current_slot, weight in training_weights.items():
-                self._step(X_t, y_t, current_slot, loss_scale=weight)
+                self._step(
+                    X_t,
+                    y_t,
+                    current_slot,
+                    loss_scale=weight,
+                    update_shared=update_shared,
+                )
         self._fitted = True
 
     def partial_fit(
@@ -141,13 +155,20 @@ class TorchFeatureAdapterClassifier:
         y: np.ndarray,
         slot_id: int = 0,
         slot_weights: dict[int, float] | None = None,
+        update_shared: bool = True,
     ) -> None:
         training_weights = self._normalise_training_weights(slot_id, slot_weights)
         self._active_slot = max(training_weights, key=training_weights.get)
         X_t = to_tensor(X, device=self.device)
         y_t = to_tensor(y, dtype=torch.long, device=self.device)
         for current_slot, weight in training_weights.items():
-            self._step(X_t, y_t, current_slot, loss_scale=weight)
+            self._step(
+                X_t,
+                y_t,
+                current_slot,
+                loss_scale=weight,
+                update_shared=update_shared,
+            )
         self._fitted = True
 
     def _step(
@@ -157,6 +178,7 @@ class TorchFeatureAdapterClassifier:
         slot_id: int,
         *,
         loss_scale: float = 1.0,
+        update_shared: bool = True,
     ) -> None:
         self._trunk.train()
         adapter, head = self._experts[slot_id]
@@ -167,6 +189,9 @@ class TorchFeatureAdapterClassifier:
         logits = self._forward_slot(X_t, slot_id)
         loss = self._loss(logits, y_t) * float(loss_scale)
         loss.backward()
+        if not update_shared:
+            for param in self._trunk.parameters():
+                param.grad = None
         optimizer.step()
 
     @torch.no_grad()
@@ -200,6 +225,62 @@ class TorchFeatureAdapterClassifier:
         return float(self._loss(logits, y_t).item())
 
     @torch.no_grad()
+    def embed(
+        self,
+        X: np.ndarray,
+        slot_id: int = 0,
+        slot_weights: dict[int, float] | None = None,
+        representation: str = "post_adapter",
+    ) -> np.ndarray:
+        if not self._fitted:
+            return np.zeros((len(X), self.hidden_dim), dtype=np.float32)
+        hidden = self._predict_hidden(
+            X,
+            slot_id=slot_id,
+            slot_weights=slot_weights,
+            representation=representation,
+        )
+        return to_numpy(hidden).astype(np.float32, copy=False)
+
+    @torch.no_grad()
+    def _predict_hidden(
+        self,
+        X: np.ndarray,
+        slot_id: int = 0,
+        slot_weights: dict[int, float] | None = None,
+        representation: str = "post_adapter",
+    ) -> torch.Tensor:
+        if representation not in {"post_adapter", "pre_adapter"}:
+            raise ValueError(
+                "representation must be one of ['post_adapter', 'pre_adapter']"
+            )
+        X_t = to_tensor(X, device=self.device)
+        self._trunk.eval()
+        trunk_hidden = self._trunk_embed_tensor(X_t)
+        if representation == "pre_adapter":
+            return trunk_hidden
+
+        if slot_weights:
+            total = float(sum(slot_weights.values()))
+            if total <= 0.0:
+                raise ValueError("slot_weights must sum to a positive value")
+            blended = None
+            for current_slot, weight in slot_weights.items():
+                self._ensure_slot(int(current_slot))
+                adapter, _ = self._experts[int(current_slot)]
+                adapter.eval()
+                hidden = self._embed_slot_tensor(X_t, int(current_slot))
+                scaled = (float(weight) / total) * hidden
+                blended = scaled if blended is None else blended + scaled
+            assert blended is not None
+            return blended
+
+        self._ensure_slot(slot_id)
+        adapter, _ = self._experts[slot_id]
+        adapter.eval()
+        return self._embed_slot_tensor(X_t, slot_id)
+
+    @torch.no_grad()
     def _predict_logits(
         self,
         X: np.ndarray,
@@ -215,8 +296,7 @@ class TorchFeatureAdapterClassifier:
             blended = None
             for current_slot, weight in slot_weights.items():
                 self._ensure_slot(int(current_slot))
-                adapter, head = self._experts[int(current_slot)]
-                adapter.eval()
+                _, head = self._experts[int(current_slot)]
                 head.eval()
                 logits = self._forward_slot(X_t, int(current_slot))
                 scaled = (float(weight) / total) * logits
@@ -225,8 +305,7 @@ class TorchFeatureAdapterClassifier:
             return blended
 
         self._ensure_slot(slot_id)
-        adapter, head = self._experts[slot_id]
-        adapter.eval()
+        _, head = self._experts[slot_id]
         head.eval()
         return self._forward_slot(X_t, slot_id)
 

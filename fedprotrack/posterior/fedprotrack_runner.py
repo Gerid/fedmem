@@ -26,7 +26,11 @@ from ..metrics.concept_metrics import (
     singleton_group_ratio as compute_singleton_group_ratio,
 )
 from ..metrics.experiment_log import ExperimentLog
-from ..models import TorchFeatureAdapterClassifier, TorchLinearClassifier
+from ..models import (
+    TorchFactorizedAdapterClassifier,
+    TorchFeatureAdapterClassifier,
+    TorchLinearClassifier,
+)
 from .gibbs import PosteriorAssignment
 from .two_phase_protocol import PhaseAResult, TwoPhaseConfig, TwoPhaseFedProTrack
 
@@ -125,13 +129,32 @@ def _make_model(
             n_epochs=n_epochs,
             seed=seed,
         )
+    if model_type == "factorized_adapter":
+        return TorchFactorizedAdapterClassifier(
+            n_features=n_features,
+            n_classes=n_classes,
+            hidden_dim=hidden_dim,
+            adapter_dim=adapter_dim,
+            lr=lr,
+            n_epochs=n_epochs,
+            seed=seed,
+        )
     raise ValueError(
-        f"Unknown model_type: {model_type}. Choose from ['linear', 'feature_adapter']"
+        "Unknown model_type: "
+        f"{model_type}. Choose from ['linear', 'feature_adapter', 'factorized_adapter']"
     )
 
 
 def _is_feature_adapter_model(model) -> bool:
-    return isinstance(model, TorchFeatureAdapterClassifier)
+    return isinstance(model, (TorchFeatureAdapterClassifier, TorchFactorizedAdapterClassifier))
+
+
+def _is_factorized_adapter_model(model) -> bool:
+    return isinstance(model, TorchFactorizedAdapterClassifier)
+
+
+def _is_namespaced_routed_model(model) -> bool:
+    return _is_feature_adapter_model(model)
 
 
 def _model_predict(
@@ -141,7 +164,7 @@ def _model_predict(
     slot_id: int = 0,
     slot_weights: dict[int, float] | None = None,
 ) -> np.ndarray:
-    if _is_feature_adapter_model(model):
+    if _is_namespaced_routed_model(model):
         return model.predict(X, slot_id=slot_id, slot_weights=slot_weights)
     return model.predict(X)
 
@@ -154,9 +177,27 @@ def _model_predict_loss(
     slot_id: int = 0,
     slot_weights: dict[int, float] | None = None,
 ) -> float:
-    if _is_feature_adapter_model(model):
+    if _is_namespaced_routed_model(model):
         return model.predict_loss(X, y, slot_id=slot_id, slot_weights=slot_weights)
     return model.predict_loss(X, y)
+
+
+def _model_embed(
+    model,
+    X: np.ndarray,
+    *,
+    slot_id: int = 0,
+    slot_weights: dict[int, float] | None = None,
+    representation: str = "post_adapter",
+) -> np.ndarray:
+    if _is_namespaced_routed_model(model):
+        return model.embed(
+            X,
+            slot_id=slot_id,
+            slot_weights=slot_weights,
+            representation=representation,
+        )
+    raise ValueError("model_embed requires a routed model with embed() support")
 
 
 def _model_fit(
@@ -166,9 +207,28 @@ def _model_fit(
     *,
     slot_id: int = 0,
     slot_weights: dict[int, float] | None = None,
+    update_shared: bool = True,
+    update_private: bool = True,
+    update_head: bool = True,
 ) -> None:
-    if _is_feature_adapter_model(model):
-        model.fit(X, y, slot_id=slot_id, slot_weights=slot_weights)
+    if _is_factorized_adapter_model(model):
+        model.fit(
+            X,
+            y,
+            slot_id=slot_id,
+            slot_weights=slot_weights,
+            update_shared=update_shared,
+            update_private=update_private,
+            update_head=update_head,
+        )
+    elif _is_namespaced_routed_model(model):
+        model.fit(
+            X,
+            y,
+            slot_id=slot_id,
+            slot_weights=slot_weights,
+            update_shared=update_shared,
+        )
     else:
         model.fit(X, y)
 
@@ -180,15 +240,34 @@ def _model_partial_fit(
     *,
     slot_id: int = 0,
     slot_weights: dict[int, float] | None = None,
+    update_shared: bool = True,
+    update_private: bool = True,
+    update_head: bool = True,
 ) -> None:
-    if _is_feature_adapter_model(model):
-        model.partial_fit(X, y, slot_id=slot_id, slot_weights=slot_weights)
+    if _is_factorized_adapter_model(model):
+        model.partial_fit(
+            X,
+            y,
+            slot_id=slot_id,
+            slot_weights=slot_weights,
+            update_shared=update_shared,
+            update_private=update_private,
+            update_head=update_head,
+        )
+    elif _is_namespaced_routed_model(model):
+        model.partial_fit(
+            X,
+            y,
+            slot_id=slot_id,
+            slot_weights=slot_weights,
+            update_shared=update_shared,
+        )
     else:
         model.partial_fit(X, y)
 
 
 def _model_get_params(model, *, slot_id: int = 0) -> dict[str, np.ndarray]:
-    if _is_feature_adapter_model(model):
+    if _is_namespaced_routed_model(model):
         return model.get_params(slot_id=slot_id)
     return model.get_params()
 
@@ -204,6 +283,357 @@ def _model_blend_params(
     alpha: float,
 ) -> None:
     model.blend_params(params, alpha=alpha)
+
+
+def _normalise_slot_weights(
+    slot_id: int,
+    slot_weights: dict[int, float] | None = None,
+) -> dict[int, float]:
+    if not slot_weights:
+        return {int(slot_id): 1.0}
+    filtered = {
+        int(current_slot): float(weight)
+        for current_slot, weight in slot_weights.items()
+        if float(weight) > 0.01
+    }
+    if not filtered:
+        return {int(slot_id): 1.0}
+    total = float(sum(filtered.values()))
+    return {
+        current_slot: weight / total
+        for current_slot, weight in filtered.items()
+    }
+
+
+def _select_weighted_training_slots(
+    slot_id: int,
+    slot_weights: dict[int, float] | None = None,
+    *,
+    top_k: int | None = None,
+    min_secondary_weight: float = 0.0,
+) -> dict[int, float]:
+    normalized = _normalise_slot_weights(slot_id, slot_weights)
+    if top_k is None and min_secondary_weight <= 0.0:
+        return normalized
+
+    ranked = sorted(
+        normalized.items(),
+        key=lambda item: (-float(item[1]), int(item[0])),
+    )
+    k = len(ranked) if top_k is None else max(1, int(top_k))
+    selected = ranked[:k]
+    if len(selected) >= 2 and float(selected[1][1]) >= float(min_secondary_weight):
+        total = float(sum(weight for _, weight in selected))
+        return {
+            int(current_slot): float(weight) / total
+            for current_slot, weight in selected
+        }
+    map_slot = int(selected[0][0]) if selected else int(slot_id)
+    return {map_slot: 1.0}
+
+
+def _collect_slot_anchor_payloads(
+    model,
+    *,
+    slot_ids: list[int],
+    memory_bank,
+) -> dict[int, dict[str, np.ndarray]]:
+    anchor_payloads: dict[int, dict[str, np.ndarray]] = {}
+    for slot_id in slot_ids:
+        stored = memory_bank.get_model_params(int(slot_id))
+        if stored is not None:
+            anchor_payloads[int(slot_id)] = {
+                key: value.copy() for key, value in stored.items()
+            }
+            continue
+        anchor_payloads[int(slot_id)] = _model_get_params(model, slot_id=int(slot_id))
+    return anchor_payloads
+
+
+def _warm_start_factorized_slots(
+    model,
+    *,
+    shared_slot_id: int,
+    slot_ids: list[int],
+    anchor_payloads: dict[int, dict[str, np.ndarray]],
+) -> None:
+    shared_payload, _, other_payload = split_param_namespaces(
+        _model_get_params(model, slot_id=int(shared_slot_id))
+    )
+    expert_payload: dict[str, np.ndarray] = {}
+    for slot_id in slot_ids:
+        slot_payload = anchor_payloads.get(int(slot_id))
+        if slot_payload is None:
+            slot_payload = _model_get_params(model, slot_id=int(slot_id))
+        _, slot_expert, _ = split_param_namespaces(slot_payload)
+        expert_payload.update({
+            key: value.copy() for key, value in slot_expert.items()
+        })
+    merged = merge_param_namespaces(
+        shared=shared_payload if shared_payload else None,
+        expert=expert_payload if expert_payload else None,
+        other=other_payload if other_payload else None,
+    )
+    if merged:
+        _model_set_params(model, merged)
+
+
+def _apply_factorized_slot_anchor(
+    model,
+    *,
+    slot_ids: list[int],
+    primary_slot_id: int,
+    anchor_payloads: dict[int, dict[str, np.ndarray]],
+    primary_anchor_alpha: float,
+    secondary_anchor_alpha: float,
+) -> None:
+    shared_payload, _, other_payload = split_param_namespaces(
+        _model_get_params(model, slot_id=int(primary_slot_id))
+    )
+    expert_payload: dict[str, np.ndarray] = {}
+    for slot_id in slot_ids:
+        current_payload = _model_get_params(model, slot_id=int(slot_id))
+        _, current_expert, _ = split_param_namespaces(current_payload)
+        _, anchor_expert, _ = split_param_namespaces(
+            anchor_payloads.get(int(slot_id), current_payload)
+        )
+        alpha = (
+            float(primary_anchor_alpha)
+            if int(slot_id) == int(primary_slot_id)
+            else float(secondary_anchor_alpha)
+        )
+        for key, current_value in current_expert.items():
+            anchor_value = anchor_expert.get(key)
+            if anchor_value is None or alpha <= 0.0:
+                expert_payload[key] = current_value.copy()
+                continue
+            expert_payload[key] = (
+                alpha * anchor_value + (1.0 - alpha) * current_value
+            )
+    merged = merge_param_namespaces(
+        shared=shared_payload if shared_payload else None,
+        expert=expert_payload if expert_payload else None,
+        other=other_payload if other_payload else None,
+    )
+    if merged:
+        _model_set_params(model, merged)
+
+
+def _run_factorized_primary_consolidation(
+    model,
+    X: np.ndarray,
+    y: np.ndarray,
+    *,
+    slot_id: int,
+    steps: int,
+    mode: str = "full",
+) -> None:
+    update_private = mode != "head_only"
+    for _ in range(int(steps)):
+        _model_partial_fit(
+            model,
+            X,
+            y,
+            slot_id=slot_id,
+            slot_weights=None,
+            update_shared=False,
+            update_private=update_private,
+            update_head=True,
+        )
+
+
+def _shared_drift_norm(
+    before: dict[str, np.ndarray],
+    after: dict[str, np.ndarray],
+) -> float:
+    before_shared, _, _ = split_param_namespaces(before)
+    after_shared, _, _ = split_param_namespaces(after)
+    if not before_shared or not after_shared:
+        return 0.0
+    squared_norm = 0.0
+    for key, before_value in before_shared.items():
+        after_value = after_shared.get(key)
+        if after_value is None:
+            continue
+        diff = after_value - before_value
+        squared_norm += float(np.sum(diff * diff))
+    return float(np.sqrt(squared_norm))
+
+
+def _build_fingerprint_features(
+    model,
+    X: np.ndarray,
+    *,
+    slot_id: int = 0,
+    slot_weights: dict[int, float] | None = None,
+    fingerprint_source: str,
+    bootstrap_hidden_dim: int | None = None,
+    use_bootstrap_raw: bool = False,
+) -> np.ndarray:
+    raw = np.asarray(X, dtype=np.float32)
+
+    def _center_hidden(hidden: np.ndarray) -> np.ndarray:
+        hidden = np.asarray(hidden, dtype=np.float32)
+        if hidden.size == 0:
+            return hidden
+        return (hidden - hidden.mean(axis=0, keepdims=True)).astype(np.float32, copy=False)
+
+    def _scale_hidden(hidden: np.ndarray, scale: float) -> np.ndarray:
+        return (np.asarray(hidden, dtype=np.float32) * np.float32(scale)).astype(
+            np.float32,
+            copy=False,
+        )
+
+    if fingerprint_source == "raw_input":
+        return raw
+    if fingerprint_source == "model_embed":
+        return _model_embed(
+            model,
+            X,
+            slot_id=slot_id,
+            slot_weights=slot_weights,
+            representation="post_adapter",
+        )
+    if fingerprint_source == "pre_adapter_embed":
+        return _model_embed(
+            model,
+            X,
+            slot_id=slot_id,
+            slot_weights=slot_weights,
+            representation="pre_adapter",
+        )
+    if fingerprint_source == "hybrid_raw_pre_adapter":
+        pre_adapter = _model_embed(
+            model,
+            X,
+            slot_id=slot_id,
+            slot_weights=slot_weights,
+            representation="pre_adapter",
+        )
+        return np.concatenate([raw, pre_adapter], axis=1).astype(np.float32, copy=False)
+    if fingerprint_source == "weighted_hybrid_raw_pre_adapter":
+        pre_adapter = _model_embed(
+            model,
+            X,
+            slot_id=slot_id,
+            slot_weights=slot_weights,
+            representation="pre_adapter",
+        )
+        return np.concatenate([raw, pre_adapter], axis=1).astype(np.float32, copy=False)
+    if fingerprint_source == "centered_hybrid_raw_pre_adapter":
+        pre_adapter = _model_embed(
+            model,
+            X,
+            slot_id=slot_id,
+            slot_weights=slot_weights,
+            representation="pre_adapter",
+        )
+        centered = _center_hidden(pre_adapter)
+        return np.concatenate([raw, centered], axis=1).astype(np.float32, copy=False)
+    if fingerprint_source == "attenuated_hybrid_raw_pre_adapter":
+        pre_adapter = _model_embed(
+            model,
+            X,
+            slot_id=slot_id,
+            slot_weights=slot_weights,
+            representation="pre_adapter",
+        )
+        attenuated = _scale_hidden(pre_adapter, 0.25)
+        return np.concatenate([raw, attenuated], axis=1).astype(np.float32, copy=False)
+    if fingerprint_source == "double_raw_hybrid_pre_adapter":
+        pre_adapter = _model_embed(
+            model,
+            X,
+            slot_id=slot_id,
+            slot_weights=slot_weights,
+            representation="pre_adapter",
+        )
+        return np.concatenate([raw, raw, pre_adapter], axis=1).astype(
+            np.float32,
+            copy=False,
+        )
+    if fingerprint_source == "bootstrap_raw_hybrid_pre_adapter":
+        if bootstrap_hidden_dim is None:
+            raise ValueError(
+                "bootstrap_hidden_dim is required for bootstrap_raw_hybrid_pre_adapter"
+            )
+        if use_bootstrap_raw:
+            zeros = np.zeros((len(raw), bootstrap_hidden_dim), dtype=np.float32)
+            return np.concatenate([raw, zeros], axis=1).astype(np.float32, copy=False)
+        pre_adapter = _model_embed(
+            model,
+            X,
+            slot_id=slot_id,
+            slot_weights=slot_weights,
+            representation="pre_adapter",
+        )
+        return np.concatenate([raw, pre_adapter], axis=1).astype(np.float32, copy=False)
+    raise ValueError(
+        "fingerprint_source must be one of "
+        "['raw_input', 'model_embed', 'pre_adapter_embed', "
+        "'hybrid_raw_pre_adapter', 'weighted_hybrid_raw_pre_adapter', "
+        "'centered_hybrid_raw_pre_adapter', "
+        "'attenuated_hybrid_raw_pre_adapter', "
+        "'double_raw_hybrid_pre_adapter', "
+        "'bootstrap_raw_hybrid_pre_adapter']"
+    )
+
+
+def _fingerprint_feature_groups(
+    fingerprint_source: str,
+    *,
+    n_features: int,
+    hidden_dim: int,
+) -> tuple[tuple[int, int, float], ...] | None:
+    if fingerprint_source == "weighted_hybrid_raw_pre_adapter":
+        return (
+            (0, n_features, 0.75),
+            (n_features, n_features + hidden_dim, 0.25),
+        )
+    return None
+
+
+def _summarize_phase_a_round(
+    *,
+    timestep: int,
+    phase_a_result: PhaseAResult,
+    active_after: int,
+) -> dict[str, object]:
+    fp_losses = list(phase_a_result.client_fp_losses.values())
+    thresholds = list(phase_a_result.client_effective_thresholds.values())
+    map_probs = list(phase_a_result.client_map_probabilities.values())
+    fp_gaps = [
+        loss - phase_a_result.client_effective_thresholds[client_id]
+        for client_id, loss in phase_a_result.client_fp_losses.items()
+        if client_id in phase_a_result.client_effective_thresholds
+    ]
+    over_threshold = [
+        float(
+            loss > phase_a_result.client_effective_thresholds[client_id]
+        )
+        for client_id, loss in phase_a_result.client_fp_losses.items()
+        if client_id in phase_a_result.client_effective_thresholds
+    ]
+
+    return {
+        "t": int(timestep),
+        "library_size_before": int(phase_a_result.library_size_before),
+        "active_after": int(active_after),
+        "spawned": int(phase_a_result.spawned),
+        "merged": int(phase_a_result.merged),
+        "n_clients_logged": int(len(fp_losses)),
+        "mean_fp_loss": float(np.mean(fp_losses)) if fp_losses else None,
+        "min_fp_loss": float(np.min(fp_losses)) if fp_losses else None,
+        "max_fp_loss": float(np.max(fp_losses)) if fp_losses else None,
+        "mean_effective_threshold": (
+            float(np.mean(thresholds)) if thresholds else None
+        ),
+        "mean_fp_gap": float(np.mean(fp_gaps)) if fp_gaps else None,
+        "over_threshold_rate": (
+            float(np.mean(over_threshold)) if over_threshold else None
+        ),
+        "mean_map_prob": float(np.mean(map_probs)) if map_probs else None,
+    }
 
 
 def _compose_routed_payload(
@@ -260,6 +690,78 @@ def _compose_routed_payload(
     )
 
 
+def _prepare_routed_read_weights(
+    slot_weights: dict[int, float] | None,
+    *,
+    top_k: int | None = None,
+    temperature: float = 1.0,
+    only_on_ambiguity: bool = False,
+    min_entropy: float | None = None,
+    min_secondary_weight: float = 0.0,
+    max_primary_gap: float | None = None,
+) -> dict[int, float] | None:
+    if not slot_weights:
+        return None
+    filtered = {
+        int(slot_id): float(weight)
+        for slot_id, weight in slot_weights.items()
+        if float(weight) > 0.0
+    }
+    if not filtered:
+        return None
+    ranked = sorted(
+        filtered.items(),
+        key=lambda item: (-item[1], item[0]),
+    )
+    if not ranked:
+        return None
+    if float(temperature) <= 0.0:
+        raise ValueError("routed_read_temperature must be > 0")
+    base_values = np.asarray([weight for _, weight in ranked], dtype=np.float64)
+    base_total = float(base_values.sum())
+    if base_total <= 0.0:
+        return None
+    normalized_base = {
+        int(slot_id): float(value / base_total)
+        for (slot_id, _), value in zip(ranked, base_values, strict=False)
+    }
+    if only_on_ambiguity:
+        ambiguous = False
+        if len(ranked) >= 2:
+            if min_entropy is not None:
+                probs = np.asarray(list(normalized_base.values()), dtype=np.float64)
+                entropy = float(
+                    -(probs * np.log(np.clip(probs, 1e-12, None))).sum()
+                    / np.log(float(len(probs)))
+                )
+                ambiguous = ambiguous or entropy >= float(min_entropy)
+            if float(min_secondary_weight) > 0.0 or max_primary_gap is not None:
+                top1 = float(ranked[0][1])
+                top2 = float(ranked[1][1])
+                gap_ok = max_primary_gap is None or (top1 - top2) <= float(max_primary_gap)
+                ambiguous = ambiguous or (
+                    top2 >= float(min_secondary_weight) and gap_ok
+                )
+            if min_entropy is None and float(min_secondary_weight) <= 0.0 and max_primary_gap is None:
+                ambiguous = True
+        if not ambiguous:
+            return normalized_base
+    if top_k is not None:
+        ranked = ranked[: int(top_k)]
+    if not ranked:
+        return None
+    values = np.asarray([weight for _, weight in ranked], dtype=np.float64)
+    if float(temperature) != 1.0:
+        values = np.power(np.clip(values, 1e-12, None), 1.0 / float(temperature))
+    total = float(values.sum())
+    if total <= 0.0:
+        return None
+    return {
+        int(slot_id): float(value / total)
+        for (slot_id, _), value in zip(ranked, values, strict=False)
+    }
+
+
 @dataclass
 class FedProTrackResult:
     """Complete result from a FedProTrack simulation.
@@ -304,6 +806,10 @@ class FedProTrackResult:
     singleton_group_ratio: float | None = None
     memory_reuse_rate: float | None = None
     routing_consistency: float | None = None
+    shared_drift_norm: float | None = None
+    expert_update_coverage: float | None = None
+    multi_route_rate: float | None = None
+    phase_a_round_diagnostics: list[dict[str, object]] = field(default_factory=list)
     method_name: str = "FedProTrack"
 
     def to_experiment_log(self) -> ExperimentLog:
@@ -386,6 +892,22 @@ class FedProTrackRunner:
         model_type: str = "linear",
         hidden_dim: int = 64,
         adapter_dim: int = 16,
+        fingerprint_source: str = "raw_input",
+        expert_update_policy: str | None = None,
+        shared_update_policy: str = "always",
+        routed_write_top_k: int | None = None,
+        routed_write_min_secondary_weight: float = 0.0,
+        routed_read_top_k: int | None = None,
+        routed_read_temperature: float = 1.0,
+        routed_read_only_on_ambiguity: bool = False,
+        routed_read_min_entropy: float | None = None,
+        routed_read_min_secondary_weight: float = 0.0,
+        routed_read_max_primary_gap: float | None = None,
+        factorized_slot_preserving: bool = False,
+        factorized_primary_anchor_alpha: float = 0.25,
+        factorized_secondary_anchor_alpha: float = 0.75,
+        factorized_primary_consolidation_steps: int = 0,
+        factorized_primary_consolidation_mode: str = "full",
     ):
         self.config = config or TwoPhaseConfig()
         self.federation_every = federation_every
@@ -405,6 +927,26 @@ class FedProTrackRunner:
         self.model_type = model_type
         self.hidden_dim = hidden_dim
         self.adapter_dim = adapter_dim
+        self.fingerprint_source = fingerprint_source
+        self.expert_update_policy = (
+            "posterior_weighted"
+            if expert_update_policy is None and routed_local_training
+            else (expert_update_policy or "map_only")
+        )
+        self.shared_update_policy = shared_update_policy
+        self.routed_write_top_k = routed_write_top_k
+        self.routed_write_min_secondary_weight = routed_write_min_secondary_weight
+        self.routed_read_top_k = routed_read_top_k
+        self.routed_read_temperature = routed_read_temperature
+        self.routed_read_only_on_ambiguity = routed_read_only_on_ambiguity
+        self.routed_read_min_entropy = routed_read_min_entropy
+        self.routed_read_min_secondary_weight = routed_read_min_secondary_weight
+        self.routed_read_max_primary_gap = routed_read_max_primary_gap
+        self.factorized_slot_preserving = factorized_slot_preserving
+        self.factorized_primary_anchor_alpha = factorized_primary_anchor_alpha
+        self.factorized_secondary_anchor_alpha = factorized_secondary_anchor_alpha
+        self.factorized_primary_consolidation_steps = factorized_primary_consolidation_steps
+        self.factorized_primary_consolidation_mode = factorized_primary_consolidation_mode
 
     def run(self, dataset: DriftDataset) -> FedProTrackResult:
         """Execute the full FedProTrack simulation.
@@ -424,6 +966,92 @@ class FedProTrackRunner:
         model_n_classes = _infer_n_classes(dataset)
         fingerprint_n_classes = _infer_fingerprint_n_classes(dataset)
         fingerprint_labels = getattr(dataset, "fingerprint_labels", None)
+        if self.fingerprint_source not in {
+            "raw_input",
+            "model_embed",
+            "pre_adapter_embed",
+            "hybrid_raw_pre_adapter",
+            "weighted_hybrid_raw_pre_adapter",
+            "centered_hybrid_raw_pre_adapter",
+            "attenuated_hybrid_raw_pre_adapter",
+            "double_raw_hybrid_pre_adapter",
+            "bootstrap_raw_hybrid_pre_adapter",
+        }:
+            raise ValueError(
+                "fingerprint_source must be one of "
+                "['raw_input', 'model_embed', 'pre_adapter_embed', "
+                "'hybrid_raw_pre_adapter', 'weighted_hybrid_raw_pre_adapter', "
+                "'centered_hybrid_raw_pre_adapter', "
+                "'attenuated_hybrid_raw_pre_adapter', "
+                "'double_raw_hybrid_pre_adapter', "
+                "'bootstrap_raw_hybrid_pre_adapter']"
+            )
+        if self.expert_update_policy not in {"map_only", "posterior_weighted"}:
+            raise ValueError(
+                "expert_update_policy must be one of ['map_only', 'posterior_weighted']"
+            )
+        if self.shared_update_policy not in {"always", "freeze_on_multiroute"}:
+            raise ValueError(
+                "shared_update_policy must be one of ['always', 'freeze_on_multiroute']"
+            )
+        if self.routed_write_top_k is not None and int(self.routed_write_top_k) < 1:
+            raise ValueError("routed_write_top_k must be >= 1 when provided")
+        if float(self.routed_write_min_secondary_weight) < 0.0:
+            raise ValueError("routed_write_min_secondary_weight must be >= 0")
+        if self.routed_read_top_k is not None and int(self.routed_read_top_k) < 1:
+            raise ValueError("routed_read_top_k must be >= 1 when provided")
+        if float(self.routed_read_temperature) <= 0.0:
+            raise ValueError("routed_read_temperature must be > 0")
+        if self.routed_read_min_entropy is not None and not 0.0 <= float(self.routed_read_min_entropy) <= 1.0:
+            raise ValueError("routed_read_min_entropy must be in [0, 1] when provided")
+        if float(self.routed_read_min_secondary_weight) < 0.0:
+            raise ValueError("routed_read_min_secondary_weight must be >= 0")
+        if self.routed_read_max_primary_gap is not None and float(self.routed_read_max_primary_gap) < 0.0:
+            raise ValueError("routed_read_max_primary_gap must be >= 0 when provided")
+        if not 0.0 <= float(self.factorized_primary_anchor_alpha) <= 1.0:
+            raise ValueError("factorized_primary_anchor_alpha must be in [0, 1]")
+        if not 0.0 <= float(self.factorized_secondary_anchor_alpha) <= 1.0:
+            raise ValueError("factorized_secondary_anchor_alpha must be in [0, 1]")
+        if int(self.factorized_primary_consolidation_steps) < 0:
+            raise ValueError("factorized_primary_consolidation_steps must be >= 0")
+        if self.factorized_primary_consolidation_mode not in {"full", "head_only"}:
+            raise ValueError(
+                "factorized_primary_consolidation_mode must be one of ['full', 'head_only']"
+            )
+        fingerprint_features = n_features
+        fingerprint_feature_groups = _fingerprint_feature_groups(
+            self.fingerprint_source,
+            n_features=n_features,
+            hidden_dim=self.hidden_dim,
+        )
+        if self.fingerprint_source in {
+            "model_embed",
+            "pre_adapter_embed",
+            "hybrid_raw_pre_adapter",
+            "weighted_hybrid_raw_pre_adapter",
+            "centered_hybrid_raw_pre_adapter",
+            "attenuated_hybrid_raw_pre_adapter",
+            "double_raw_hybrid_pre_adapter",
+            "bootstrap_raw_hybrid_pre_adapter",
+        }:
+            if self.model_type != "feature_adapter":
+                raise ValueError(
+                    "embed-based fingerprint_source values require "
+                    "model_type='feature_adapter'"
+                )
+            if self.fingerprint_source in {
+                "hybrid_raw_pre_adapter",
+                "weighted_hybrid_raw_pre_adapter",
+                "centered_hybrid_raw_pre_adapter",
+                "attenuated_hybrid_raw_pre_adapter",
+                "double_raw_hybrid_pre_adapter",
+                "bootstrap_raw_hybrid_pre_adapter",
+            }:
+                fingerprint_features = n_features + self.hidden_dim
+                if self.fingerprint_source == "double_raw_hybrid_pre_adapter":
+                    fingerprint_features = n_features * 2 + self.hidden_dim
+            else:
+                fingerprint_features = self.hidden_dim
 
         # --- Dimension-adaptive scaling ---
         # Higher-dimensional features produce noisier fingerprints, requiring
@@ -454,8 +1082,11 @@ class FedProTrackRunner:
             model_loss_weight=self.config.model_loss_weight,
             post_spawn_merge=self.config.post_spawn_merge,
             merge_threshold=merge_th,
+            merge_min_support=self.config.merge_min_support,
             min_count=self.config.min_count,
             max_concepts=max_concepts,
+            max_spawn_clusters_per_round=self.config.max_spawn_clusters_per_round,
+            novelty_hysteresis_rounds=self.config.novelty_hysteresis_rounds,
             merge_every=self.config.merge_every,
             shrink_every=self.config.shrink_every,
             key_mode=self.config.key_mode,
@@ -468,7 +1099,7 @@ class FedProTrackRunner:
             adaptive_addressing=self.config.adaptive_addressing,
             addressing_min_round_interval=self.config.addressing_min_round_interval,
             addressing_drift_threshold=self.config.addressing_drift_threshold,
-            n_features=n_features,
+            n_features=fingerprint_features,
             n_classes=fingerprint_n_classes,
         )
 
@@ -495,6 +1126,7 @@ class FedProTrackRunner:
         ]
         model_params: list[dict[str, np.ndarray]] = [{}] * K
         client_slot_weights: list[dict[int, float] | None] = [None] * K
+        client_read_slot_weights: list[dict[int, float] | None] = [None] * K
 
         # Results
         accuracy_matrix = np.zeros((K, T), dtype=np.float64)
@@ -502,6 +1134,7 @@ class FedProTrackRunner:
 
         # Collect posteriors for soft_assignments: list of (t, posteriors_dict)
         posteriors_log: list[tuple[int, dict[int, PosteriorAssignment]]] = []
+        phase_a_round_diagnostics: list[dict[str, object]] = []
 
         phase_a_bytes = 0.0
         phase_b_bytes = 0.0
@@ -511,12 +1144,22 @@ class FedProTrackRunner:
         prev_assignments: dict[int, int] | None = None
         old_assignments: dict[int, int] | None = None
         last_a_result: PhaseAResult | None = None
+        local_update_events = 0
+        multi_route_events = 0
+        expert_update_total = 0.0
+        shared_drift_total = 0.0
+        shared_drift_events = 0
 
         for t in range(T):
             # Per-step fingerprints: built fresh each step from current
             # data only, avoiding cross-concept contamination.
             step_fingerprints = [
-                ConceptFingerprint(n_features, fingerprint_n_classes) for _ in range(K)
+                ConceptFingerprint(
+                    fingerprint_features,
+                    fingerprint_n_classes,
+                    feature_groups=fingerprint_feature_groups,
+                )
+                for _ in range(K)
             ]
 
             # --- Per-client: predict, detect, fingerprint, train ---
@@ -535,7 +1178,7 @@ class FedProTrackRunner:
                     models[k],
                     X_test,
                     slot_id=current_slot_id,
-                    slot_weights=client_slot_weights[k],
+                    slot_weights=client_read_slot_weights[k],
                 )
 
                 acc = float(np.mean(y_pred == y_test)) if len(y_test) > 0 else 0.0
@@ -553,23 +1196,66 @@ class FedProTrackRunner:
                 if is_drift:
                     any_drift = True
 
-                # 3. Build per-step fingerprint (fresh, no accumulation)
-                y_fingerprint = y_train
-                if isinstance(fingerprint_labels, dict) and (k, t) in fingerprint_labels:
-                    y_fingerprint = fingerprint_labels[(k, t)][mid:]
-                step_fingerprints[k].update(X_train, y_fingerprint)
+                training_slot_weights = None
+                update_shared = True
+                shared_before_local: dict[str, np.ndarray] | None = None
+                slot_anchor_payloads: dict[int, dict[str, np.ndarray]] | None = None
+                effective_training_weights = {int(current_slot_id): 1.0}
+                if _is_namespaced_routed_model(models[k]):
+                    if self.expert_update_policy == "posterior_weighted":
+                        training_slot_weights = _select_weighted_training_slots(
+                            current_slot_id,
+                            client_slot_weights[k],
+                            top_k=self.routed_write_top_k,
+                            min_secondary_weight=self.routed_write_min_secondary_weight,
+                        )
+                    effective_training_weights = _normalise_slot_weights(
+                        current_slot_id,
+                        training_slot_weights,
+                    )
+                    if (
+                        self.shared_update_policy == "freeze_on_multiroute"
+                        and len(effective_training_weights) > 1
+                    ):
+                        update_shared = False
+                    if (
+                        self.factorized_slot_preserving
+                        and _is_factorized_adapter_model(models[k])
+                        and len(effective_training_weights) > 1
+                    ):
+                        routed_slot_ids = [
+                            int(slot_id)
+                            for slot_id in sorted(effective_training_weights)
+                        ]
+                        slot_anchor_payloads = _collect_slot_anchor_payloads(
+                            models[k],
+                            slot_ids=routed_slot_ids,
+                            memory_bank=protocol.memory_bank,
+                        )
+                        _warm_start_factorized_slots(
+                            models[k],
+                            shared_slot_id=current_slot_id,
+                            slot_ids=routed_slot_ids,
+                            anchor_payloads=slot_anchor_payloads,
+                        )
+                    shared_before_local = _model_get_params(
+                        models[k],
+                        slot_id=current_slot_id,
+                    )
+                    local_update_events += 1
+                    expert_update_total += float(len(effective_training_weights))
+                    if len(effective_training_weights) > 1:
+                        multi_route_events += 1
 
-                # 4. Local training on GPU
+                # 3. Local training on GPU
                 if self.n_epochs > 1:
                     _model_fit(
                         models[k],
                         X_train,
                         y_train,
                         slot_id=current_slot_id,
-                        slot_weights=(
-                            client_slot_weights[k]
-                            if self.routed_local_training else None
-                        ),
+                        slot_weights=training_slot_weights,
+                        update_shared=update_shared,
                     )
                 else:
                     _model_partial_fit(
@@ -577,11 +1263,69 @@ class FedProTrackRunner:
                         X_train,
                         y_train,
                         slot_id=current_slot_id,
-                        slot_weights=(
-                            client_slot_weights[k]
-                            if self.routed_local_training else None
-                        ),
+                        slot_weights=training_slot_weights,
+                        update_shared=update_shared,
                     )
+
+                if (
+                    slot_anchor_payloads is not None
+                    and _is_factorized_adapter_model(models[k])
+                ):
+                    _apply_factorized_slot_anchor(
+                        models[k],
+                        slot_ids=[
+                            int(slot_id)
+                            for slot_id in sorted(effective_training_weights)
+                        ],
+                        primary_slot_id=current_slot_id,
+                        anchor_payloads=slot_anchor_payloads,
+                        primary_anchor_alpha=self.factorized_primary_anchor_alpha,
+                        secondary_anchor_alpha=self.factorized_secondary_anchor_alpha,
+                    )
+                    if int(self.factorized_primary_consolidation_steps) > 0:
+                        _run_factorized_primary_consolidation(
+                            models[k],
+                            X_train,
+                            y_train,
+                            slot_id=current_slot_id,
+                            steps=int(self.factorized_primary_consolidation_steps),
+                            mode=self.factorized_primary_consolidation_mode,
+                        )
+
+                if _is_namespaced_routed_model(models[k]) and shared_before_local is not None:
+                    shared_after_local = _model_get_params(
+                        models[k],
+                        slot_id=current_slot_id,
+                    )
+                    shared_drift_total += _shared_drift_norm(
+                        shared_before_local,
+                        shared_after_local,
+                    )
+                    shared_drift_events += 1
+
+                # 4. Build per-step fingerprint (fresh, no accumulation)
+                y_fingerprint = y_train
+                if isinstance(fingerprint_labels, dict) and (k, t) in fingerprint_labels:
+                    y_fingerprint = fingerprint_labels[(k, t)][mid:]
+                fingerprint_X = _build_fingerprint_features(
+                    models[k],
+                    X_train,
+                    slot_id=current_slot_id,
+                    slot_weights=client_read_slot_weights[k],
+                    fingerprint_source=self.fingerprint_source,
+                    bootstrap_hidden_dim=(
+                        self.hidden_dim
+                        if self.fingerprint_source
+                        == "bootstrap_raw_hybrid_pre_adapter"
+                        else None
+                    ),
+                    use_bootstrap_raw=(
+                        self.fingerprint_source
+                        == "bootstrap_raw_hybrid_pre_adapter"
+                        and protocol.memory_bank.n_concepts <= 1
+                    ),
+                )
+                step_fingerprints[k].update(fingerprint_X, y_fingerprint)
 
                 if (
                     blend_alpha > 0.0
@@ -628,6 +1372,15 @@ class FedProTrackRunner:
                     old_assignments = prev_assignments
                     prev_assignments = last_a_result.assignments
                     posteriors_log.append((t, last_a_result.posteriors))
+                    phase_a_round_diagnostics.append(
+                        _summarize_phase_a_round(
+                            timestep=t,
+                            phase_a_result=last_a_result,
+                            active_after=len(set(prev_assignments.values()))
+                            if prev_assignments
+                            else 0,
+                        )
+                    )
 
                     # --- Loss-based concept validation ---
                     # After fingerprint-based assignment, validate by
@@ -696,7 +1449,7 @@ class FedProTrackRunner:
                                         X_val,
                                         slot_id=cid,
                                         slot_weights={cid: 1.0}
-                                        if self.model_type == "feature_adapter"
+                                        if _is_namespaced_routed_model(probe)
                                         else None,
                                     )
                                     acc = float(np.mean(preds == y_val))
@@ -758,7 +1511,7 @@ class FedProTrackRunner:
                                         X_val,
                                         slot_id=cid,
                                         slot_weights={cid: 1.0}
-                                        if self.model_type == "feature_adapter"
+                                        if _is_namespaced_routed_model(probe)
                                         else None,
                                     )
                                     acc = float(np.mean(preds == y_val))
@@ -805,8 +1558,9 @@ class FedProTrackRunner:
                                     key: arr.copy()
                                     for key, arr in stored.items()
                                 }
-                                if self.model_type == "feature_adapter":
+                                if _is_namespaced_routed_model(models[k]):
                                     client_slot_weights[k] = {int(new_cid): 1.0}
+                                    client_read_slot_weights[k] = {int(new_cid): 1.0}
 
                 # Phase B: model aggregation (always runs on federation steps
                 # when assignments exist, even if Phase A was skipped)
@@ -826,7 +1580,7 @@ class FedProTrackRunner:
                         for k in range(K):
                             cid = prev_assignments.get(k)
                             if cid is not None and cid in b_result.aggregated_params:
-                                if self.model_type == "feature_adapter":
+                                if _is_namespaced_routed_model(models[k]):
                                     routing_weights = (
                                         last_a_result.posteriors.get(k).probabilities
                                         if last_a_result is not None
@@ -840,25 +1594,44 @@ class FedProTrackRunner:
                                             params = protocol.memory_bank.get_model_params(slot_id)
                                         if params is not None:
                                             candidate_payloads[int(slot_id)] = params
-
+                                    filtered_write_weights = {
+                                        int(slot_id): float(weight)
+                                        for slot_id, weight in routing_weights.items()
+                                        if float(weight) > 0.0
+                                        and int(slot_id) in candidate_payloads
+                                    }
+                                    read_weights = _prepare_routed_read_weights(
+                                        filtered_write_weights or routing_weights,
+                                        top_k=self.routed_read_top_k,
+                                        temperature=self.routed_read_temperature,
+                                        only_on_ambiguity=self.routed_read_only_on_ambiguity,
+                                        min_entropy=self.routed_read_min_entropy,
+                                        min_secondary_weight=self.routed_read_min_secondary_weight,
+                                        max_primary_gap=self.routed_read_max_primary_gap,
+                                    )
                                     agg_p, filtered_weights = _compose_routed_payload(
                                         candidate_payloads,
-                                        routing_weights,
+                                        read_weights or routing_weights,
                                     )
                                     if not agg_p:
                                         agg_p = {
                                             key: arr.copy()
                                             for key, arr in b_result.aggregated_params[cid].items()
                                         }
+                                        filtered_write_weights = {int(cid): 1.0}
                                         filtered_weights = {cid: 1.0}
                                     model_params[k] = agg_p
-                                    client_slot_weights[k] = filtered_weights
+                                    client_slot_weights[k] = (
+                                        filtered_write_weights if filtered_write_weights else filtered_weights
+                                    )
+                                    client_read_slot_weights[k] = filtered_weights
                                 else:
                                     model_params[k] = {
                                         key: arr.copy()
                                         for key, arr in b_result.aggregated_params[cid].items()
                                     }
                                     client_slot_weights[k] = None
+                                    client_read_slot_weights[k] = None
                                 _model_set_params(models[k], model_params[k])
             else:
                 # No federation this step — carry forward previous assignments
@@ -898,6 +1671,21 @@ class FedProTrackRunner:
             soft_assignments,
             predicted_matrix,
         )
+        result_shared_drift_norm = (
+            shared_drift_total / shared_drift_events
+            if shared_drift_events > 0
+            else None
+        )
+        result_expert_update_coverage = (
+            expert_update_total / local_update_events
+            if local_update_events > 0
+            else None
+        )
+        result_multi_route_rate = (
+            multi_route_events / local_update_events
+            if local_update_events > 0
+            else None
+        )
 
         return FedProTrackResult(
             accuracy_matrix=accuracy_matrix,
@@ -918,4 +1706,8 @@ class FedProTrackRunner:
             singleton_group_ratio=result_singleton_group_ratio,
             memory_reuse_rate=result_memory_reuse_rate,
             routing_consistency=result_routing_consistency,
+            shared_drift_norm=result_shared_drift_norm,
+            expert_update_coverage=result_expert_update_coverage,
+            multi_route_rate=result_multi_route_rate,
+            phase_a_round_diagnostics=phase_a_round_diagnostics,
         )

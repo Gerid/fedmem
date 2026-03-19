@@ -71,6 +71,18 @@ class TwoPhaseConfig:
         Minimum fingerprint count for concept survival.
     max_concepts : int
         Hard cap on the number of concepts.
+    max_spawn_clusters_per_round : int or None
+        Optional cap on how many novel clusters may spawn in a single
+        addressing round. When set, novel clusters are ranked by support
+        size and novelty gap, and only the strongest clusters spawn while
+        the remainder fall back to their MAP existing concept. Default
+        None (no cap).
+    novelty_hysteresis_rounds : int
+        Number of consecutive addressing rounds a client must remain novel
+        before a new concept is allowed to spawn. ``1`` reproduces the
+        current behaviour (no hysteresis). Values > 1 suppress one-off
+        overspawn by falling back to the best existing concept until the
+        novelty signal persists.
     merge_every : int
         Run merge maintenance every this many federation rounds.
     shrink_every : int
@@ -93,6 +105,8 @@ class TwoPhaseConfig:
     merge_min_support: int = 1
     min_count: float = 5.0
     max_concepts: int = 20
+    max_spawn_clusters_per_round: int | None = None
+    novelty_hysteresis_rounds: int = 1
     merge_every: int = 2
     shrink_every: int = 5
     key_mode: str = "fingerprint"
@@ -138,6 +152,10 @@ class PhaseAResult:
     avg_clients_per_concept: float | None = None
     singleton_group_ratio: float | None = None
     routing_consistency: float | None = None
+    library_size_before: int = 0
+    client_fp_losses: dict[int, float] = field(default_factory=dict)
+    client_effective_thresholds: dict[int, float] = field(default_factory=dict)
+    client_map_probabilities: dict[int, float] = field(default_factory=dict)
 
     @property
     def total_bytes(self) -> float:
@@ -209,6 +227,7 @@ class TwoPhaseFedProTrack:
         self._aggregator = FedAvgAggregator()
         self._round: int = 0
         self._last_addressing_round: int = -1
+        self._novelty_streaks: dict[int, int] = {}
 
     def phase_a(
         self,
@@ -240,6 +259,7 @@ class TwoPhaseFedProTrack:
         PhaseAResult
         """
         K = len(client_fingerprints)
+        library_size_before = self.memory_bank.n_concepts
         fp_bytes = fingerprint_bytes(
             self.config.n_features, self.config.n_classes,
             precision_bits=16, include_global_mean=False,
@@ -253,6 +273,7 @@ class TwoPhaseFedProTrack:
             return PhaseAResult(
                 assignments={}, posteriors={},
                 bytes_up=0.0, bytes_down=0.0,
+                library_size_before=library_size_before,
             )
 
         if (
@@ -294,6 +315,7 @@ class TwoPhaseFedProTrack:
                     avg_clients_per_concept=_avg_clients_per_concept(prev_assignments),
                     singleton_group_ratio=_singleton_group_ratio(prev_assignments),
                     routing_consistency=1.0,
+                    library_size_before=library_size_before,
                 )
 
         # --- Bootstrap: if no concepts yet, create the first from all clients ---
@@ -324,6 +346,9 @@ class TwoPhaseFedProTrack:
         # --- Pass 1: compute posteriors for all remaining clients ---
         novel_clients: list[int] = []  # clients flagged as novel
         assigned_clients: dict[int, int] = {}  # client -> concept_id
+        client_fp_losses: dict[int, float] = {}
+        client_effective_thresholds: dict[int, float] = {}
+        client_map_probabilities: dict[int, float] = {}
 
         for client_id, fp in remaining_fps.items():
             prev_cid = (
@@ -362,6 +387,11 @@ class TwoPhaseFedProTrack:
                 prev_prob = assignment.probabilities[prev_cid]
                 if prev_prob >= self.config.sticky_posterior_gate:
                     effective_threshold *= self.config.sticky_dampening
+            client_fp_losses[client_id] = float(fp_loss)
+            client_effective_thresholds[client_id] = float(effective_threshold)
+            client_map_probabilities[client_id] = float(
+                assignment.probabilities[assignment.map_concept_id]
+            )
 
             # --- Model-based loss as second channel (Fix #3) ---
             # Model loss acts as a novelty SUPPRESSOR: if the client's
@@ -391,12 +421,21 @@ class TwoPhaseFedProTrack:
                 and prev_cid in library
             ):
                 is_novel = False
+                self._novelty_streaks[client_id] = 0
                 assigned_clients[client_id] = prev_cid
                 continue
 
             if is_novel:
+                streak = self._novelty_streaks.get(client_id, 0) + 1
+                self._novelty_streaks[client_id] = streak
+                if int(self.config.novelty_hysteresis_rounds) > 1 and streak < int(
+                    self.config.novelty_hysteresis_rounds
+                ):
+                    assigned_clients[client_id] = assignment.map_concept_id
+                    continue
                 novel_clients.append(client_id)
             else:
+                self._novelty_streaks[client_id] = 0
                 assigned_clients[client_id] = assignment.map_concept_id
 
         # --- Pass 2: cluster novel clients by fingerprint similarity ---
@@ -408,6 +447,13 @@ class TwoPhaseFedProTrack:
             novel_clusters = self._cluster_novel_clients(
                 novel_clients, client_fingerprints,
             )
+            novel_clusters, capped_clients = self._cap_novel_clusters(
+                novel_clusters,
+                client_fp_losses=client_fp_losses,
+                client_effective_thresholds=client_effective_thresholds,
+            )
+            for client_id in capped_clients:
+                assigned_clients[client_id] = posteriors[client_id].map_concept_id
 
             # Spawn one new concept per cluster of truly novel clients
             for cluster in novel_clusters:
@@ -420,6 +466,7 @@ class TwoPhaseFedProTrack:
                     n_spawned += 1
                 new_cid = spawn_result.new_concept_id
                 for client_id in cluster:
+                    self._novelty_streaks[client_id] = 0
                     assignments[client_id] = new_cid
                     if client_id != cluster[0]:
                         self.memory_bank.absorb_fingerprint(
@@ -473,6 +520,10 @@ class TwoPhaseFedProTrack:
             avg_clients_per_concept=_avg_clients_per_concept(assignments),
             singleton_group_ratio=_singleton_group_ratio(assignments),
             routing_consistency=_routing_consistency(assignments, prev_assignments),
+            library_size_before=library_size_before,
+            client_fp_losses=client_fp_losses,
+            client_effective_thresholds=client_effective_thresholds,
+            client_map_probabilities=client_map_probabilities,
         )
 
     def _remap_merged_assignments(
@@ -566,6 +617,37 @@ class TwoPhaseFedProTrack:
                 clusters.append([cid])
 
         return clusters
+
+    def _cap_novel_clusters(
+        self,
+        novel_clusters: list[list[int]],
+        *,
+        client_fp_losses: dict[int, float],
+        client_effective_thresholds: dict[int, float],
+    ) -> tuple[list[list[int]], list[int]]:
+        """Limit how many novel clusters may spawn in a single round."""
+        cap = self.config.max_spawn_clusters_per_round
+        if cap is None or len(novel_clusters) <= int(cap):
+            return novel_clusters, []
+
+        ranked = sorted(
+            novel_clusters,
+            key=lambda cluster: (
+                -len(cluster),
+                -float(np.mean([
+                    client_fp_losses[client_id] - client_effective_thresholds[client_id]
+                    for client_id in cluster
+                ])),
+                int(min(cluster)),
+            ),
+        )
+        kept = ranked[:int(cap)]
+        capped_clients = [
+            client_id
+            for cluster in ranked[int(cap):]
+            for client_id in cluster
+        ]
+        return kept, capped_clients
 
     def phase_b(
         self,

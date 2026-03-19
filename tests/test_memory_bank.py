@@ -116,6 +116,23 @@ class TestSpawn:
         assert bank.n_concepts == 1
         assert bank.get_fingerprint(result.new_concept_id) is not None
 
+    def test_spawn_preserves_feature_groups(self) -> None:
+        bank = DynamicMemoryBank(n_features=4, n_classes=2)
+        fp = _make_fp(n_features=4, seed=0)
+        fp = ConceptFingerprint(
+            4,
+            2,
+            feature_groups=[(0, 2, 0.75), (2, 4, 0.25)],
+        )
+        rng = np.random.RandomState(0)
+        X = rng.randn(20, 4)
+        y = rng.randint(0, 2, size=20)
+        fp.update(X, y)
+        result = bank.spawn_from_fingerprint(fp)
+        stored = bank.get_fingerprint(result.new_concept_id)
+        assert stored is not None
+        assert stored.feature_groups == fp.feature_groups
+
     def test_spawn_increments_id(self) -> None:
         bank = DynamicMemoryBank(n_features=2, n_classes=2)
         r1 = bank.spawn_from_fingerprint(_make_fp(seed=0))
