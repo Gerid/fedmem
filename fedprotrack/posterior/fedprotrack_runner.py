@@ -19,8 +19,17 @@ from ..drift_detector import BaseDriftDetector
 from ..drift_generator import DriftDataset
 from ..metrics.experiment_log import ExperimentLog
 from ..models import TorchLinearClassifier
+from .routing_similarity import prototype_transport_similarity
+from .predictive_signatures import project_batch_prototype_signatures
 from .gibbs import PosteriorAssignment
-from .two_phase_protocol import PhaseAResult, TwoPhaseConfig, TwoPhaseFedProTrack
+from .two_phase_protocol import (
+    PhaseAResult,
+    TwoPhaseConfig,
+    TwoPhaseFedProTrack,
+    _merge_linear_classifier_params,
+    _project_classifier_row_signatures,
+    _split_linear_classifier_params,
+)
 
 
 def _make_detector(name: str) -> BaseDriftDetector:
@@ -71,6 +80,308 @@ def _infer_n_classes(dataset: DriftDataset) -> int:
     if not all_labels:
         return 2
     return max(all_labels) + 1
+
+
+def _estimate_fingerprint_similarity_quantiles(
+    dataset: DriftDataset,
+    *,
+    n_features: int,
+    n_classes: int,
+    max_fingerprints: int = 24,
+    high_quantile: float = 0.90,
+    merge_quantile: float = 0.75,
+) -> tuple[float, float] | None:
+    """Estimate high-dimensional fingerprint similarity scale from data.
+
+    The estimate is unsupervised: it builds a bounded set of per-step
+    fingerprints from the training halves of client batches, then measures
+    their pairwise similarity distribution. The upper-tail similarity is used
+    to calibrate novelty gating, while a slightly lower quantile is used as a
+    merge target.
+    """
+    if max_fingerprints < 2:
+        return None
+
+    fingerprints: list[ConceptFingerprint] = []
+    for (client_id, t_step) in sorted(dataset.data):
+        X, y = dataset.data[(client_id, t_step)]
+        mid = len(X) // 2
+        fp = ConceptFingerprint(n_features, n_classes)
+        fp.update(X[mid:], y[mid:])
+        fingerprints.append(fp)
+        if len(fingerprints) >= max_fingerprints:
+            break
+
+    if len(fingerprints) < 2:
+        return None
+
+    sims: list[float] = []
+    for i in range(len(fingerprints)):
+        for j in range(i + 1, len(fingerprints)):
+            sims.append(float(fingerprints[i].similarity(fingerprints[j])))
+
+    if not sims:
+        return None
+
+    sims_arr = np.asarray(sims, dtype=np.float64)
+    high_q = float(np.quantile(sims_arr, high_quantile))
+    merge_q = float(np.quantile(sims_arr, merge_quantile))
+    return high_q, merge_q
+
+
+def _project_model_signature(
+    params: dict[str, np.ndarray],
+    *,
+    output_dim: int,
+    seed: int,
+) -> np.ndarray:
+    """Project model parameters into a lightweight deterministic signature."""
+    if output_dim < 1:
+        raise ValueError(f"output_dim must be >= 1, got {output_dim}")
+    if "coef" not in params or "intercept" not in params:
+        return np.zeros(output_dim, dtype=np.float64)
+
+    vec = np.concatenate(
+        [
+            np.asarray(params["coef"], dtype=np.float64).reshape(-1),
+            np.asarray(params["intercept"], dtype=np.float64).reshape(-1),
+        ]
+    )
+    if vec.size == 0:
+        return np.zeros(output_dim, dtype=np.float64)
+
+    if vec.size >= output_dim:
+        rng = np.random.default_rng(seed + 997 * output_dim + 17 * vec.size)
+        projector = rng.standard_normal((output_dim, vec.size)) / np.sqrt(output_dim)
+        signature = projector @ vec
+    else:
+        signature = np.zeros(output_dim, dtype=np.float64)
+        signature[:vec.size] = vec
+
+    norm = float(np.linalg.norm(signature))
+    if norm > 1e-12:
+        signature = signature / norm
+    return signature.astype(np.float64, copy=False)
+
+
+def _personalize_params_to_client_prototypes(
+    params: dict[str, np.ndarray],
+    batch_fp: ConceptFingerprint,
+    *,
+    n_features: int,
+    n_classes: int,
+    mix: float,
+) -> dict[str, np.ndarray]:
+    """Blend classifier rows toward the client's current batch prototypes."""
+    if mix <= 0.0:
+        return params
+    if "coef" not in params or "intercept" not in params:
+        return params
+
+    rows, bias = _split_linear_classifier_params(
+        params,
+        n_features=n_features,
+        n_classes=n_classes,
+    )
+    class_prototypes = batch_fp.class_means
+    class_mass = batch_fp.label_distribution
+
+    for label in range(n_classes):
+        if label >= len(class_mass) or class_mass[label] <= 1e-8:
+            continue
+        prototype = np.asarray(class_prototypes[label], dtype=np.float64)
+        proto_norm = float(np.linalg.norm(prototype))
+        if proto_norm <= 1e-12:
+            continue
+        row = rows[label]
+        row_scale = max(float(np.linalg.norm(row)), 1.0)
+        aligned = prototype / proto_norm * row_scale
+        rows[label] = (1.0 - mix) * row + mix * aligned
+
+    return _merge_linear_classifier_params(
+        rows,
+        bias,
+        n_features=n_features,
+        n_classes=n_classes,
+    )
+
+
+def _average_params(params_list: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
+    """Average a non-empty list of flat parameter dicts."""
+    if not params_list:
+        raise ValueError("params_list must be non-empty")
+    return {
+        key: np.mean(np.stack([params[key] for params in params_list]), axis=0)
+        for key in params_list[0]
+    }
+
+
+def _blend_param_dicts(
+    concept_params: dict[str, np.ndarray],
+    subgroup_params: dict[str, np.ndarray],
+    *,
+    alpha: float,
+) -> dict[str, np.ndarray]:
+    """Convexly blend concept- and subgroup-level parameter payloads."""
+    if alpha <= 0.0:
+        return {key: arr.copy() for key, arr in concept_params.items()}
+    if alpha >= 1.0:
+        return {key: arr.copy() for key, arr in subgroup_params.items()}
+    return {
+        key: (1.0 - alpha) * concept_params[key] + alpha * subgroup_params[key]
+        for key in concept_params
+    }
+
+
+@dataclass
+class _PredictiveSubgroupCacheEntry:
+    """Short-lived cached subgroup object for later download blending."""
+
+    class_means: np.ndarray
+    label_distribution: np.ndarray
+    params: dict[str, np.ndarray]
+    expires_after_round: int
+
+
+def _estimate_subgroup_stats(
+    batch_fingerprints: list[ConceptFingerprint],
+    client_ids: list[int],
+    *,
+    n_classes: int,
+    n_features: int,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Estimate prototype stats for a predictive subgroup from client batches."""
+    if not client_ids:
+        return None
+    class_mass = np.zeros(n_classes, dtype=np.float64)
+    class_means = np.zeros((n_classes, n_features), dtype=np.float64)
+    for client_id in client_ids:
+        fp = batch_fingerprints[client_id]
+        label_mass = fp.label_distribution * max(float(fp.count), 1.0)
+        class_mass += label_mass
+        class_means += label_mass[:, None] * fp.class_means
+    valid = class_mass > 1e-8
+    if not np.any(valid):
+        return None
+    class_means[valid] /= class_mass[valid, None]
+    return class_means, class_mass
+
+
+def _predictive_similarity_to_stats(
+    batch_fp: ConceptFingerprint,
+    class_means: np.ndarray,
+    label_distribution: np.ndarray,
+) -> float:
+    """Prototype-transport similarity between a batch fingerprint and cached stats."""
+    return prototype_transport_similarity(
+        batch_fp.class_means,
+        class_means,
+        batch_fp.label_distribution,
+        label_distribution,
+        metric="euclidean",
+        reg=0.1,
+        temperature=1.0,
+    )
+
+
+def _blend_with_cached_subgroup(
+    concept_params: dict[str, np.ndarray],
+    batch_fp: ConceptFingerprint,
+    cache_entries: list[_PredictiveSubgroupCacheEntry],
+    *,
+    current_round: int,
+    alpha: float,
+) -> dict[str, np.ndarray]:
+    """Blend concept aggregate with the closest still-valid cached subgroup."""
+    valid_entries = [
+        entry for entry in cache_entries
+        if current_round <= entry.expires_after_round
+    ]
+    if not valid_entries or alpha <= 0.0:
+        return concept_params
+
+    best_entry = max(
+        valid_entries,
+        key=lambda entry: _predictive_similarity_to_stats(
+            batch_fp,
+            entry.class_means,
+            entry.label_distribution,
+        ),
+    )
+    best_sim = _predictive_similarity_to_stats(
+        batch_fp,
+        best_entry.class_means,
+        best_entry.label_distribution,
+    )
+    effective_alpha = float(np.clip(alpha * best_sim, 0.0, 1.0))
+    return _blend_param_dicts(
+        concept_params,
+        best_entry.params,
+        alpha=effective_alpha,
+    )
+
+
+def _predictive_similarity_from_fingerprints(
+    fp_a: ConceptFingerprint,
+    fp_b: ConceptFingerprint,
+) -> float:
+    """Prototype transport similarity between two current-batch fingerprints."""
+    return prototype_transport_similarity(
+        fp_a.class_means,
+        fp_b.class_means,
+        fp_a.label_distribution,
+        fp_b.label_distribution,
+        metric="euclidean",
+        reg=0.1,
+        temperature=1.0,
+    )
+
+
+def _split_clients_by_predictive_similarity(
+    client_ids: list[int],
+    batch_fingerprints: list[ConceptFingerprint],
+) -> list[list[int]]:
+    """Split a client list into up to two predictive groups.
+
+    Uses farthest-pair seeding under prototype-transport similarity, then
+    assigns each remaining client to the closer seed. This is intentionally
+    lightweight and only meant for small early-round regrouping experiments.
+    """
+    if len(client_ids) <= 2:
+        return [client_ids]
+
+    sim = np.ones((len(client_ids), len(client_ids)), dtype=np.float64)
+    for i in range(len(client_ids)):
+        for j in range(i + 1, len(client_ids)):
+            s = _predictive_similarity_from_fingerprints(
+                batch_fingerprints[client_ids[i]],
+                batch_fingerprints[client_ids[j]],
+            )
+            sim[i, j] = s
+            sim[j, i] = s
+
+    seed_i = 0
+    seed_j = 1
+    min_sim = np.inf
+    for i in range(len(client_ids)):
+        for j in range(i + 1, len(client_ids)):
+            if sim[i, j] < min_sim:
+                min_sim = sim[i, j]
+                seed_i, seed_j = i, j
+
+    group_a = [client_ids[seed_i]]
+    group_b = [client_ids[seed_j]]
+    for idx, cid in enumerate(client_ids):
+        if idx in {seed_i, seed_j}:
+            continue
+        sim_a = sim[idx, seed_i]
+        sim_b = sim[idx, seed_j]
+        if sim_a >= sim_b:
+            group_a.append(cid)
+        else:
+            group_b.append(cid)
+
+    return [group for group in (group_a, group_b) if group]
 
 
 @dataclass
@@ -163,6 +474,66 @@ class FedProTrackRunner:
         on feature dimensionality. Higher-dimensional data (e.g. MNIST
         with 20 PCA features) gets higher novelty thresholds and lower
         merge thresholds to prevent over-spawning. Default False.
+    similarity_calibration : bool
+        If True, estimate the fingerprint similarity scale directly from the
+        dataset and use it to calibrate novelty and merge thresholds. This is
+        useful for high-dimensional real-data benchmarks where raw similarity
+        values are far below the synthetic-data scale.
+    model_signature_weight : float
+        Weight for mixing a lightweight projected model signature into
+        Phase A routing. 0.0 keeps fingerprint-only routing.
+    model_signature_dim : int
+        Dimensionality of the lightweight model signature.
+    update_ot_weight : float
+        Weight for mixing a lightweight OT similarity over projected
+        classifier rows into Phase A routing.
+    update_ot_dim : int
+        Projection dimension for each classifier row in update OT.
+    labelwise_proto_weight : float
+        Weight for mixing label-wise batch-prototype to classifier-row
+        similarity into Phase A routing.
+    labelwise_proto_dim : int
+        Projection dimension for each label-wise batch prototype.
+    prototype_alignment_mix : float
+        After Phase B aggregation, blend each class row toward the routed
+        concept's prototype direction. This keeps the transport payload
+        unchanged while adding a prototype-aware sharing bias.
+    prototype_alignment_early_rounds : int
+        Number of earliest federation rounds that should use a stronger
+        prototype-alignment mix.
+    prototype_alignment_early_mix : float
+        Prototype-alignment mix used during the first
+        ``prototype_alignment_early_rounds`` federation rounds.
+    prototype_prealign_early_rounds : int
+        Number of earliest federation rounds that should pre-align each
+        client model toward concept prototypes before aggregation.
+    prototype_prealign_early_mix : float
+        Pre-alignment mix used during the first
+        ``prototype_prealign_early_rounds`` federation rounds.
+    client_prototype_personalization_rounds : int
+        Number of earliest federation rounds that should personalize the
+        downloaded aggregate toward the client's current batch prototypes.
+    client_prototype_personalization_mix : float
+        Personalization mix used when adapting a downloaded aggregate
+        toward the client's current batch prototypes.
+    predictive_grouping_rounds : int
+        Number of earliest federation rounds that should split downloads
+        into small predictive groups rather than using only the concept-level
+        aggregate.
+    predictive_grouping_min_clients : int
+        Minimum number of clients assigned to the same concept before the
+        predictive split is attempted.
+    predictive_grouping_blend_alpha : float
+        Blend factor for mixing the concept-level aggregate with the
+        predictive subgroup aggregate during early download grouping.
+        1.0 reproduces the old hard subgroup download behaviour.
+    predictive_grouping_cache_rounds : int
+        Number of future federation rounds that should retain subgroup
+        objects from early predictive grouping for later download blending.
+    predictive_grouping_cache_blend_alpha : float
+        Blend factor for mixing the current concept aggregate with the
+        closest cached subgroup object. The effective blend is scaled by
+        predictive similarity to the cached subgroup anchor.
     """
 
     def __init__(
@@ -175,6 +546,32 @@ class FedProTrackRunner:
         soft_aggregation: bool = False,
         blend_alpha: float = 0.5,
         auto_scale: bool = False,
+        similarity_calibration: bool = False,
+        calibration_high_quantile: float = 0.90,
+        calibration_merge_quantile: float = 0.75,
+        calibration_margin: float = 0.02,
+        model_signature_weight: float = 0.0,
+        model_signature_dim: int = 8,
+        update_ot_weight: float = 0.0,
+        update_ot_dim: int = 4,
+        labelwise_proto_weight: float = 0.0,
+        labelwise_proto_dim: int = 4,
+        prototype_alignment_mix: float = 0.0,
+        prototype_alignment_early_rounds: int = 0,
+        prototype_alignment_early_mix: float = 0.0,
+        prototype_prealign_early_rounds: int = 0,
+        prototype_prealign_early_mix: float = 0.0,
+        prototype_subgroup_early_rounds: int = 0,
+        prototype_subgroup_early_mix: float = 0.0,
+        prototype_subgroup_min_clients: int = 3,
+        prototype_subgroup_similarity_gate: float = 0.8,
+        client_prototype_personalization_rounds: int = 0,
+        client_prototype_personalization_mix: float = 0.0,
+        predictive_grouping_rounds: int = 0,
+        predictive_grouping_min_clients: int = 3,
+        predictive_grouping_blend_alpha: float = 1.0,
+        predictive_grouping_cache_rounds: int = 0,
+        predictive_grouping_cache_blend_alpha: float = 0.0,
         lr: float = 0.1,
         n_epochs: int = 1,
         loss_validation: bool = False,
@@ -189,6 +586,32 @@ class FedProTrackRunner:
         self.soft_aggregation = soft_aggregation
         self.blend_alpha = blend_alpha
         self.auto_scale = auto_scale
+        self.similarity_calibration = similarity_calibration
+        self.calibration_high_quantile = calibration_high_quantile
+        self.calibration_merge_quantile = calibration_merge_quantile
+        self.calibration_margin = calibration_margin
+        self.model_signature_weight = model_signature_weight
+        self.model_signature_dim = model_signature_dim
+        self.update_ot_weight = update_ot_weight
+        self.update_ot_dim = update_ot_dim
+        self.labelwise_proto_weight = labelwise_proto_weight
+        self.labelwise_proto_dim = labelwise_proto_dim
+        self.prototype_alignment_mix = prototype_alignment_mix
+        self.prototype_alignment_early_rounds = prototype_alignment_early_rounds
+        self.prototype_alignment_early_mix = prototype_alignment_early_mix
+        self.prototype_prealign_early_rounds = prototype_prealign_early_rounds
+        self.prototype_prealign_early_mix = prototype_prealign_early_mix
+        self.prototype_subgroup_early_rounds = prototype_subgroup_early_rounds
+        self.prototype_subgroup_early_mix = prototype_subgroup_early_mix
+        self.prototype_subgroup_min_clients = prototype_subgroup_min_clients
+        self.prototype_subgroup_similarity_gate = prototype_subgroup_similarity_gate
+        self.client_prototype_personalization_rounds = client_prototype_personalization_rounds
+        self.client_prototype_personalization_mix = client_prototype_personalization_mix
+        self.predictive_grouping_rounds = predictive_grouping_rounds
+        self.predictive_grouping_min_clients = predictive_grouping_min_clients
+        self.predictive_grouping_blend_alpha = predictive_grouping_blend_alpha
+        self.predictive_grouping_cache_rounds = predictive_grouping_cache_rounds
+        self.predictive_grouping_cache_blend_alpha = predictive_grouping_cache_blend_alpha
         self.lr = lr
         self.n_epochs = n_epochs
         self.loss_validation = loss_validation
@@ -230,6 +653,22 @@ class FedProTrackRunner:
             max_concepts = min(max_concepts, max(6, 20 - n_features // 2))
             blend_alpha = max(0.0, blend_alpha - 0.05 * (n_features - 2))
 
+        if self.similarity_calibration and n_features > 3:
+            quantiles = _estimate_fingerprint_similarity_quantiles(
+                dataset,
+                n_features=n_features,
+                n_classes=n_classes,
+                high_quantile=self.calibration_high_quantile,
+                merge_quantile=self.calibration_merge_quantile,
+            )
+            if quantiles is not None:
+                high_q, merge_q = quantiles
+                loss_novelty_th = max(
+                    loss_novelty_th,
+                    1.0 - high_q + self.calibration_margin,
+                )
+                merge_th = min(merge_th, merge_q)
+
         # Update config dimensions
         cfg = TwoPhaseConfig(
             omega=self.config.omega,
@@ -247,6 +686,21 @@ class FedProTrackRunner:
             shrink_every=self.config.shrink_every,
             n_features=n_features,
             n_classes=n_classes,
+            model_signature_weight=self.model_signature_weight,
+            model_signature_dim=self.model_signature_dim,
+            update_ot_weight=self.update_ot_weight,
+            update_ot_dim=self.update_ot_dim,
+            labelwise_proto_weight=self.labelwise_proto_weight,
+            labelwise_proto_dim=self.labelwise_proto_dim,
+            prototype_alignment_mix=self.prototype_alignment_mix,
+            prototype_alignment_early_rounds=self.prototype_alignment_early_rounds,
+            prototype_alignment_early_mix=self.prototype_alignment_early_mix,
+            prototype_prealign_early_rounds=self.prototype_prealign_early_rounds,
+            prototype_prealign_early_mix=self.prototype_prealign_early_mix,
+            prototype_subgroup_early_rounds=self.prototype_subgroup_early_rounds,
+            prototype_subgroup_early_mix=self.prototype_subgroup_early_mix,
+            prototype_subgroup_min_clients=self.prototype_subgroup_min_clients,
+            prototype_subgroup_similarity_gate=self.prototype_subgroup_similarity_gate,
         )
 
         protocol = TwoPhaseFedProTrack(cfg)
@@ -281,15 +735,29 @@ class FedProTrackRunner:
         total_spawned = 0
         total_merged = 0
         total_pruned = 0
+        federation_rounds_completed = 0
         prev_assignments: dict[int, int] | None = None
         old_assignments: dict[int, int] | None = None
         last_a_result: PhaseAResult | None = None
+        predictive_group_cache: dict[int, list[_PredictiveSubgroupCacheEntry]] = {}
 
         for t in range(T):
             # Per-step fingerprints: built fresh each step from current
             # data only, avoiding cross-concept contamination.
             step_fingerprints = [
                 ConceptFingerprint(n_features, n_classes) for _ in range(K)
+            ]
+            step_model_signatures = [
+                np.zeros(self.model_signature_dim, dtype=np.float64)
+                for _ in range(K)
+            ]
+            step_update_signatures = [
+                np.zeros((n_classes, self.update_ot_dim), dtype=np.float64)
+                for _ in range(K)
+            ]
+            step_batch_prototype_signatures = [
+                np.zeros((n_classes, self.labelwise_proto_dim), dtype=np.float64)
+                for _ in range(K)
             ]
 
             # --- Per-client: predict, detect, fingerprint, train ---
@@ -336,6 +804,29 @@ class FedProTrackRunner:
                     models[k].blend_params(model_params[k], alpha=blend_alpha)
 
                 model_params[k] = models[k].get_params()
+                if self.model_signature_weight > 0.0:
+                    step_model_signatures[k] = _project_model_signature(
+                        model_params[k],
+                        output_dim=self.model_signature_dim,
+                        seed=self.seed + 1009,
+                    )
+                if self.update_ot_weight > 0.0:
+                    step_update_signatures[k] = _project_classifier_row_signatures(
+                        model_params[k],
+                        n_features=n_features,
+                        n_classes=n_classes,
+                        output_dim=self.update_ot_dim,
+                        seed=self.seed + 2027,
+                    )
+                if self.labelwise_proto_weight > 0.0:
+                    proto_sigs, _ = project_batch_prototype_signatures(
+                        X_train,
+                        y_train,
+                        output_dim=self.labelwise_proto_dim,
+                        seed=self.seed + 3031,
+                        n_classes=n_classes,
+                    )
+                    step_batch_prototype_signatures[k] = proto_sigs
 
             # --- Federation ---
             is_federation_step = (t + 1) % self.federation_every == 0
@@ -353,8 +844,28 @@ class FedProTrackRunner:
                         k: 1.0 - accuracy_matrix[k, t] for k in range(K)
                     }
                     client_fps = {k: step_fingerprints[k] for k in range(K)}
+                    client_signatures = None
+                    if self.model_signature_weight > 0.0:
+                        client_signatures = {
+                            k: step_model_signatures[k] for k in range(K)
+                        }
+                    client_update_signatures = None
+                    if self.update_ot_weight > 0.0:
+                        client_update_signatures = {
+                            k: step_update_signatures[k] for k in range(K)
+                        }
+                    client_batch_prototype_signatures = None
+                    if self.labelwise_proto_weight > 0.0:
+                        client_batch_prototype_signatures = {
+                            k: step_batch_prototype_signatures[k] for k in range(K)
+                        }
                     last_a_result = protocol.phase_a(
-                        client_fps, prev_assignments, client_model_losses,
+                        client_fps,
+                        prev_assignments,
+                        client_model_losses,
+                        client_signatures,
+                        client_update_signatures,
+                        client_batch_prototype_signatures,
                     )
                     phase_a_bytes += last_a_result.total_bytes
                     total_spawned += last_a_result.spawned
@@ -525,20 +1036,129 @@ class FedProTrackRunner:
                 if prev_assignments:
                     client_p = {k: model_params[k] for k in range(K) if model_params[k]}
                     if client_p:
+                        federation_rounds_completed += 1
                         if self.soft_aggregation and last_a_result is not None:
                             b_result = protocol.phase_b_soft(
                                 client_p, prev_assignments,
                                 last_a_result.posteriors,
+                                client_fingerprints=step_fingerprints,
                             )
                         else:
-                            b_result = protocol.phase_b(client_p, prev_assignments)
+                            b_result = protocol.phase_b(
+                                client_p,
+                                prev_assignments,
+                                client_fingerprints=step_fingerprints,
+                            )
                         phase_b_bytes += b_result.total_bytes
+
+                        if predictive_group_cache:
+                            predictive_group_cache = {
+                                concept_id: [
+                                    entry for entry in entries
+                                    if federation_rounds_completed <= entry.expires_after_round
+                                ]
+                                for concept_id, entries in predictive_group_cache.items()
+                            }
+                            predictive_group_cache = {
+                                concept_id: entries
+                                for concept_id, entries in predictive_group_cache.items()
+                                if entries
+                            }
+
+                        client_download_params: dict[int, dict[str, np.ndarray]] = {}
+                        if (
+                            self.predictive_grouping_rounds > 0
+                            and federation_rounds_completed <= self.predictive_grouping_rounds
+                        ):
+                            concept_to_clients: dict[int, list[int]] = {}
+                            for client_id, concept_id in prev_assignments.items():
+                                if client_id in client_p:
+                                    concept_to_clients.setdefault(concept_id, []).append(client_id)
+                            for concept_id, concept_clients in concept_to_clients.items():
+                                concept_agg = b_result.aggregated_params.get(concept_id)
+                                if concept_agg is None:
+                                    continue
+                                if (
+                                    len(concept_clients) < self.predictive_grouping_min_clients
+                                ):
+                                    for client_id in concept_clients:
+                                        client_download_params[client_id] = concept_agg
+                                    continue
+                                split_groups = _split_clients_by_predictive_similarity(
+                                    concept_clients,
+                                    step_fingerprints,
+                                )
+                                if len(split_groups) <= 1:
+                                    for client_id in concept_clients:
+                                        client_download_params[client_id] = concept_agg
+                                    continue
+                                subgroup_entries: list[_PredictiveSubgroupCacheEntry] = []
+                                for group in split_groups:
+                                    group_agg = _average_params([client_p[cid] for cid in group])
+                                    if self.predictive_grouping_cache_rounds > 0:
+                                        stats = _estimate_subgroup_stats(
+                                            step_fingerprints,
+                                            group,
+                                            n_classes=n_classes,
+                                            n_features=n_features,
+                                        )
+                                        if stats is not None:
+                                            class_means, label_distribution = stats
+                                            subgroup_entries.append(
+                                                _PredictiveSubgroupCacheEntry(
+                                                    class_means=class_means,
+                                                    label_distribution=label_distribution,
+                                                    params={
+                                                        key: arr.copy()
+                                                        for key, arr in group_agg.items()
+                                                    },
+                                                    expires_after_round=(
+                                                        federation_rounds_completed
+                                                        + self.predictive_grouping_cache_rounds
+                                                    ),
+                                                )
+                                            )
+                                    blended_group_agg = _blend_param_dicts(
+                                        concept_agg,
+                                        group_agg,
+                                        alpha=self.predictive_grouping_blend_alpha,
+                                    )
+                                    for client_id in group:
+                                        client_download_params[client_id] = blended_group_agg
+                                if subgroup_entries:
+                                    predictive_group_cache[concept_id] = subgroup_entries
 
                         # Distribute aggregated models (load back to GPU)
                         for k in range(K):
                             cid = prev_assignments.get(k)
                             if cid is not None and cid in b_result.aggregated_params:
-                                agg_p = b_result.aggregated_params[cid]
+                                agg_p = client_download_params.get(k, b_result.aggregated_params[cid])
+                                if (
+                                    k not in client_download_params
+                                    and self.predictive_grouping_cache_rounds > 0
+                                    and self.predictive_grouping_cache_blend_alpha > 0.0
+                                    and cid in predictive_group_cache
+                                ):
+                                    agg_p = _blend_with_cached_subgroup(
+                                        agg_p,
+                                        step_fingerprints[k],
+                                        predictive_group_cache[cid],
+                                        current_round=federation_rounds_completed,
+                                        alpha=self.predictive_grouping_cache_blend_alpha,
+                                    )
+                                if (
+                                    self.client_prototype_personalization_rounds > 0
+                                    and federation_rounds_completed
+                                    <= self.client_prototype_personalization_rounds
+                                    and self.client_prototype_personalization_mix > 0.0
+                                ):
+                                    agg_p = _personalize_params_to_client_prototypes(
+                                        agg_p,
+                                        step_fingerprints[k],
+                                        n_features=n_features,
+                                        n_classes=n_classes,
+                                        mix=self.client_prototype_personalization_mix,
+                                    )
                                 model_params[k] = {
                                     key: arr.copy() for key, arr in agg_p.items()
                                 }
