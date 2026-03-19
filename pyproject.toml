@@ -5,6 +5,18 @@ description = "Federated Proactive Concept Identity Tracking with Plan C diagnos
 # Phase 3 / E6 / CIFAR entrypoints share the Plan C preset and real-data defaults use the feature-adapter model.
 # Recurrence-style CIFAR subset ablations may override shared aggregation locally without changing the global preset.
 # Routed local training for feature-adapter models is experimental and remains opt-in.
+# A prototype factorized_adapter model path now exists for Stage 2 experiments, and recurrence / overlap scripts expose it as opt-in factorized_local_shared / factorized_weighted_freeze / factorized_anchor_freeze / factorized_top2_freeze variants.
+# Adapter rescue experiments now use explicit fingerprint_source / expert_update_policy / shared_update_policy knobs.
+# Factorized Stage 2 experiments also expose slot-preserving warm-start and expert-anchor knobs for anti-collapse ablations.
+# Factorized Stage 2 ablations may additionally expose a short primary-slot consolidation tail after multiroute anchor/freeze updates.
+# Factorized consolidation ablations may further restrict that tail to head_only mode while keeping shared/private frozen.
+# Factorized Stage 2 ablations may also expose routed_read_top_k / routed_read_temperature to sharpen routed read mixtures without changing the write path.
+# Factorized Stage 2 ablations may further gate sharpened read with routed_read_only_on_ambiguity / routed_read_min_entropy / routed_read_min_secondary_weight / routed_read_max_primary_gap so only ambiguous posteriors are sharpened.
+# Factorized Stage 2 ablations may also expose novelty_hysteresis_rounds so Phase A requires repeated novel evidence before spawning a new slot.
+# CIFAR recurrence and overlap scripts emit selection/veto tables plus root-cause summaries for Stage 1 triage.
+# Recurrence rescue scripts now include pre-adapter / hybrid / weighted-hybrid / centered-hybrid / attenuated-hybrid / double-raw-hybrid fingerprint ablations and per-round Phase A fp_loss logs.
+# Rescue scaffolds also include a bootstrap raw+pre-adapter hybrid that stays raw-only while the memory bank has <=1 concept.
+# A resumable adapter research loop script can now iterate scaffold mutations with keep/revert decisions over many rounds.
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",

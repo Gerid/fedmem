@@ -3,6 +3,18 @@
 Plan C note: `run_phase3_experiments.py`, `run_e6_real_data.py`, and the CIFAR comparison / overlap entrypoints now share the Plan C preset; real-data FedProTrack entrypoints default to the feature-adapter path.
 Recurrence benchmark note: recurrence-style CIFAR subset ablations may explicitly set `global_shared_aggregation=False` for feature-adapter runs; this is a benchmark-specific knob, not a global preset default.
 Feature-adapter note: routed local training is available as an experimental ablation knob and is off by default; do not treat it as a validated default path.
+Stage 2 model note: a prototype `factorized_adapter` model type now exists in the shared model stack and runner, and recurrence / overlap registries expose it as the opt-in `factorized_local_shared`, `factorized_weighted_freeze`, `factorized_anchor_freeze`, and `factorized_top2_freeze` Stage 2 paths; current benchmark defaults still remain on the feature-adapter path.
+Stage 1 screening note: `run_cifar100_recurrence_gap.py` now implements the adapter rescue screening workflow (`seed=42` gate, 3-seed decision table, root-cause summary) and writes `results.json`, `recurrence_selection_table.json/csv`, and `root_cause_summary.txt`.
+Overlap veto note: `run_cifar100_label_overlap.py` now compares selected adapter variants on overlap points and writes `raw_results.csv`, `overlap_veto_table.json/csv`, and `root_cause_summary.txt`.
+Runner policy note: adapter rescue experiments now use explicit `fingerprint_source`, `expert_update_policy`, and `shared_update_policy` knobs plus `shared_drift_norm`, `expert_update_coverage`, and `multi_route_rate` diagnostics; factorized Stage 2 runs additionally support `factorized_slot_preserving` with primary/secondary expert anchor alphas.
+Factorized consolidation note: Stage 2 factorized ablations may also set `factorized_primary_consolidation_steps` to run a short primary-slot-only local tail after multiroute anchor/freeze updates.
+Head-only consolidation note: factorized consolidation ablations may set `factorized_primary_consolidation_mode="head_only"` to restrict that tail to the primary slot head while keeping shared/private frozen.
+Sharpened-read note: Stage 2 factorized ablations may also expose `routed_read_top_k` / `routed_read_temperature` to sharpen routed read-time mixtures without changing the write path.
+Conditional sharpened-read note: Stage 2 factorized ablations may further gate read sharpening with `routed_read_only_on_ambiguity`, `routed_read_min_entropy`, `routed_read_min_secondary_weight`, and `routed_read_max_primary_gap` so only ambiguous posterior mixtures are sharpened.
+Phase A hysteresis note: Stage 2 factorized ablations may also set `novelty_hysteresis_rounds` to require repeated novel evidence before a new concept is spawned.
+Fingerprint rescue note: feature-adapter recurrence ablations now distinguish `model_embed`, `pre_adapter_embed`, `hybrid_raw_pre_adapter`, `weighted_hybrid_raw_pre_adapter`, `centered_hybrid_raw_pre_adapter`, `attenuated_hybrid_raw_pre_adapter`, `double_raw_hybrid_pre_adapter`, and `bootstrap_raw_hybrid_pre_adapter`, and recurrence runs also emit per-round Phase A `fp_loss` diagnostics.
+Bootstrap fingerprint note: `bootstrap_raw_hybrid_pre_adapter` keeps Phase A on raw-only padded fingerprints while the memory bank has at most one concept, then switches to `raw + pre_adapter` features.
+Autonomy note: `run_adapter_research_loop.py` provides a resumable scaffold-mutation loop that screens candidates, compares them against the current champion, and keeps/reverts variants without blindly editing core model code.
 
 ## 项目身份
 
