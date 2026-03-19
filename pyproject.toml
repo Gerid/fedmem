@@ -1,10 +1,11 @@
 [project]
 name = "fedprotrack"
 version = "0.1.0"
-description = "Federated Proactive Concept Identity Tracking with Plan C diagnostics and feature-adapter foundations"
+description = "Federated Proactive Concept Identity Tracking with Plan C diagnostics, linear-split sweeps, and feature-adapter foundations"
 # Phase 3 / E6 / CIFAR entrypoints share the Plan C preset and real-data defaults use the feature-adapter model.
 # Recurrence-style CIFAR subset ablations may override shared aggregation locally without changing the global preset.
 # Routed local training for feature-adapter models is experimental and remains opt-in.
+# CIFAR recurrence full-sweep entrypoints now route through the unified baseline catalog and default to tuned linear-split FedProTrack.
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",

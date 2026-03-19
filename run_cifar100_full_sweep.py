@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Compatibility wrapper for the full CIFAR-100 recurrence sweep."""
+"""One-command parallel entrypoint for the full CIFAR-100 baseline sweep."""
 
 from fedprotrack.experiments.cifar_full_sweep import main
 

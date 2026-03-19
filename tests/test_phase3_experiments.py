@@ -13,7 +13,10 @@ from fedprotrack.baselines.runners import (
     run_apfl_full,
     run_atp_full,
     run_cfl_full,
+    run_fedavg_full,
     run_fedem_full,
+    run_local_only_full,
+    run_oracle_full,
     run_fedrc_full,
     run_fesem_full,
     run_fedccfa_full,
@@ -109,6 +112,9 @@ class TestBaselineRunners:
     @pytest.mark.parametrize(
         ("runner", "expected_name"),
         [
+            (run_local_only_full, "LocalOnly"),
+            (run_fedavg_full, "FedAvg"),
+            (run_oracle_full, "Oracle"),
             (run_pfedme_full, "pFedMe"),
             (run_apfl_full, "APFL"),
             (run_fedem_full, "FedEM"),

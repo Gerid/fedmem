@@ -17,6 +17,7 @@ from .ifca import IFCAUpload, IFCAClient, IFCAServer
 from .pfedme import PFedMeUpload, PFedMeClient, PFedMeServer
 from .tracked_summary import TrackedUpload, TrackedSummaryClient, TrackedSummaryServer
 from .budget_sweep import BudgetPoint, run_budget_sweep, find_crossover_points
+from .runners import run_local_only_full, run_fedavg_full, run_oracle_full
 
 __all__ = [
     "APFLUpload",
@@ -74,4 +75,7 @@ __all__ = [
     "BudgetPoint",
     "run_budget_sweep",
     "find_crossover_points",
+    "run_local_only_full",
+    "run_fedavg_full",
+    "run_oracle_full",
 ]

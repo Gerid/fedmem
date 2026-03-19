@@ -30,6 +30,7 @@ from .flux import run_flux_full as _run_flux_impl
 from .ifca import IFCAClient, IFCAServer
 from .pfedme import run_pfedme_full as _run_pfedme_impl
 from .tracked_summary import TrackedSummaryClient, TrackedSummaryServer
+from ..models import TorchLinearClassifier
 
 
 @dataclass
@@ -69,9 +70,239 @@ class MethodResult:
             ground_truth=ground_truth,
             predicted=self.predicted_concept_matrix,
             accuracy_curve=self.accuracy_matrix,
-            total_bytes=self.total_bytes,
+            total_bytes=self.total_bytes if self.total_bytes > 0 else None,
             method_name=self.method_name,
         )
+
+
+def run_local_only_full(
+    dataset: DriftDataset,
+    *,
+    lr: float = 0.05,
+    n_epochs: int = 5,
+    seed: int = 42,
+) -> MethodResult:
+    """Run LocalOnly with configurable optimizer settings.
+
+    Parameters
+    ----------
+    dataset : DriftDataset
+    lr : float
+    n_epochs : int
+    seed : int
+
+    Returns
+    -------
+    MethodResult
+    """
+    K, T, n_features, n_classes = _extract_dims(dataset)
+    models = [
+        TorchLinearClassifier(
+            n_features=n_features,
+            n_classes=n_classes,
+            lr=lr,
+            n_epochs=n_epochs,
+            seed=seed + k,
+        )
+        for k in range(K)
+    ]
+
+    accuracy_matrix = np.zeros((K, T), dtype=np.float64)
+    predicted_matrix = np.zeros((K, T), dtype=np.int32)
+
+    for t in range(T):
+        for k in range(K):
+            X, y = dataset.data[(k, t)]
+            mid = len(X) // 2
+            X_test, y_test = X[:mid], y[:mid]
+            X_train, y_train = X[mid:], y[mid:]
+
+            preds = models[k].predict(X_test)
+            accuracy_matrix[k, t] = _accuracy(y_test, preds)
+
+            if n_epochs > 1:
+                models[k].fit(X_train, y_train)
+            else:
+                models[k].partial_fit(X_train, y_train)
+
+    return MethodResult(
+        method_name="LocalOnly",
+        accuracy_matrix=accuracy_matrix,
+        predicted_concept_matrix=predicted_matrix,
+        total_bytes=0.0,
+    )
+
+
+def run_fedavg_full(
+    dataset: DriftDataset,
+    federation_every: int = 1,
+    *,
+    lr: float = 0.05,
+    n_epochs: int = 5,
+    seed: int = 42,
+) -> MethodResult:
+    """Run byte-tracked FedAvg with configurable local training.
+
+    Parameters
+    ----------
+    dataset : DriftDataset
+    federation_every : int
+    lr : float
+    n_epochs : int
+    seed : int
+
+    Returns
+    -------
+    MethodResult
+    """
+    K, T, n_features, n_classes = _extract_dims(dataset)
+
+    global_model = TorchLinearClassifier(
+        n_features=n_features,
+        n_classes=n_classes,
+        lr=lr,
+        n_epochs=n_epochs,
+        seed=seed,
+    )
+    client_models = [
+        TorchLinearClassifier(
+            n_features=n_features,
+            n_classes=n_classes,
+            lr=lr,
+            n_epochs=n_epochs,
+            seed=seed + k,
+        )
+        for k in range(K)
+    ]
+
+    accuracy_matrix = np.zeros((K, T), dtype=np.float64)
+    predicted_matrix = np.zeros((K, T), dtype=np.int32)
+    total_bytes = 0.0
+
+    for t in range(T):
+        for k in range(K):
+            X, y = dataset.data[(k, t)]
+            mid = len(X) // 2
+            X_test, y_test = X[:mid], y[:mid]
+            X_train, y_train = X[mid:], y[mid:]
+
+            preds = global_model.predict(X_test)
+            accuracy_matrix[k, t] = _accuracy(y_test, preds)
+
+            if t > 0:
+                client_models[k].set_params(global_model.get_params())
+            if n_epochs > 1:
+                client_models[k].fit(X_train, y_train)
+            else:
+                client_models[k].partial_fit(X_train, y_train)
+
+        if (t + 1) % federation_every == 0 and t < T - 1:
+            client_params = [client.get_params() for client in client_models]
+            one_model_bytes = model_bytes(client_params[0], precision_bits=32)
+            total_bytes += 2.0 * K * one_model_bytes
+
+            global_params: dict[str, np.ndarray] = {}
+            for key in client_params[0]:
+                stacked = np.stack([params[key] for params in client_params], axis=0)
+                global_params[key] = np.mean(stacked, axis=0)
+            global_model.set_params(global_params)
+
+    return MethodResult(
+        method_name="FedAvg",
+        accuracy_matrix=accuracy_matrix,
+        predicted_concept_matrix=predicted_matrix,
+        total_bytes=total_bytes,
+    )
+
+
+def run_oracle_full(
+    dataset: DriftDataset,
+    federation_every: int = 1,
+    *,
+    lr: float = 0.05,
+    n_epochs: int = 5,
+    seed: int = 42,
+) -> MethodResult:
+    """Run oracle concept-aware aggregation with explicit byte tracking.
+
+    Parameters
+    ----------
+    dataset : DriftDataset
+    federation_every : int
+    lr : float
+    n_epochs : int
+    seed : int
+
+    Returns
+    -------
+    MethodResult
+    """
+    K, T, n_features, n_classes = _extract_dims(dataset)
+    gt = np.asarray(dataset.concept_matrix, dtype=np.int32)
+
+    models = [
+        TorchLinearClassifier(
+            n_features=n_features,
+            n_classes=n_classes,
+            lr=lr,
+            n_epochs=n_epochs,
+            seed=seed + k,
+        )
+        for k in range(K)
+    ]
+
+    accuracy_matrix = np.zeros((K, T), dtype=np.float64)
+    total_bytes = 0.0
+    concept_models: dict[int, dict[str, np.ndarray]] = {}
+
+    for t in range(T):
+        for k in range(K):
+            X, y = dataset.data[(k, t)]
+            mid = len(X) // 2
+            X_test, y_test = X[:mid], y[:mid]
+            X_train, y_train = X[mid:], y[mid:]
+            cid = int(gt[k, t])
+
+            if t > 0 and gt[k, t] != gt[k, t - 1] and cid in concept_models:
+                models[k].set_params(concept_models[cid])
+
+            preds = models[k].predict(X_test)
+            accuracy_matrix[k, t] = _accuracy(y_test, preds)
+
+            if n_epochs > 1:
+                models[k].fit(X_train, y_train)
+            else:
+                models[k].partial_fit(X_train, y_train)
+
+        if (t + 1) % federation_every == 0 and t < T - 1:
+            client_params = [model.get_params() for model in models]
+            one_model_bytes = model_bytes(client_params[0], precision_bits=32)
+            concepts_at_t = {k: int(gt[k, t]) for k in range(K)}
+
+            for cid in sorted(set(concepts_at_t.values())):
+                members = [k for k in range(K) if concepts_at_t[k] == cid]
+                if len(members) < 2:
+                    continue
+                aggregated = {
+                    key: np.mean(
+                        np.stack([client_params[k][key] for k in members], axis=0),
+                        axis=0,
+                    )
+                    for key in client_params[0]
+                }
+                for k in members:
+                    models[k].set_params(aggregated)
+                concept_models[cid] = {
+                    key: value.copy() for key, value in aggregated.items()
+                }
+                total_bytes += 2.0 * len(members) * one_model_bytes
+
+    return MethodResult(
+        method_name="Oracle",
+        accuracy_matrix=accuracy_matrix,
+        predicted_concept_matrix=gt.copy(),
+        total_bytes=total_bytes,
+    )
 
 
 def _extract_dims(dataset: DriftDataset) -> tuple[int, int, int, int]:

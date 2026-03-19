@@ -47,6 +47,52 @@ NON_IDENTITY_METHODS: frozenset[str] = frozenset({
     "FLUX-prior",
 })
 
+# Variant names used by real-data sweeps should map back to a canonical
+# method family so identity-metric policy stays stable.
+METHOD_ALIASES: dict[str, str] = {
+    "FedProTrack-linear-split": "FedProTrack",
+    "FedProTrack-feature-adapter": "FedProTrack",
+    "IFCA-3": "IFCA",
+    "IFCA-8": "IFCA",
+    "FedEM-3": "FedEM",
+    "FeSEM-3": "FeSEM",
+    "FedRC-3": "FedRC",
+}
+
+FOCUSED_CIFAR_SWEEP_METHODS: tuple[str, ...] = (
+    "FedProTrack-linear-split",
+    "IFCA-3",
+    "IFCA-8",
+    "FedProto",
+    "FedAvg",
+    "LocalOnly",
+    "Oracle",
+)
+
+FULL_CIFAR_SWEEP_METHODS: tuple[str, ...] = (
+    "FedProTrack-linear-split",
+    "FedAvg",
+    "CompressedFedAvg",
+    "FedProto",
+    "pFedMe",
+    "APFL",
+    "FedEM-3",
+    "IFCA-3",
+    "IFCA-8",
+    "CFL",
+    "FeSEM-3",
+    "FedRC-3",
+    "FedCCFA",
+    "FedDrift",
+    "TrackedSummary",
+    "Flash",
+    "ATP",
+    "FLUX",
+    "FLUX-prior",
+    "LocalOnly",
+    "Oracle",
+)
+
 # The three identity-specific metric field names on MetricsResult.
 IDENTITY_METRIC_FIELDS: tuple[str, ...] = (
     "concept_re_id_accuracy",
@@ -58,6 +104,11 @@ IDENTITY_METRIC_FIELDS: tuple[str, ...] = (
     "routing_consistency",
     "wrong_memory_reuse_rate",
 )
+
+
+def canonical_method_name(method_name: str) -> str:
+    """Return the canonical family name for *method_name*."""
+    return METHOD_ALIASES.get(method_name, method_name)
 
 
 def identity_metrics_valid(method_name: str) -> bool:
@@ -72,4 +123,4 @@ def identity_metrics_valid(method_name: str) -> bool:
     -------
     bool
     """
-    return method_name in IDENTITY_CAPABLE_METHODS
+    return canonical_method_name(method_name) in IDENTITY_CAPABLE_METHODS

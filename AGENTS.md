@@ -3,6 +3,7 @@
 Plan C note: `run_phase3_experiments.py`, `run_e6_real_data.py`, and the CIFAR comparison / overlap entrypoints now share the Plan C preset; real-data FedProTrack entrypoints default to the feature-adapter path.
 Recurrence benchmark note: recurrence-style CIFAR subset ablations may explicitly set `global_shared_aggregation=False` for feature-adapter runs; this is a benchmark-specific knob, not a global preset default.
 Feature-adapter note: routed local training is available as an experimental ablation knob and is off by default; do not treat it as a validated default path.
+Sweep note: `run_cifar100_comparison.py` and `run_cifar100_full_sweep.py` now invoke the unified full baseline sweep; the formal CIFAR recurrence table defaults to tuned `FedProTrack-linear-split` and can expand to the full baseline catalog with `--methods all`.
 
 ## 项目快照
 

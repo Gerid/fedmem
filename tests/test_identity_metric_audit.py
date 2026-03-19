@@ -14,6 +14,7 @@ from fedprotrack.experiments.method_registry import (
     IDENTITY_CAPABLE_METHODS,
     IDENTITY_METRIC_FIELDS,
     NON_IDENTITY_METHODS,
+    canonical_method_name,
     identity_metrics_valid,
 )
 from fedprotrack.metrics import compute_all_metrics
@@ -44,6 +45,12 @@ class TestMethodRegistry:
 
     def test_unknown_method_is_not_capable(self) -> None:
         assert identity_metrics_valid("SomeNewMethod") is False
+
+    def test_variant_names_map_to_canonical_families(self) -> None:
+        assert canonical_method_name("FedProTrack-linear-split") == "FedProTrack"
+        assert canonical_method_name("IFCA-8") == "IFCA"
+        assert identity_metrics_valid("FedProTrack-linear-split") is True
+        assert identity_metrics_valid("FedAvg") is False
 
     def test_sets_are_disjoint(self) -> None:
         overlap = IDENTITY_CAPABLE_METHODS & NON_IDENTITY_METHODS
