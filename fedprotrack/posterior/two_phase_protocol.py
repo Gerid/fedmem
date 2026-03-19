@@ -15,9 +15,16 @@ import numpy as np
 
 from ..baselines.comm_tracker import fingerprint_bytes, model_bytes
 from ..concept_tracker.fingerprint import ConceptFingerprint
-from ..federation.aggregator import FedAvgAggregator
+from ..federation.aggregator import (
+    FedAvgAggregator,
+    NamespacedExpertAggregator,
+    has_namespaced_params,
+    merge_param_namespaces,
+    split_param_namespaces,
+)
 from .gibbs import GibbsPosterior, PosteriorAssignment, TransitionPrior
 from .memory_bank import DynamicMemoryBank, MemoryBankConfig
+from .retrieval_keys import RetrievalKeyConfig
 
 
 @dataclass
@@ -56,10 +63,26 @@ class TwoPhaseConfig:
         rounds when clients switch asynchronously. Default True.
     merge_threshold : float
         Similarity threshold for merging concepts in the memory bank.
+    merge_min_support : int
+        Minimum slot support count required before a concept is eligible
+        for merging. Prevents freshly spawned slots from collapsing
+        immediately.
     min_count : float
         Minimum fingerprint count for concept survival.
     max_concepts : int
         Hard cap on the number of concepts.
+    max_spawn_clusters_per_round : int or None
+        Optional cap on how many novel clusters may spawn in a single
+        addressing round. When set, novel clusters are ranked by support
+        size and novelty gap, and only the strongest clusters spawn while
+        the remainder fall back to their MAP existing concept. Default
+        None (no cap).
+    novelty_hysteresis_rounds : int
+        Number of consecutive addressing rounds a client must remain novel
+        before a new concept is allowed to spawn. ``1`` reproduces the
+        current behaviour (no hysteresis). Values > 1 suppress one-off
+        overspawn by falling back to the best existing concept until the
+        novelty signal persists.
     merge_every : int
         Run merge maintenance every this many federation rounds.
     shrink_every : int
@@ -135,10 +158,23 @@ class TwoPhaseConfig:
     model_loss_weight: float = 0.0
     post_spawn_merge: bool = True
     merge_threshold: float = 0.98
+    merge_min_support: int = 1
     min_count: float = 5.0
     max_concepts: int = 20
+    max_spawn_clusters_per_round: int | None = None
+    novelty_hysteresis_rounds: int = 1
     merge_every: int = 2
     shrink_every: int = 5
+    key_mode: str = "legacy_fingerprint"
+    key_ema_decay: float = 0.0
+    key_style_weight: float = 0.25
+    key_semantic_weight: float = 0.30
+    key_prototype_weight: float = 0.45
+    global_shared_aggregation: bool = False
+    entropy_freeze_threshold: float | None = None
+    adaptive_addressing: bool = False
+    addressing_min_round_interval: int = 1
+    addressing_drift_threshold: float = 0.0
     n_features: int = 2
     n_classes: int = 2
     model_signature_weight: float = 0.0
@@ -184,6 +220,16 @@ class PhaseAResult:
     spawned: int = 0
     merged: int = 0
     pruned: int = 0
+    addressing_performed: bool = True
+    avg_posterior_entropy: float | None = None
+    assignment_switch_rate: float | None = None
+    avg_clients_per_concept: float | None = None
+    singleton_group_ratio: float | None = None
+    routing_consistency: float | None = None
+    library_size_before: int = 0
+    client_fp_losses: dict[int, float] = field(default_factory=dict)
+    client_effective_thresholds: dict[int, float] = field(default_factory=dict)
+    client_map_probabilities: dict[int, float] = field(default_factory=dict)
 
     @property
     def total_bytes(self) -> float:
@@ -228,9 +274,17 @@ class TwoPhaseFedProTrack:
         mb_config = MemoryBankConfig(
             max_concepts=config.max_concepts,
             merge_threshold=config.merge_threshold,
+            merge_min_support=config.merge_min_support,
             min_count=config.min_count,
             merge_every=config.merge_every,
             shrink_every=config.shrink_every,
+            retrieval_key_config=RetrievalKeyConfig(
+                mode=config.key_mode,
+                ema_decay=config.key_ema_decay,
+                style_weight=config.key_style_weight,
+                semantic_weight=config.key_semantic_weight,
+                prototype_weight=config.key_prototype_weight,
+            ),
         )
         self.memory_bank = DynamicMemoryBank(
             config=mb_config,
@@ -246,6 +300,8 @@ class TwoPhaseFedProTrack:
 
         self._aggregator = FedAvgAggregator()
         self._round: int = 0
+        self._last_addressing_round: int = -1
+        self._novelty_streaks: dict[int, int] = {}
 
     def phase_a(
         self,
@@ -280,6 +336,7 @@ class TwoPhaseFedProTrack:
         PhaseAResult
         """
         K = len(client_fingerprints)
+        library_size_before = self.memory_bank.n_concepts
         fp_bytes = fingerprint_bytes(
             self.config.n_features, self.config.n_classes,
             precision_bits=16, include_global_mean=False,
@@ -308,7 +365,50 @@ class TwoPhaseFedProTrack:
             return PhaseAResult(
                 assignments={}, posteriors={},
                 bytes_up=0.0, bytes_down=0.0,
+                library_size_before=library_size_before,
             )
+
+        if (
+            prev_assignments is not None
+            and self.config.adaptive_addressing
+            and self.memory_bank.n_concepts > 0
+        ):
+            drift_scores: list[float] = []
+            routing_library = self.memory_bank.routing_library
+            for client_id, fp in client_fingerprints.items():
+                prev_cid = prev_assignments.get(client_id)
+                if prev_cid is None or prev_cid not in routing_library:
+                    continue
+                drift_scores.append(
+                    self.gibbs.compute_loss(fp, routing_library[prev_cid])
+                )
+            mean_drift = float(np.mean(drift_scores)) if drift_scores else 0.0
+            if (
+                mean_drift <= self.config.addressing_drift_threshold
+                and (self._round - self._last_addressing_round)
+                < self.config.addressing_min_round_interval
+            ):
+                frozen_posteriors: dict[int, PosteriorAssignment] = {}
+                for client_id, concept_id in prev_assignments.items():
+                    frozen_posteriors[client_id] = PosteriorAssignment(
+                        probabilities={concept_id: 1.0},
+                        map_concept_id=concept_id,
+                        is_novel=False,
+                        entropy=0.0,
+                    )
+                return PhaseAResult(
+                    assignments=dict(prev_assignments),
+                    posteriors=frozen_posteriors,
+                    bytes_up=bytes_up,
+                    bytes_down=K * 4.0,
+                    addressing_performed=False,
+                    avg_posterior_entropy=0.0,
+                    assignment_switch_rate=0.0,
+                    avg_clients_per_concept=_avg_clients_per_concept(prev_assignments),
+                    singleton_group_ratio=_singleton_group_ratio(prev_assignments),
+                    routing_consistency=1.0,
+                    library_size_before=library_size_before,
+                )
 
         # --- Bootstrap: if no concepts yet, create the first from all clients ---
         if self.memory_bank.n_concepts == 0:
@@ -346,12 +446,14 @@ class TwoPhaseFedProTrack:
         # --- Pass 1: compute posteriors for all remaining clients ---
         novel_clients: list[int] = []  # clients flagged as novel
         assigned_clients: dict[int, int] = {}  # client -> concept_id
+        client_fp_losses: dict[int, float] = {}
+        client_effective_thresholds: dict[int, float] = {}
+        client_map_probabilities: dict[int, float] = {}
 
         for client_id, fp in remaining_fps.items():
             prev_cid = (
                 prev_assignments.get(client_id) if prev_assignments else None
             )
-            library = self.memory_bank.concept_library
             concept_losses = {
                 cid: self._routing_loss(
                     fp,
@@ -366,7 +468,7 @@ class TwoPhaseFedProTrack:
                     if client_batch_prototype_signatures is not None
                     else None,
                 )
-                for cid in library
+                for cid in self.memory_bank.concept_library
             }
             assignment = self.gibbs.compute_posterior_from_losses(
                 concept_losses,
@@ -381,7 +483,7 @@ class TwoPhaseFedProTrack:
             # escape): even if posterior is high (e.g. 1.0 with 1 concept),
             # a high loss means the concept is a poor fit.
             routed_loss = concept_losses[assignment.map_concept_id]
-
+            fp_loss = routed_loss
             # --- Sticky dampening (Fix #1 for async drift) ---
             # When the transition prior says "stay" (high posterior for the
             # previous concept), raise the novelty threshold. This prevents
@@ -393,6 +495,7 @@ class TwoPhaseFedProTrack:
             # is trivially 1.0 (no real choice), so stickiness would
             # prevent escaping the single-concept trap on first drift.
             effective_threshold = self.config.loss_novelty_threshold
+            library = self.memory_bank.concept_library
             n_library = len(library)
             if (
                 n_library >= 2
@@ -402,6 +505,11 @@ class TwoPhaseFedProTrack:
                 prev_prob = assignment.probabilities[prev_cid]
                 if prev_prob >= self.config.sticky_posterior_gate:
                     effective_threshold *= self.config.sticky_dampening
+            client_fp_losses[client_id] = float(fp_loss)
+            client_effective_thresholds[client_id] = float(effective_threshold)
+            client_map_probabilities[client_id] = float(
+                assignment.probabilities[assignment.map_concept_id]
+            )
 
             # --- Model-based loss as second channel (Fix #3) ---
             # Model loss acts as a novelty SUPPRESSOR: if the client's
@@ -424,9 +532,28 @@ class TwoPhaseFedProTrack:
             if routed_loss > effective_threshold and not model_suppresses:
                 is_novel = True
 
+            if (
+                self.config.entropy_freeze_threshold is not None
+                and prev_cid is not None
+                and assignment.entropy >= self.config.entropy_freeze_threshold
+                and prev_cid in library
+            ):
+                is_novel = False
+                self._novelty_streaks[client_id] = 0
+                assigned_clients[client_id] = prev_cid
+                continue
+
             if is_novel:
+                streak = self._novelty_streaks.get(client_id, 0) + 1
+                self._novelty_streaks[client_id] = streak
+                if int(self.config.novelty_hysteresis_rounds) > 1 and streak < int(
+                    self.config.novelty_hysteresis_rounds
+                ):
+                    assigned_clients[client_id] = assignment.map_concept_id
+                    continue
                 novel_clients.append(client_id)
             else:
+                self._novelty_streaks[client_id] = 0
                 assigned_clients[client_id] = assignment.map_concept_id
 
         # --- Pass 2: cluster novel clients by fingerprint similarity ---
@@ -442,6 +569,13 @@ class TwoPhaseFedProTrack:
                 client_update_signatures=client_update_signatures,
                 client_batch_prototype_signatures=client_batch_prototype_signatures,
             )
+            novel_clusters, capped_clients = self._cap_novel_clusters(
+                novel_clusters,
+                client_fp_losses=client_fp_losses,
+                client_effective_thresholds=client_effective_thresholds,
+            )
+            for client_id in capped_clients:
+                assigned_clients[client_id] = posteriors[client_id].map_concept_id
 
             # Spawn one new concept per cluster of truly novel clients
             for cluster in novel_clusters:
@@ -460,6 +594,7 @@ class TwoPhaseFedProTrack:
                     n_spawned += 1
                 new_cid = spawn_result.new_concept_id
                 for client_id in cluster:
+                    self._novelty_streaks[client_id] = 0
                     assignments[client_id] = new_cid
                     if client_id != representative_id:
                         self.memory_bank.absorb_fingerprint(
@@ -513,6 +648,7 @@ class TwoPhaseFedProTrack:
 
         # Download cost: 4 bytes per client (concept ID as int32)
         bytes_down = K * 4.0
+        self._last_addressing_round = self._round
 
         return PhaseAResult(
             assignments=assignments,
@@ -522,6 +658,16 @@ class TwoPhaseFedProTrack:
             spawned=n_spawned,
             merged=n_merged,
             pruned=n_pruned,
+            addressing_performed=True,
+            avg_posterior_entropy=_avg_assignment_entropy(posteriors),
+            assignment_switch_rate=_assignment_switch_rate(assignments, prev_assignments),
+            avg_clients_per_concept=_avg_clients_per_concept(assignments),
+            singleton_group_ratio=_singleton_group_ratio(assignments),
+            routing_consistency=_routing_consistency(assignments, prev_assignments),
+            library_size_before=library_size_before,
+            client_fp_losses=client_fp_losses,
+            client_effective_thresholds=client_effective_thresholds,
+            client_map_probabilities=client_map_probabilities,
         )
 
     def _routing_loss(
@@ -536,7 +682,13 @@ class TwoPhaseFedProTrack:
         concept_fp = self.memory_bank.get_fingerprint(concept_id)
         if concept_fp is None:
             raise KeyError(f"Concept {concept_id} not in memory bank")
-        fp_loss = self.gibbs.compute_loss(observation_fp, concept_fp)
+        if self.config.key_mode == "legacy_fingerprint":
+            fp_loss = self.gibbs.compute_loss(observation_fp, concept_fp)
+        else:
+            routing_entry = self.memory_bank.routing_library.get(concept_id)
+            if routing_entry is None:
+                raise KeyError(f"Concept {concept_id} has no routing key")
+            fp_loss = self.gibbs.compute_loss(observation_fp, routing_entry)
         weighted_terms: list[tuple[float, float]] = []
         consumed_weight = 0.0
 
@@ -1035,6 +1187,37 @@ class TwoPhaseFedProTrack:
             if client_id in client_params
         ]
 
+    def _cap_novel_clusters(
+        self,
+        novel_clusters: list[list[int]],
+        *,
+        client_fp_losses: dict[int, float],
+        client_effective_thresholds: dict[int, float],
+    ) -> tuple[list[list[int]], list[int]]:
+        """Limit how many novel clusters may spawn in a single round."""
+        cap = self.config.max_spawn_clusters_per_round
+        if cap is None or len(novel_clusters) <= int(cap):
+            return novel_clusters, []
+
+        ranked = sorted(
+            novel_clusters,
+            key=lambda cluster: (
+                -len(cluster),
+                -float(np.mean([
+                    client_fp_losses[client_id] - client_effective_thresholds[client_id]
+                    for client_id in cluster
+                ])),
+                int(min(cluster)),
+            ),
+        )
+        kept = ranked[:int(cap)]
+        capped_clients = [
+            client_id
+            for cluster in ranked[int(cap):]
+            for client_id in cluster
+        ]
+        return kept, capped_clients
+
     def phase_b(
         self,
         client_params: dict[int, dict[str, np.ndarray]],
@@ -1070,6 +1253,20 @@ class TwoPhaseFedProTrack:
         aggregated: dict[int, dict[str, np.ndarray]] = {}
         bytes_down = 0.0
 
+        uses_namespaces = any(
+            has_namespaced_params(params) for params in client_params.values()
+        )
+
+        global_shared: dict[str, np.ndarray] = {}
+        if uses_namespaces and self.config.global_shared_aggregation:
+            shared_payloads = []
+            for params in client_params.values():
+                shared, _, other = split_param_namespaces(params)
+                if shared:
+                    shared_payloads.append(shared)
+            if shared_payloads:
+                global_shared = self._aggregator.aggregate(shared_payloads)
+
         for concept_id, client_ids in concept_groups.items():
             group_params = [
                 client_params[cid] for cid in client_ids
@@ -1078,37 +1275,64 @@ class TwoPhaseFedProTrack:
             if not group_params:
                 continue
 
-            subgroup_mix = self._resolve_alignment_mix(
-                base_mix=0.0,
-                early_rounds=self.config.prototype_subgroup_early_rounds,
-                early_mix=self.config.prototype_subgroup_early_mix,
-            )
-            subgroup_params = self._subgroup_prealign_params(
-                client_ids,
-                client_params,
-                client_fingerprints,
-                mix=subgroup_mix,
-            )
-            if subgroup_params is not None:
-                group_params = subgroup_params
-
-            prealign_mix = self._resolve_alignment_mix(
-                base_mix=0.0,
-                early_rounds=self.config.prototype_prealign_early_rounds,
-                early_mix=self.config.prototype_prealign_early_mix,
-            )
-            if prealign_mix > 0.0 and subgroup_params is None:
-                group_params = [
-                    self._align_params_to_concept_prototypes(
-                        concept_id,
-                        params,
-                        mix_override=prealign_mix,
+            if uses_namespaces:
+                local_shared = global_shared
+                if not self.config.global_shared_aggregation:
+                    shared_payloads = []
+                    for params in group_params:
+                        shared, _, _ = split_param_namespaces(params)
+                        if shared:
+                            shared_payloads.append(shared)
+                    local_shared = (
+                        self._aggregator.aggregate(shared_payloads)
+                        if shared_payloads else {}
                     )
-                    for params in group_params
-                ]
+                local_payloads = []
+                for params in group_params:
+                    _, expert, other = split_param_namespaces(params)
+                    local_payloads.append(
+                        merge_param_namespaces(
+                            shared=None,
+                            expert=_remap_expert_payload(expert, concept_id),
+                            other=other,
+                        )
+                    )
+                local_agg = self._aggregator.aggregate(local_payloads)
+                agg = merge_param_namespaces(
+                    shared=local_shared if local_shared else None,
+                    expert=local_agg,
+                    other=None,
+                )
+            else:
+                subgroup_params = self._subgroup_prealign_params(
+                    client_ids,
+                    client_params,
+                    client_fingerprints,
+                    mix=self._resolve_alignment_mix(
+                        base_mix=0.0,
+                        early_rounds=self.config.prototype_subgroup_early_rounds,
+                        early_mix=self.config.prototype_subgroup_early_mix,
+                    ),
+                )
+                if subgroup_params is not None:
+                    group_params = subgroup_params
 
-            agg = self._aggregator.aggregate(group_params)
-            agg = self._align_params_to_concept_prototypes(concept_id, agg)
+                prealign_mix = self._resolve_alignment_mix(
+                    base_mix=0.0,
+                    early_rounds=self.config.prototype_prealign_early_rounds,
+                    early_mix=self.config.prototype_prealign_early_mix,
+                )
+                if prealign_mix > 0.0 and subgroup_params is None:
+                    group_params = [
+                        self._align_params_to_concept_prototypes(
+                            concept_id,
+                            params,
+                            mix_override=prealign_mix,
+                        )
+                        for params in group_params
+                    ]
+                agg = self._aggregator.aggregate(group_params)
+                agg = self._align_params_to_concept_prototypes(concept_id, agg)
             aggregated[concept_id] = agg
 
             # Download cost: each client in this cluster gets the aggregated model
@@ -1162,77 +1386,198 @@ class TwoPhaseFedProTrack:
 
         aggregated: dict[int, dict[str, np.ndarray]] = {}
         bytes_down = 0.0
+        uses_namespaces = any(
+            has_namespaced_params(params) for params in client_params.values()
+        )
 
-        for concept_id in concept_ids:
-            # Gather posterior weights from all clients for this concept
-            weights: dict[int, float] = {}
-            for client_id in client_params:
+        if uses_namespaces and self.config.global_shared_aggregation:
+            namespaced_aggregator = NamespacedExpertAggregator()
+            ordered_client_ids = list(client_params.keys())
+            ordered_payloads = [client_params[client_id] for client_id in ordered_client_ids]
+            expert_weights: list[dict[int, float]] = []
+            for client_id in ordered_client_ids:
                 if client_id in posteriors:
-                    w = posteriors[client_id].probabilities.get(concept_id, 0.0)
+                    weights = {
+                        int(slot_id): float(weight)
+                        for slot_id, weight in posteriors[client_id].probabilities.items()
+                        if float(weight) > 0.01
+                    }
                 else:
-                    # Fallback: hard assignment
-                    w = 1.0 if concept_assignments.get(client_id) == concept_id else 0.0
-                if w > 0.01:  # skip negligible contributions
-                    weights[client_id] = w
+                    assigned = concept_assignments.get(client_id)
+                    weights = {int(assigned): 1.0} if assigned is not None else {}
+                expert_weights.append(weights)
 
-            if not weights:
-                continue
-
-            total_w = sum(weights.values())
-
-            subgroup_mix = self._resolve_alignment_mix(
-                base_mix=0.0,
-                early_rounds=self.config.prototype_subgroup_early_rounds,
-                early_mix=self.config.prototype_subgroup_early_mix,
+            namespaced_result = namespaced_aggregator.aggregate_namespaced(
+                ordered_payloads,
+                expert_weights=expert_weights,
             )
-            weighted_client_ids = list(weights)
-            subgroup_params: dict[int, dict[str, np.ndarray]] = {}
-            subgroup_param_list = self._subgroup_prealign_params(
-                weighted_client_ids,
-                client_params,
-                client_fingerprints,
-                mix=subgroup_mix,
-            )
-            if subgroup_param_list is not None:
-                subgroup_params = {
-                    client_id: subgroup_param_list[idx]
-                    for idx, client_id in enumerate(
-                        [cid for cid in weighted_client_ids if cid in client_params]
-                    )
+            global_shared = namespaced_result.shared_params
+
+            for concept_id in concept_ids:
+                expert_payload = namespaced_result.expert_params.get(concept_id)
+                if not expert_payload:
+                    stored = self.memory_bank.get_model_params(concept_id)
+                    if stored is not None:
+                        _, stored_expert, _ = split_param_namespaces(stored)
+                        expert_payload = stored_expert
+
+                if not global_shared and not expert_payload:
+                    continue
+
+                agg = merge_param_namespaces(
+                    shared=global_shared if global_shared else None,
+                    expert=expert_payload if expert_payload else None,
+                    other=None,
+                )
+                aggregated[concept_id] = agg
+
+                # Download cost: clients assigned to this concept get the model
+                n_recipients = sum(
+                    1 for cid, c in concept_assignments.items()
+                    if c == concept_id
+                )
+                bytes_down += n_recipients * model_bytes(agg)
+        elif uses_namespaces:
+            for concept_id in concept_ids:
+                weights: dict[int, float] = {}
+                for client_id in client_params:
+                    if client_id in posteriors:
+                        w = posteriors[client_id].probabilities.get(concept_id, 0.0)
+                    else:
+                        w = 1.0 if concept_assignments.get(client_id) == concept_id else 0.0
+                    if w > 0.01:
+                        weights[client_id] = w
+
+                if not weights:
+                    continue
+
+                total_w = sum(weights.values())
+                group_client_ids = list(weights.keys())
+                group_weights = [
+                    float(weights[client_id]) / total_w for client_id in group_client_ids
+                ]
+
+                shared_payloads: list[dict[str, np.ndarray]] = []
+                shared_weights: list[float] = []
+                expert_payloads: list[dict[str, np.ndarray]] = []
+                expert_group_weights: list[float] = []
+                for idx, client_id in enumerate(group_client_ids):
+                    params = client_params[client_id]
+                    shared, expert, _ = split_param_namespaces(params)
+                    if shared:
+                        shared_payloads.append(shared)
+                        shared_weights.append(group_weights[idx])
+                    slot_expert = {
+                        key: value.copy()
+                        for key, value in expert.items()
+                        if key.startswith(f"expert.{concept_id}.")
+                    }
+                    if slot_expert:
+                        expert_payloads.append(slot_expert)
+                        expert_group_weights.append(group_weights[idx])
+
+                local_shared = (
+                    self._aggregator.aggregate(shared_payloads, shared_weights)
+                    if shared_payloads else {}
+                )
+                local_expert = (
+                    self._aggregator.aggregate(expert_payloads, expert_group_weights)
+                    if expert_payloads else {}
+                )
+                if not local_shared and not local_expert:
+                    stored = self.memory_bank.get_model_params(concept_id)
+                    if stored is not None:
+                        shared, expert, _ = split_param_namespaces(stored)
+                        local_shared = shared
+                        local_expert = {
+                            key: value.copy()
+                            for key, value in expert.items()
+                            if key.startswith(f"expert.{concept_id}.")
+                        }
+                if not local_shared and not local_expert:
+                    continue
+
+                agg = merge_param_namespaces(
+                    shared=local_shared if local_shared else None,
+                    expert=local_expert if local_expert else None,
+                    other=None,
+                )
+                aggregated[concept_id] = agg
+
+                n_recipients = sum(
+                    1 for cid, c in concept_assignments.items()
+                    if c == concept_id
+                )
+                bytes_down += n_recipients * model_bytes(agg)
+        else:
+            for concept_id in concept_ids:
+                # Gather posterior weights from all clients for this concept
+                weights: dict[int, float] = {}
+                for client_id in client_params:
+                    if client_id in posteriors:
+                        w = posteriors[client_id].probabilities.get(concept_id, 0.0)
+                    else:
+                        # Fallback: hard assignment
+                        w = 1.0 if concept_assignments.get(client_id) == concept_id else 0.0
+                    if w > 0.01:  # skip negligible contributions
+                        weights[client_id] = w
+
+                if not weights:
+                    continue
+
+                total_w = sum(weights.values())
+                weighted_client_ids = list(weights)
+                subgroup_params: dict[int, dict[str, np.ndarray]] = {}
+                subgroup_param_list = self._subgroup_prealign_params(
+                    weighted_client_ids,
+                    client_params,
+                    client_fingerprints,
+                    mix=self._resolve_alignment_mix(
+                        base_mix=0.0,
+                        early_rounds=self.config.prototype_subgroup_early_rounds,
+                        early_mix=self.config.prototype_subgroup_early_mix,
+                    ),
+                )
+                if subgroup_param_list is not None:
+                    subgroup_params = {
+                        client_id: subgroup_param_list[idx]
+                        for idx, client_id in enumerate(
+                            [cid for cid in weighted_client_ids if cid in client_params]
+                        )
+                    }
+
+                prealign_mix = self._resolve_alignment_mix(
+                    base_mix=0.0,
+                    early_rounds=self.config.prototype_prealign_early_rounds,
+                    early_mix=self.config.prototype_prealign_early_mix,
+                )
+
+                first_cid = next(iter(weights))
+                agg: dict[str, np.ndarray] = {
+                    key: np.zeros_like(arr)
+                    for key, arr in client_params[first_cid].items()
                 }
+                for client_id, w in weights.items():
+                    params = subgroup_params.get(client_id, client_params[client_id])
+                    if prealign_mix > 0.0 and not subgroup_params:
+                        params = self._align_params_to_concept_prototypes(
+                            concept_id,
+                            params,
+                            mix_override=prealign_mix,
+                        )
+                    for key in agg:
+                        agg[key] += (w / total_w) * params[key]
 
-            prealign_mix = self._resolve_alignment_mix(
-                base_mix=0.0,
-                early_rounds=self.config.prototype_prealign_early_rounds,
-                early_mix=self.config.prototype_prealign_early_mix,
-            )
+                agg = self._align_params_to_concept_prototypes(concept_id, agg)
 
-            # Weighted average of model parameters
-            first_cid = next(iter(weights))
-            agg: dict[str, np.ndarray] = {
-                key: np.zeros_like(arr)
-                for key, arr in client_params[first_cid].items()
-            }
-            for client_id, w in weights.items():
-                params = subgroup_params.get(client_id, client_params[client_id])
-                if prealign_mix > 0.0 and not subgroup_params:
-                    params = self._align_params_to_concept_prototypes(
-                        concept_id,
-                        params,
-                        mix_override=prealign_mix,
-                    )
-                for key in agg:
-                    agg[key] += (w / total_w) * params[key]
+                aggregated[concept_id] = agg
 
-            agg = self._align_params_to_concept_prototypes(concept_id, agg)
-            aggregated[concept_id] = agg
-
-            # Download cost: clients assigned to this concept get the model
-            n_recipients = sum(
-                1 for cid, c in concept_assignments.items()
-                if c == concept_id
-            )
-            bytes_down += n_recipients * model_bytes(agg)
+                # Download cost: clients assigned to this concept get the model
+                n_recipients = sum(
+                    1 for cid, c in concept_assignments.items()
+                    if c == concept_id
+                )
+                bytes_down += n_recipients * model_bytes(agg)
 
         # Store aggregated models in memory bank
         for concept_id, agg_params in aggregated.items():
@@ -1498,4 +1843,84 @@ def _sinkhorn_transport_cost(
         v = q / KTu
     plan = (u[:, None] * kernel) * v[None, :]
     return float(np.sum(plan * cost))
+
+
+def _avg_assignment_entropy(
+    posteriors: dict[int, PosteriorAssignment],
+) -> float | None:
+    if not posteriors:
+        return None
+    return float(np.mean([assignment.entropy for assignment in posteriors.values()]))
+
+
+def _remap_expert_payload(
+    expert_payload: dict[str, np.ndarray],
+    target_concept_id: int,
+) -> dict[str, np.ndarray]:
+    """Rename a client's expert payload so it contributes to one slot.
+
+    Local models export their active expert under the slot they trained on.
+    During Phase B we need every contributor to aggregate into the target
+    concept's expert namespace for that round.
+    """
+    remapped: dict[str, np.ndarray] = {}
+    for key, value in expert_payload.items():
+        if not key.startswith("expert."):
+            remapped[key] = value.copy()
+            continue
+        parts = key.split(".", 2)
+        if len(parts) < 3:
+            remapped[key] = value.copy()
+            continue
+        remapped[f"expert.{target_concept_id}.{parts[2]}"] = value.copy()
+    return remapped
+
+
+def _assignment_switch_rate(
+    assignments: dict[int, int],
+    prev_assignments: dict[int, int] | None,
+) -> float | None:
+    if not assignments or not prev_assignments:
+        return None
+    switches = 0
+    total = 0
+    for client_id, concept_id in assignments.items():
+        if client_id not in prev_assignments:
+            continue
+        switches += int(prev_assignments[client_id] != concept_id)
+        total += 1
+    if total == 0:
+        return None
+    return float(switches / total)
+
+
+def _avg_clients_per_concept(assignments: dict[int, int]) -> float | None:
+    if not assignments:
+        return None
+    counts: dict[int, int] = {}
+    for concept_id in assignments.values():
+        counts[concept_id] = counts.get(concept_id, 0) + 1
+    return float(np.mean(list(counts.values()))) if counts else None
+
+
+def _singleton_group_ratio(assignments: dict[int, int]) -> float | None:
+    if not assignments:
+        return None
+    counts: dict[int, int] = {}
+    for concept_id in assignments.values():
+        counts[concept_id] = counts.get(concept_id, 0) + 1
+    if not counts:
+        return None
+    singletons = sum(1 for count in counts.values() if count == 1)
+    return float(singletons / len(counts))
+
+
+def _routing_consistency(
+    assignments: dict[int, int],
+    prev_assignments: dict[int, int] | None,
+) -> float | None:
+    switch_rate = _assignment_switch_rate(assignments, prev_assignments)
+    if switch_rate is None:
+        return None
+    return float(1.0 - switch_rate)
 

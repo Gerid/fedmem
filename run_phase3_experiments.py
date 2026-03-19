@@ -41,8 +41,11 @@ from fedprotrack.baselines.runners import (
 from fedprotrack.metrics import compute_all_metrics
 from fedprotrack.metrics.budget_metrics import compute_accuracy_auc
 from fedprotrack.metrics.experiment_log import ExperimentLog, MetricsResult
-from fedprotrack.posterior.fedprotrack_runner import FedProTrackRunner
-from fedprotrack.posterior.two_phase_protocol import TwoPhaseConfig
+from fedprotrack.posterior import (
+    FEDPROTRACK_VARIANTS,
+    FedProTrackRunner,
+    make_variant_bundle,
+)
 from fedprotrack.experiments.tables import (
     generate_main_table,
     generate_per_axis_table,
@@ -123,6 +126,7 @@ def run_single_setting(
     gen_config: GeneratorConfig,
     seed: int,
     quick: bool = False,
+    fedprotrack_variant: str = "legacy",
 ) -> dict[str, MetricsResult]:
     """Run all methods on one parameter setting."""
     dataset = generate_drift_dataset(gen_config)
@@ -134,11 +138,15 @@ def run_single_setting(
         return compute_all_metrics(log, identity_capable=identity_metrics_valid(name))
 
     # 1. FedProTrack (our method)
-    fpt_cfg = TwoPhaseConfig()
-    fpt_runner = FedProTrackRunner(config=fpt_cfg, seed=seed)
+    fpt_name, fpt_cfg, fpt_runner_kwargs = make_variant_bundle(fedprotrack_variant)
+    fpt_runner = FedProTrackRunner(
+        config=fpt_cfg,
+        seed=seed,
+        **fpt_runner_kwargs,
+    )
     fpt_result = fpt_runner.run(dataset)
     fpt_log = fpt_result.to_experiment_log()
-    results["FedProTrack"] = _compute("FedProTrack", fpt_log)
+    results[fpt_name] = _compute(fpt_name, fpt_log)
 
     # 2. LocalOnly
     exp_cfg = ExperimentConfig(generator_config=gen_config)
@@ -244,6 +252,7 @@ def _run_budget_study(
     federation_every_values: list[int],
     quick: bool,
     results_dir: Path,
+    fedprotrack_variant: str,
 ) -> None:
     """Run E4 budget-regime crossover study."""
     budget_dir = results_dir / "figures" / "budget"
@@ -273,11 +282,17 @@ def _run_budget_study(
             method_aucs: dict[str, float] = {}
 
             # FedProTrack
+            fpt_name, fpt_cfg, fpt_runner_kwargs = make_variant_bundle(
+                fedprotrack_variant,
+                runner_overrides={"federation_every": fe},
+            )
             fpt_runner = FedProTrackRunner(
-                config=TwoPhaseConfig(), federation_every=fe, seed=42,
+                config=fpt_cfg,
+                seed=42,
+                **fpt_runner_kwargs,
             )
             fpt_result = fpt_runner.run(dataset)
-            method_aucs["FedProTrack"] = float(compute_accuracy_auc(fpt_result.accuracy_matrix))
+            method_aucs[fpt_name] = float(compute_accuracy_auc(fpt_result.accuracy_matrix))
 
             # FedAvg
             exp_cfg = ExperimentConfig(generator_config=cfg)
@@ -308,6 +323,7 @@ def _run_budget_study(
         generate_full_budget_frontier(
             budget_dataset, budget_dir / "budget_frontier.png",
             federation_every_values=federation_every_values,
+            fedprotrack_variant=fedprotrack_variant,
         )
     except Exception as e:
         print(f"  Budget frontier failed: {e}")
@@ -337,6 +353,12 @@ def main() -> None:
                         help="Comma-separated random seeds")
     parser.add_argument("--skip-ablation", action="store_true")
     parser.add_argument("--skip-scalability", action="store_true")
+    parser.add_argument(
+        "--fedprotrack-variant",
+        choices=FEDPROTRACK_VARIANTS,
+        default="legacy",
+        help="FedProTrack preset to run. 'legacy' preserves main-branch semantics.",
+    )
     parser.add_argument("--n-jobs", type=int, default=-1,
                         help="Number of parallel jobs (-1 = all cores, 1 = serial)")
     args = parser.parse_args()
@@ -346,10 +368,15 @@ def main() -> None:
 
     generators = [g.strip() for g in args.generators.split(",")]
     seeds = [int(s.strip()) for s in args.seeds.split(",")]
+    fedprotrack_method_name, _, _ = make_variant_bundle(args.fedprotrack_variant)
 
     print(f"Generators: {generators}")
     print(f"Seeds: {seeds}")
     print(f"Quick mode: {args.quick}")
+    print(
+        f"FedProTrack variant: {args.fedprotrack_variant} "
+        f"({fedprotrack_method_name})"
+    )
 
     # -----------------------------------------------------------------------
     # 1. Main experiments
@@ -375,7 +402,12 @@ def main() -> None:
         idx, gen_cfg, seed = idx_cfg_seed
         setting = f"{gen_cfg.generator_type}_rho{gen_cfg.rho}_a{gen_cfg.alpha}_d{gen_cfg.delta}_s{seed}"
         try:
-            metrics = run_single_setting(gen_cfg, seed, args.quick)
+            metrics = run_single_setting(
+                gen_cfg,
+                seed,
+                args.quick,
+                args.fedprotrack_variant,
+            )
             acc_str = ", ".join(
                 f"{mn}={mr.concept_re_id_accuracy:.3f}"
                 if mr.concept_re_id_accuracy is not None
@@ -471,7 +503,7 @@ def main() -> None:
     # Main table (without Oracle/LocalOnly)
     primary_methods = [
         "FedAvg", "FedProto", "TrackedSummary", "Flash",
-        "FedDrift", "IFCA", "FedProTrack",
+        "FedDrift", "IFCA", fedprotrack_method_name,
     ]
     primary_results = {m: all_results[m] for m in primary_methods if m in all_results}
     generate_main_table(primary_results, tables_dir / "main_table.tex")
@@ -501,7 +533,7 @@ def main() -> None:
 
     e1_methods = [
         "FedAvg", "FedProto", "TrackedSummary", "FedDrift",
-        "IFCA", "Flash", "FedProTrack",
+        "IFCA", "Flash", fedprotrack_method_name,
     ]
 
     # Re-ID vs delta
@@ -564,6 +596,7 @@ def main() -> None:
     # -----------------------------------------------------------------------
     print("\nGenerating E2 recovery figures...")
     e2_methods = ["FedAvg", "Flash", "FedDrift", "IFCA", "FedProTrack"]
+    e2_methods[-1] = fedprotrack_method_name
 
     if by_alpha:
         # Recovery vs alpha
@@ -624,10 +657,10 @@ def main() -> None:
             if baseline not in all_results:
                 continue
             generate_difference_heatmap(
-                phase_grid, "FedProTrack", baseline,
+                phase_grid, fedprotrack_method_name, baseline,
                 "rho", "delta", "concept_re_id_accuracy",
                 e1_dir / f"memory_gain_vs_{baseline.lower()}_{alpha_tag}.png",
-                title=f"FedProTrack - {baseline}: Re-ID ({alpha_tag})",
+                title=f"{fedprotrack_method_name} - {baseline}: Re-ID ({alpha_tag})",
             )
         print(f"  Phase diagrams + diff heatmaps for alpha={alpha_val}")
 
@@ -637,7 +670,14 @@ def main() -> None:
     print("\nRunning E4 budget study...")
     alpha_vals_budget = [0.0, 0.5, 1.0] if args.quick else [0.0, 0.25, 0.5, 0.75, 1.0]
     fe_vals = [1, 2, 5] if args.quick else [1, 2, 5, 10]
-    _run_budget_study(generators, alpha_vals_budget, fe_vals, args.quick, results_dir)
+    _run_budget_study(
+        generators,
+        alpha_vals_budget,
+        fe_vals,
+        args.quick,
+        results_dir,
+        args.fedprotrack_variant,
+    )
     print("  E4 budget study complete")
 
     # -----------------------------------------------------------------------
@@ -702,7 +742,11 @@ def main() -> None:
         generator_type=generators[0], seed=42,
     )
     overhead_dataset = generate_drift_dataset(overhead_cfg)
-    overhead_stats = _collect_overhead_stats(overhead_dataset, overhead_cfg)
+    overhead_stats = _collect_overhead_stats(
+        overhead_dataset,
+        overhead_cfg,
+        args.fedprotrack_variant,
+    )
     generate_overhead_table(overhead_stats, appendix_dir / "overhead_table.tex")
     # Also save as JSON
     with open(appendix_dir / "overhead_stats.json", "w") as f:
@@ -735,6 +779,7 @@ def main() -> None:
 def _collect_overhead_stats(
     dataset,
     gen_config: GeneratorConfig,
+    fedprotrack_variant: str,
 ) -> dict[str, dict[str, float]]:
     """Run each method once and collect byte/time stats."""
     stats: dict[str, dict[str, float]] = {}
@@ -742,9 +787,14 @@ def _collect_overhead_stats(
 
     # FedProTrack
     t0 = time.time()
-    fpt_runner = FedProTrackRunner(config=TwoPhaseConfig(), seed=42)
+    fpt_name, fpt_cfg, fpt_runner_kwargs = make_variant_bundle(fedprotrack_variant)
+    fpt_runner = FedProTrackRunner(
+        config=fpt_cfg,
+        seed=42,
+        **fpt_runner_kwargs,
+    )
     fpt_result = fpt_runner.run(dataset)
-    stats["FedProTrack"] = {
+    stats[fpt_name] = {
         "total_bytes": fpt_result.total_bytes,
         "phase_a_bytes": fpt_result.phase_a_bytes,
         "phase_b_bytes": fpt_result.phase_b_bytes,

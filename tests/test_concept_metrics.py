@@ -5,7 +5,12 @@ import pytest
 
 from fedprotrack.metrics.concept_metrics import (
     assignment_entropy,
+    assignment_switch_rate,
+    avg_clients_per_concept,
     concept_re_id_accuracy,
+    memory_reuse_rate,
+    routing_consistency,
+    singleton_group_ratio,
     wrong_memory_reuse_rate,
 )
 
@@ -206,3 +211,83 @@ class TestAssignmentEntropy:
 
         assert assignment_entropy(soft, pred, C) >= 0.0
         assert assignment_entropy(None, pred, C) >= 0.0
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic routing / grouping metrics
+# ---------------------------------------------------------------------------
+
+
+class TestAssignmentSwitchRate:
+    def test_no_switches(self) -> None:
+        pred = np.zeros((3, 5), dtype=np.int32)
+        assert assignment_switch_rate(pred) == pytest.approx(0.0)
+
+    def test_half_switches(self) -> None:
+        pred = np.array(
+            [[0, 0, 1, 1, 1],
+             [0, 1, 1, 0, 0]],
+            dtype=np.int32,
+        )
+        # client0: 1/4, client1: 2/4 => 3/8 overall
+        assert assignment_switch_rate(pred) == pytest.approx(3.0 / 8.0)
+
+
+class TestAvgClientsPerConcept:
+    def test_balanced_two_groups(self) -> None:
+        pred = np.array(
+            [[0, 0, 1],
+             [0, 1, 1],
+             [1, 1, 0],
+             [1, 0, 0]],
+            dtype=np.int32,
+        )
+        assert avg_clients_per_concept(pred) == pytest.approx(2.0)
+
+
+class TestSingletonGroupRatio:
+    def test_singletons_detected(self) -> None:
+        pred = np.array(
+            [[0, 0],
+             [1, 0],
+             [2, 1]],
+            dtype=np.int32,
+        )
+        # t0 counts=[1,1,1], t1 counts=[2,1] => 4 singleton groups / 5 active groups
+        assert singleton_group_ratio(pred) == pytest.approx(4.0 / 5.0)
+
+
+class TestMemoryReuseRate:
+    def test_recurrent_assignments_count_as_reuse(self) -> None:
+        gt = np.array([[0, 1, 0, 1]], dtype=np.int32)
+        pred = gt.copy()
+        # reuse at t=2 and t=3 => 2 / 3
+        assert memory_reuse_rate(gt, pred) == pytest.approx(2.0 / 3.0)
+
+    def test_non_recurrent_assignments_have_zero_reuse(self) -> None:
+        gt = np.array([[0, 1, 2, 3]], dtype=np.int32)
+        pred = gt.copy()
+        assert memory_reuse_rate(gt, pred) == pytest.approx(0.0)
+
+
+class TestRoutingConsistency:
+    def test_hard_consistency_matches_no_switch_rate(self) -> None:
+        pred = np.array(
+            [[0, 0, 1, 1],
+             [0, 1, 1, 1]],
+            dtype=np.int32,
+        )
+        expected = 1.0 - assignment_switch_rate(pred)
+        assert routing_consistency(None, pred) == pytest.approx(expected)
+
+    def test_soft_consistency_uses_temporal_similarity(self) -> None:
+        pred = np.array([[0, 0, 1]], dtype=np.int32)
+        soft = np.array(
+            [[[0.9, 0.1],
+              [0.8, 0.2],
+              [0.2, 0.8]]],
+            dtype=np.float64,
+        )
+        score = routing_consistency(soft, pred)
+        assert 0.0 <= score <= 1.0
+        assert score > 0.5

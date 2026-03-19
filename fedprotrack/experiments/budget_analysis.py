@@ -12,6 +12,7 @@ from ..baselines.budget_sweep import BudgetPoint, run_budget_sweep
 from ..drift_generator import DriftDataset
 from ..metrics.budget_metrics import compute_accuracy_auc
 from ..metrics.visualization import plot_budget_frontier
+from ..posterior import make_variant_bundle
 from ..posterior.fedprotrack_runner import FedProTrackRunner
 from ..posterior.two_phase_protocol import TwoPhaseConfig
 
@@ -21,6 +22,7 @@ def run_fedprotrack_budget_points(
     federation_every_values: list[int] | None = None,
     config: TwoPhaseConfig | None = None,
     seed: int = 42,
+    fedprotrack_variant: str = "legacy",
 ) -> list[BudgetPoint]:
     """Run FedProTrack at multiple federation frequencies.
 
@@ -41,31 +43,36 @@ def run_fedprotrack_budget_points(
 
     points: list[BudgetPoint] = []
     for fe in federation_every_values:
+        method_name, preset_config, runner_kwargs = make_variant_bundle(
+            fedprotrack_variant,
+            runner_overrides={"federation_every": fe},
+        )
         runner = FedProTrackRunner(
-            config=config,
-            federation_every=fe,
+            config=config if config is not None else preset_config,
             seed=seed,
+            **runner_kwargs,
         )
         result = runner.run(dataset)
         auc = compute_accuracy_auc(result.accuracy_matrix)
         points.append(BudgetPoint(
-            method_name="FedProTrack",
+            method_name=method_name,
             federation_every=fe,
             total_bytes=result.total_bytes,
             accuracy_auc=auc,
         ))
 
         # Event-triggered variant: only run Phase A on drift detection
+        et_runner_kwargs = dict(runner_kwargs)
+        et_runner_kwargs["event_triggered"] = True
         et_runner = FedProTrackRunner(
-            config=config,
-            federation_every=fe,
+            config=config if config is not None else preset_config,
             seed=seed,
-            event_triggered=True,
+            **et_runner_kwargs,
         )
         et_result = et_runner.run(dataset)
         et_auc = compute_accuracy_auc(et_result.accuracy_matrix)
         points.append(BudgetPoint(
-            method_name="FedProTrack-ET",
+            method_name=f"{method_name}-ET",
             federation_every=fe,
             total_bytes=et_result.total_bytes,
             accuracy_auc=et_auc,
@@ -80,6 +87,7 @@ def generate_full_budget_frontier(
     federation_every_values: list[int] | None = None,
     similarity_threshold: float = 0.5,
     seed: int = 42,
+    fedprotrack_variant: str = "legacy",
 ) -> Path:
     """Generate a budget frontier plot with all 4 methods.
 
@@ -109,7 +117,10 @@ def generate_full_budget_frontier(
 
     # FedProTrack
     fpt_points = run_fedprotrack_budget_points(
-        dataset, federation_every_values, seed=seed,
+        dataset,
+        federation_every_values,
+        seed=seed,
+        fedprotrack_variant=fedprotrack_variant,
     )
 
     # Group by method

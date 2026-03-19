@@ -38,6 +38,7 @@ class TestMemoryBankConfig:
         cfg = MemoryBankConfig()
         assert cfg.max_concepts == 20
         assert cfg.merge_threshold == 0.85
+        assert cfg.merge_min_support == 1
         assert cfg.min_count == 5.0
 
     def test_invalid_max_concepts(self) -> None:
@@ -47,6 +48,10 @@ class TestMemoryBankConfig:
     def test_invalid_merge_threshold(self) -> None:
         with pytest.raises(ValueError, match="merge_threshold"):
             MemoryBankConfig(merge_threshold=0.0)
+
+    def test_invalid_merge_min_support(self) -> None:
+        with pytest.raises(ValueError, match="merge_min_support"):
+            MemoryBankConfig(merge_min_support=0)
 
     def test_invalid_min_count(self) -> None:
         with pytest.raises(ValueError, match="min_count"):
@@ -110,6 +115,23 @@ class TestSpawn:
         assert result.absorbed is False
         assert bank.n_concepts == 1
         assert bank.get_fingerprint(result.new_concept_id) is not None
+
+    def test_spawn_preserves_feature_groups(self) -> None:
+        bank = DynamicMemoryBank(n_features=4, n_classes=2)
+        fp = _make_fp(n_features=4, seed=0)
+        fp = ConceptFingerprint(
+            4,
+            2,
+            feature_groups=[(0, 2, 0.75), (2, 4, 0.25)],
+        )
+        rng = np.random.RandomState(0)
+        X = rng.randn(20, 4)
+        y = rng.randint(0, 2, size=20)
+        fp.update(X, y)
+        result = bank.spawn_from_fingerprint(fp)
+        stored = bank.get_fingerprint(result.new_concept_id)
+        assert stored is not None
+        assert stored.feature_groups == fp.feature_groups
 
     def test_spawn_increments_id(self) -> None:
         bank = DynamicMemoryBank(n_features=2, n_classes=2)
@@ -210,6 +232,23 @@ class TestMerge:
         assert signature is not None
         np.testing.assert_allclose(signature, np.array([0.5, 0.5]), atol=1e-10)
 
+    def test_merge_requires_min_support(self) -> None:
+        cfg = MemoryBankConfig(merge_threshold=0.5, merge_min_support=2)
+        bank = DynamicMemoryBank(config=cfg, n_features=2, n_classes=2)
+        r0 = bank.spawn_from_fingerprint(_make_fp(seed=0, mean_shift=0.0, n_samples=50))
+        r1 = bank.spawn_from_fingerprint(_make_fp(seed=0, mean_shift=0.01, n_samples=50))
+
+        merged = bank.maybe_merge()
+        assert merged == []
+        assert bank.n_concepts == 2
+
+        bank.absorb_fingerprint(r0.new_concept_id, _make_fp(seed=10, mean_shift=0.0, n_samples=20))
+        bank.absorb_fingerprint(r1.new_concept_id, _make_fp(seed=11, mean_shift=0.01, n_samples=20))
+
+        merged = bank.maybe_merge()
+        assert len(merged) >= 1
+        assert bank.n_concepts == 1
+
 
 # ---------------------------------------------------------------------------
 # DynamicMemoryBank - shrink
@@ -286,3 +325,19 @@ class TestConceptLibrary:
     def test_get_fingerprint_missing(self) -> None:
         bank = DynamicMemoryBank(n_features=2, n_classes=2)
         assert bank.get_fingerprint(42) is None
+
+    def test_slot_schema_tracks_support_and_key(self) -> None:
+        bank = DynamicMemoryBank(n_features=2, n_classes=2)
+        result = bank.spawn_from_fingerprint(_make_fp(seed=0))
+        slot = bank.get_slot(result.new_concept_id)
+        assert slot is not None
+        assert slot.support_count == 1
+        assert slot.center_key is not None
+        assert slot.semantic_anchor_set is not None
+
+    def test_routing_library_uses_slot_keys(self) -> None:
+        bank = DynamicMemoryBank(n_features=2, n_classes=2)
+        r = bank.spawn_from_fingerprint(_make_fp(seed=0))
+        routing = bank.routing_library
+        assert r.new_concept_id in routing
+        assert hasattr(routing[r.new_concept_id], "similarity")

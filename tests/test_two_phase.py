@@ -6,6 +6,11 @@ import numpy as np
 import pytest
 
 from fedprotrack.concept_tracker.fingerprint import ConceptFingerprint
+from fedprotrack.posterior import (
+    make_legacy_config,
+    make_plan_c_config,
+    make_variant_bundle,
+)
 from fedprotrack.posterior.two_phase_protocol import (
     PhaseAResult,
     PhaseBResult,
@@ -53,7 +58,11 @@ class TestTwoPhaseConfig:
         assert cfg.model_loss_weight == 0.0
         assert cfg.post_spawn_merge is True
         assert cfg.merge_threshold == 0.98
+        assert cfg.max_spawn_clusters_per_round is None
+        assert cfg.novelty_hysteresis_rounds == 1
         assert cfg.merge_every == 2
+        assert cfg.key_mode == "legacy_fingerprint"
+        assert cfg.global_shared_aggregation is False
         assert cfg.n_features == 2
 
     def test_custom(self) -> None:
@@ -64,6 +73,42 @@ class TestTwoPhaseConfig:
     def test_loss_novelty_threshold(self) -> None:
         cfg = TwoPhaseConfig(loss_novelty_threshold=0.1)
         assert cfg.loss_novelty_threshold == 0.1
+
+    def test_entropy_freeze_and_adaptive_defaults(self) -> None:
+        cfg = TwoPhaseConfig()
+        assert cfg.entropy_freeze_threshold is None
+        assert cfg.adaptive_addressing is False
+        assert cfg.addressing_min_round_interval == 1
+
+    def test_plan_c_preset(self) -> None:
+        cfg = make_plan_c_config(max_concepts=9)
+        assert cfg.key_mode == "multi_scale"
+        assert cfg.adaptive_addressing is True
+        assert cfg.entropy_freeze_threshold == 0.75
+        assert cfg.merge_min_support == 2
+        assert cfg.max_concepts == 9
+
+    def test_legacy_preset_matches_main_semantics(self) -> None:
+        cfg = make_legacy_config(max_concepts=9)
+        assert cfg.key_mode == "legacy_fingerprint"
+        assert cfg.adaptive_addressing is False
+        assert cfg.entropy_freeze_threshold is None
+        assert cfg.merge_min_support == 1
+        assert cfg.max_concepts == 9
+
+    def test_variant_bundle_preserves_legacy_runner_defaults(self) -> None:
+        method_name, cfg, runner_kwargs = make_variant_bundle("legacy")
+        assert method_name == "FedProTrack"
+        assert cfg.key_mode == "legacy_fingerprint"
+        assert runner_kwargs["soft_aggregation"] is False
+        assert runner_kwargs["skip_last_federation_round"] is False
+
+    def test_variant_bundle_exposes_explicit_plan_c_adapter_variant(self) -> None:
+        method_name, cfg, runner_kwargs = make_variant_bundle("plan_c_feature_adapter")
+        assert method_name == "FedProTrack-Adapter"
+        assert cfg.key_mode == "multi_scale"
+        assert runner_kwargs["model_type"] == "feature_adapter"
+        assert runner_kwargs["skip_last_federation_round"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +188,54 @@ class TestPhaseA:
         fps = {0: _make_fp(seed=0)}
         result = proto.phase_a(fps)
         assert 0 in result.posteriors
+
+    def test_max_spawn_clusters_per_round_caps_bootstrap_overspawn(self) -> None:
+        cfg = TwoPhaseConfig(
+            n_features=2,
+            n_classes=2,
+            novelty_threshold=0.99,
+            loss_novelty_threshold=0.01,
+            merge_threshold=0.999,
+            max_spawn_clusters_per_round=1,
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+
+        fps = {
+            0: _make_fp(seed=0, mean_shift=0.0),
+            1: _make_fp(seed=1, mean_shift=25.0),
+            2: _make_fp(seed=2, mean_shift=50.0),
+            3: _make_fp(seed=3, mean_shift=75.0),
+        }
+        result = proto.phase_a(fps)
+
+        assert result.spawned == 1
+        assert proto.memory_bank.n_concepts == 2
+        assert len(set(result.assignments.values())) == 2
+
+    def test_novelty_hysteresis_requires_repeated_novel_signal(self) -> None:
+        cfg = TwoPhaseConfig(
+            n_features=2,
+            n_classes=2,
+            novelty_threshold=0.99,
+            loss_novelty_threshold=0.01,
+            novelty_hysteresis_rounds=2,
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+
+        proto.memory_bank.spawn_from_fingerprint(_make_fp(seed=0, mean_shift=0.0))
+        proto.memory_bank.spawn_from_fingerprint(_make_fp(seed=1, mean_shift=10.0))
+        r1 = PhaseAResult(assignments={2: 0}, posteriors={}, bytes_up=0.0, bytes_down=0.0)
+        n_before = proto.memory_bank.n_concepts
+        assert n_before >= 2
+
+        fps2 = {2: _make_fp(seed=10, mean_shift=100.0)}
+        r2 = proto.phase_a(fps2, prev_assignments=r1.assignments)
+        assert r2.spawned == 0
+        assert proto.memory_bank.n_concepts == n_before
+
+        r3 = proto.phase_a(fps2, prev_assignments=r2.assignments)
+        assert r3.spawned >= 1
+        assert proto.memory_bank.n_concepts >= n_before + 1
 
     def test_bytes_accounting(self) -> None:
         cfg = TwoPhaseConfig(n_features=2, n_classes=2)
@@ -626,6 +719,38 @@ class TestPhaseB:
         assert np.linalg.norm(subgroup_agg["coef"]) > np.linalg.norm(plain_agg["coef"])
         np.testing.assert_allclose(subgroup_no_fp["coef"], plain_agg["coef"])
 
+    def test_phase_b_namespaced_shared_can_aggregate_per_concept(self) -> None:
+        cfg = TwoPhaseConfig(global_shared_aggregation=False)
+        proto = TwoPhaseFedProTrack(cfg)
+
+        params = {
+            0: {
+                "shared.trunk.weight": np.array([[1.0]], dtype=np.float64),
+                "shared.trunk.bias": np.array([0.0], dtype=np.float64),
+                "expert.0.head.weight": np.array([[2.0]], dtype=np.float64),
+                "expert.0.head.bias": np.array([0.0], dtype=np.float64),
+            },
+            1: {
+                "shared.trunk.weight": np.array([[3.0]], dtype=np.float64),
+                "shared.trunk.bias": np.array([2.0], dtype=np.float64),
+                "expert.1.head.weight": np.array([[10.0]], dtype=np.float64),
+                "expert.1.head.bias": np.array([1.0], dtype=np.float64),
+            },
+        }
+        assignments = {0: 0, 1: 1}
+
+        result = proto.phase_b(params, assignments)
+
+        np.testing.assert_allclose(
+            result.aggregated_params[0]["shared.trunk.weight"],
+            np.array([[1.0]], dtype=np.float64),
+            atol=1e-10,
+        )
+        np.testing.assert_allclose(
+            result.aggregated_params[1]["shared.trunk.weight"],
+            np.array([[3.0]], dtype=np.float64),
+            atol=1e-10,
+        )
 
 # ---------------------------------------------------------------------------
 # End-to-end protocol
@@ -953,6 +1078,109 @@ class TestSoftAggregation:
         # Result should be dominated by client 0's params
         agg = result.aggregated_params[concept_id]
         np.testing.assert_allclose(agg["coef"], params[0]["coef"], atol=1e-10)
+
+    def test_soft_namespaced_aggregation_uses_matching_expert_slots(self) -> None:
+        from fedprotrack.posterior.gibbs import PosteriorAssignment
+
+        cfg = TwoPhaseConfig(loss_novelty_threshold=0.5)
+        proto = TwoPhaseFedProTrack(cfg)
+
+        params = {
+            0: {
+                "shared.trunk.weight": np.array([[1.0]], dtype=np.float64),
+                "shared.trunk.bias": np.array([0.0], dtype=np.float64),
+                "expert.0.head.weight": np.array([[2.0]], dtype=np.float64),
+                "expert.0.head.bias": np.array([0.0], dtype=np.float64),
+            },
+            1: {
+                "shared.trunk.weight": np.array([[3.0]], dtype=np.float64),
+                "shared.trunk.bias": np.array([2.0], dtype=np.float64),
+                "expert.1.head.weight": np.array([[10.0]], dtype=np.float64),
+                "expert.1.head.bias": np.array([1.0], dtype=np.float64),
+            },
+        }
+        assignments = {0: 0, 1: 1}
+        posteriors = {
+            0: PosteriorAssignment(
+                probabilities={0: 0.9, 1: 0.1},
+                map_concept_id=0,
+                is_novel=False,
+                entropy=0.1,
+            ),
+            1: PosteriorAssignment(
+                probabilities={0: 0.2, 1: 0.8},
+                map_concept_id=1,
+                is_novel=False,
+                entropy=0.1,
+            ),
+        }
+
+        result = proto.phase_b_soft(params, assignments, posteriors)
+        agg0 = result.aggregated_params[0]
+        agg1 = result.aggregated_params[1]
+
+        np.testing.assert_allclose(
+            agg0["expert.0.head.weight"],
+            np.array([[2.0]], dtype=np.float64),
+            atol=1e-10,
+        )
+        np.testing.assert_allclose(
+            agg1["expert.1.head.weight"],
+            np.array([[10.0]], dtype=np.float64),
+            atol=1e-10,
+        )
+
+    def test_soft_namespaced_shared_can_aggregate_per_concept(self) -> None:
+        from fedprotrack.posterior.gibbs import PosteriorAssignment
+
+        cfg = TwoPhaseConfig(global_shared_aggregation=False)
+        proto = TwoPhaseFedProTrack(cfg)
+
+        params = {
+            0: {
+                "shared.trunk.weight": np.array([[1.0]], dtype=np.float64),
+                "shared.trunk.bias": np.array([0.0], dtype=np.float64),
+                "expert.0.head.weight": np.array([[2.0]], dtype=np.float64),
+                "expert.0.head.bias": np.array([0.0], dtype=np.float64),
+            },
+            1: {
+                "shared.trunk.weight": np.array([[3.0]], dtype=np.float64),
+                "shared.trunk.bias": np.array([2.0], dtype=np.float64),
+                "expert.1.head.weight": np.array([[10.0]], dtype=np.float64),
+                "expert.1.head.bias": np.array([1.0], dtype=np.float64),
+            },
+        }
+        assignments = {0: 0, 1: 1}
+        posteriors = {
+            0: PosteriorAssignment(
+                probabilities={0: 0.9, 1: 0.1},
+                map_concept_id=0,
+                is_novel=False,
+                entropy=0.1,
+            ),
+            1: PosteriorAssignment(
+                probabilities={0: 0.2, 1: 0.8},
+                map_concept_id=1,
+                is_novel=False,
+                entropy=0.1,
+            ),
+        }
+
+        result = proto.phase_b_soft(params, assignments, posteriors)
+        agg0 = result.aggregated_params[0]
+        agg1 = result.aggregated_params[1]
+
+        np.testing.assert_allclose(
+            agg0["shared.trunk.weight"],
+            np.array([[15.0 / 11.0]], dtype=np.float64),
+            atol=1e-10,
+        )
+        np.testing.assert_allclose(
+            agg1["shared.trunk.weight"],
+            np.array([[25.0 / 9.0]], dtype=np.float64),
+            atol=1e-10,
+        )
+        assert agg0["shared.trunk.weight"][0, 0] != agg1["shared.trunk.weight"][0, 0]
 
     def test_soft_aggregation_runner_flag(self) -> None:
         """FedProTrackRunner with soft_aggregation=True runs without error."""

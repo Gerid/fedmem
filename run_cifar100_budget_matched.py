@@ -23,8 +23,11 @@ from fedprotrack.baselines.comm_tracker import model_bytes
 from fedprotrack.metrics import compute_all_metrics
 from fedprotrack.metrics.experiment_log import ExperimentLog
 from fedprotrack.models import TorchLinearClassifier
-from fedprotrack.posterior.fedprotrack_runner import FedProTrackRunner
-from fedprotrack.posterior.two_phase_protocol import TwoPhaseConfig
+from fedprotrack.posterior import (
+    FEDPROTRACK_VARIANTS,
+    FedProTrackRunner,
+    make_variant_bundle,
+)
 from fedprotrack.real_data import (
     CIFAR100RecurrenceConfig,
     generate_cifar100_recurrence_dataset,
@@ -106,29 +109,25 @@ def run_one(method: str, dataset, ground_truth, cfg: dict) -> dict:
 
     t0 = time.time()
 
-    if method == "FedProTrack":
+    if method == cfg["fedprotrack_method_name"]:
         n_concepts = int(ground_truth.max()) + 1
+        _, config, runner_kwargs = make_variant_bundle(
+            cfg["fedprotrack_variant"],
+            config_overrides={
+                "max_concepts": max(6, n_concepts + 2),
+                "shrink_every": 6,
+            },
+            runner_overrides={
+                "federation_every": fed_every,
+                "detector_name": "ADWIN",
+                "lr": lr,
+                "n_epochs": epochs,
+            },
+        )
         runner = FedProTrackRunner(
-            config=TwoPhaseConfig(
-                omega=2.0,
-                kappa=0.7,
-                novelty_threshold=0.25,
-                loss_novelty_threshold=0.15,
-                sticky_dampening=1.5,
-                sticky_posterior_gate=0.35,
-                merge_threshold=0.85,
-                min_count=5.0,
-                max_concepts=max(6, n_concepts + 2),
-                merge_every=2,
-                shrink_every=6,
-            ),
-            federation_every=fed_every,
-            detector_name="ADWIN",
+            config=config,
             seed=cfg["seed"],
-            lr=lr,
-            n_epochs=epochs,
-            soft_aggregation=True,
-            blend_alpha=0.0,
+            **runner_kwargs,
         )
         result = runner.run(dataset)
         log = result.to_experiment_log()
@@ -178,6 +177,11 @@ def run_one(method: str, dataset, ground_truth, cfg: dict) -> dict:
         "final_accuracy": metrics.final_accuracy,
         "accuracy_auc": metrics.accuracy_auc,
         "concept_re_id_accuracy": metrics.concept_re_id_accuracy,
+        "assignment_switch_rate": metrics.assignment_switch_rate,
+        "avg_clients_per_concept": metrics.avg_clients_per_concept,
+        "singleton_group_ratio": metrics.singleton_group_ratio,
+        "memory_reuse_rate": metrics.memory_reuse_rate,
+        "routing_consistency": metrics.routing_consistency,
         "total_bytes": total_bytes,
         "wall_clock_s": elapsed,
     }
@@ -200,6 +204,12 @@ def main() -> None:
     # Matched local training
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--lr", type=float, default=0.05)
+    parser.add_argument(
+        "--fedprotrack-variant",
+        choices=FEDPROTRACK_VARIANTS,
+        default="legacy",
+        help="FedProTrack preset to evaluate on the budget frontier.",
+    )
     # Federation frequency sweep
     parser.add_argument("--fed-every-list", default="1,2,3,5",
                         help="Comma-separated federation_every values to sweep")
@@ -213,7 +223,8 @@ def main() -> None:
 
     seeds = [int(s.strip()) for s in args.seeds.split(",") if s.strip()]
     fed_every_list = [int(s.strip()) for s in args.fed_every_list.split(",") if s.strip()]
-    methods = ["FedProTrack", "IFCA", "FedAvg"]
+    fedprotrack_method_name, _, _ = make_variant_bundle(args.fedprotrack_variant)
+    methods = [fedprotrack_method_name, "IFCA", "FedAvg"]
 
     dataset_cfg_dict = {
         "K": args.K, "T": args.T, "n_samples": args.n_samples,
@@ -229,6 +240,11 @@ def main() -> None:
     print(f"Matched training: epochs={args.epochs}, lr={args.lr}", flush=True)
     print(f"K={args.K}, T={args.T}, seeds={seeds}", flush=True)
     print(f"federation_every sweep: {fed_every_list}", flush=True)
+    print(
+        f"FedProTrack variant: {args.fedprotrack_variant} "
+        f"({fedprotrack_method_name})",
+        flush=True,
+    )
 
     # Warm cache
     print("Warming feature cache...", flush=True)
@@ -248,6 +264,8 @@ def main() -> None:
                     "n_features": args.n_features,
                     "federation_every": fed_every,
                     "ifca_clusters": args.ifca_clusters,
+                    "fedprotrack_variant": args.fedprotrack_variant,
+                    "fedprotrack_method_name": fedprotrack_method_name,
                 }
                 row = run_one(method, dataset, ground_truth, cfg)
                 all_rows.append(row)
@@ -295,8 +313,8 @@ def main() -> None:
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     ax = axes[0]
-    markers = {"FedProTrack": "o", "IFCA": "s", "FedAvg": "^"}
-    colors = {"FedProTrack": "C0", "IFCA": "C1", "FedAvg": "C2"}
+    markers = {fedprotrack_method_name: "o", "IFCA": "s", "FedAvg": "^"}
+    colors = {fedprotrack_method_name: "C0", "IFCA": "C1", "FedAvg": "C2"}
     for method, pts in plot_data.items():
         pts_sorted = sorted(pts, key=lambda x: x[0])
         xs = [p[0] for p in pts_sorted]
@@ -345,6 +363,7 @@ def main() -> None:
             "dataset_config": dataset_cfg_dict,
             "matched_epochs": args.epochs, "matched_lr": args.lr,
             "seeds": seeds, "methods": methods,
+            "fedprotrack_variant": args.fedprotrack_variant,
             "fed_every_list": fed_every_list,
         }, f, indent=2)
 

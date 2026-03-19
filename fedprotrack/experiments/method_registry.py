@@ -4,7 +4,9 @@ from __future__ import annotations
 
 Defines which methods support identity-level concept inference and
 therefore produce meaningful identity metrics (concept_re_id_accuracy,
-assignment_entropy, wrong_memory_reuse_rate).
+assignment_entropy, assignment_switch_rate, avg_clients_per_concept,
+singleton_group_ratio, memory_reuse_rate, routing_consistency,
+wrong_memory_reuse_rate).
 
 Methods that do **not** perform identity inference (e.g. FedAvg, FedProto,
 Flash, CompressedFedAvg, LocalOnly) should have their identity metrics
@@ -54,6 +56,11 @@ METHOD_ALIASES: dict[str, str] = {
 IDENTITY_METRIC_FIELDS: tuple[str, ...] = (
     "concept_re_id_accuracy",
     "assignment_entropy",
+    "assignment_switch_rate",
+    "avg_clients_per_concept",
+    "singleton_group_ratio",
+    "memory_reuse_rate",
+    "routing_consistency",
     "wrong_memory_reuse_rate",
 )
 
@@ -75,6 +82,8 @@ def identity_metrics_valid(method_name: str) -> bool:
 
 def canonical_method_name(method_name: str) -> str:
     """Return the canonical implementation name for a method label."""
+    if method_name.startswith("FedProTrack-"):
+        return "FedProTrack"
     return METHOD_ALIASES.get(method_name, method_name)
 
 

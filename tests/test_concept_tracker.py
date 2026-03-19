@@ -61,6 +61,32 @@ class TestConceptFingerprint:
         sim = fp1.similarity(fp2)
         assert sim < 0.5
 
+    def test_similarity_respects_feature_group_weights(self):
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((200, 4))
+        y = (X[:, 0] > 0).astype(np.int32)
+        X_shifted = X.copy()
+        X_shifted[:, 2:] += 8.0
+
+        plain_a = ConceptFingerprint(n_features=4, n_classes=2)
+        plain_b = ConceptFingerprint(n_features=4, n_classes=2)
+        weighted_a = ConceptFingerprint(
+            n_features=4,
+            n_classes=2,
+            feature_groups=[(0, 2, 0.9), (2, 4, 0.1)],
+        )
+        weighted_b = ConceptFingerprint(
+            n_features=4,
+            n_classes=2,
+            feature_groups=[(0, 2, 0.9), (2, 4, 0.1)],
+        )
+        plain_a.update(X, y)
+        plain_b.update(X_shifted, y)
+        weighted_a.update(X, y)
+        weighted_b.update(X_shifted, y)
+
+        assert weighted_a.similarity(weighted_b) > plain_a.similarity(plain_b)
+
     def test_to_vector(self):
         fp = ConceptFingerprint(n_features=3, n_classes=2)
         X = np.ones((10, 3))

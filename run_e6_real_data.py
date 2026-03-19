@@ -21,8 +21,11 @@ from fedprotrack.real_data.rotating_mnist import (
     RotatingMNISTConfig,
     generate_rotating_mnist_dataset,
 )
-from fedprotrack.posterior.fedprotrack_runner import FedProTrackRunner
-from fedprotrack.posterior.two_phase_protocol import TwoPhaseConfig
+from fedprotrack.posterior import (
+    FEDPROTRACK_VARIANTS,
+    FedProTrackRunner,
+    make_variant_bundle,
+)
 from fedprotrack.baselines.runners import (
     run_ifca_full,
     run_feddrift_full,
@@ -54,6 +57,7 @@ def _make_log(name: str, acc: np.ndarray, pred: np.ndarray,
 def run_single_setting(
     rm_config: RotatingMNISTConfig,
     seed: int,
+    fedprotrack_variant: str = "legacy",
 ) -> dict[str, MetricsResult]:
     """Run all E6 methods on one Rotating MNIST setting."""
     ds = generate_rotating_mnist_dataset(rm_config)
@@ -64,9 +68,17 @@ def run_single_setting(
         return compute_all_metrics(log, identity_capable=identity_metrics_valid(name))
 
     # FedProTrack
-    fpt_runner = FedProTrackRunner(config=TwoPhaseConfig(), seed=seed)
+    fpt_name, fpt_cfg, fpt_runner_kwargs = make_variant_bundle(
+        fedprotrack_variant,
+        runner_overrides={"lr": 0.05, "n_epochs": 3},
+    )
+    fpt_runner = FedProTrackRunner(
+        config=fpt_cfg,
+        seed=seed,
+        **fpt_runner_kwargs,
+    )
     fpt_res = fpt_runner.run(ds)
-    results["FedProTrack"] = _compute("FedProTrack", fpt_res.to_experiment_log())
+    results[fpt_name] = _compute(fpt_name, fpt_res.to_experiment_log())
 
     # FedAvg
     exp_cfg = ExperimentConfig(generator_config=ds.config)
@@ -92,6 +104,12 @@ def main() -> None:
                         help="Output directory")
     parser.add_argument("--seeds", default="42,123,456,789,1024",
                         help="Comma-separated random seeds")
+    parser.add_argument(
+        "--fedprotrack-variant",
+        choices=FEDPROTRACK_VARIANTS,
+        default="legacy",
+        help="FedProTrack preset to run on Rotating MNIST.",
+    )
     parser.add_argument("--quick", action="store_true")
     args = parser.parse_args()
 
@@ -99,6 +117,7 @@ def main() -> None:
     results_dir.mkdir(parents=True, exist_ok=True)
 
     seeds = [int(s.strip()) for s in args.seeds.split(",")]
+    fedprotrack_method_name, _, _ = make_variant_bundle(args.fedprotrack_variant)
 
     # Grid for Rotating MNIST
     if args.quick:
@@ -119,7 +138,11 @@ def main() -> None:
     phase_grid: dict[tuple[float, float], dict[str, list[MetricsResult]]] = {}
 
     total_settings = len(rho_values) * len(alpha_values) * len(delta_values) * len(seeds)
-    print(f"Running E6 Rotating MNIST: {total_settings} settings x 4 methods")
+    print(
+        f"Running E6 Rotating MNIST: {total_settings} settings x 4 methods "
+        f"(FedProTrack variant={args.fedprotrack_variant}, "
+        f"label={fedprotrack_method_name})"
+    )
 
     t_start = time.time()
     i = 0
@@ -134,7 +157,11 @@ def main() -> None:
                         n_features=n_features, seed=seed,
                     )
                     try:
-                        metrics = run_single_setting(rm_cfg, seed)
+                        metrics = run_single_setting(
+                            rm_cfg,
+                            seed,
+                            args.fedprotrack_variant,
+                        )
                         for mn, mr in metrics.items():
                             all_results.setdefault(mn, []).append(mr)
                             by_alpha.setdefault(alpha, {}).setdefault(mn, []).append(mr)
@@ -160,11 +187,23 @@ def main() -> None:
         reids = [r.concept_re_id_accuracy for r in results
                  if r.concept_re_id_accuracy is not None]
         accs = [r.final_accuracy for r in results if r.final_accuracy is not None]
+        switches = [r.assignment_switch_rate for r in results
+                    if r.assignment_switch_rate is not None]
+        singletons = [r.singleton_group_ratio for r in results
+                      if r.singleton_group_ratio is not None]
+        routings = [r.routing_consistency for r in results
+                    if r.routing_consistency is not None]
+        reuse = [r.memory_reuse_rate for r in results
+                 if r.memory_reuse_rate is not None]
         summary[mn] = {
             "n_settings": len(results),
             "mean_re_id_accuracy": float(np.mean(reids)) if reids else None,
             "std_re_id_accuracy": float(np.std(reids)) if reids else None,
             "mean_final_accuracy": float(np.mean(accs)) if accs else None,
+            "mean_assignment_switch_rate": float(np.mean(switches)) if switches else None,
+            "mean_singleton_group_ratio": float(np.mean(singletons)) if singletons else None,
+            "mean_routing_consistency": float(np.mean(routings)) if routings else None,
+            "mean_memory_reuse_rate": float(np.mean(reuse)) if reuse else None,
         }
     with open(results_dir / "summary.json", "w") as f:
         json.dump(summary, f, indent=2)
@@ -228,10 +267,13 @@ def main() -> None:
 
         if len(averaged_grid) >= 2:
             generate_difference_heatmap(
-                averaged_grid, "FedProTrack", "FedAvg",
+                averaged_grid, fedprotrack_method_name, "FedAvg",
                 "rho", "delta", "concept_re_id_accuracy",
                 fig_dir / "realdata_phase_direction.png",
-                title="Rotating MNIST: FedProTrack - FedAvg (Re-ID)",
+                title=(
+                    "Rotating MNIST: "
+                    f"{fedprotrack_method_name} - FedAvg (Re-ID)"
+                ),
             )
             print(f"Fig -> {fig_dir / 'realdata_phase_direction.png'}")
 
@@ -250,7 +292,15 @@ def main() -> None:
             if info.get("mean_final_accuracy") is not None
             else ""
         )
-        print(f"  {mn:15s}: {reid_str}{acc_str} (n={info['n_settings']})")
+        diag_parts = []
+        if info.get("mean_assignment_switch_rate") is not None:
+            diag_parts.append(f"switch = {info['mean_assignment_switch_rate']:.4f}")
+        if info.get("mean_singleton_group_ratio") is not None:
+            diag_parts.append(f"singleton = {info['mean_singleton_group_ratio']:.4f}")
+        if info.get("mean_routing_consistency") is not None:
+            diag_parts.append(f"routing = {info['mean_routing_consistency']:.4f}")
+        diag_str = f", {'; '.join(diag_parts)}" if diag_parts else ""
+        print(f"  {mn:15s}: {reid_str}{acc_str}{diag_str} (n={info['n_settings']})")
 
 
 if __name__ == "__main__":

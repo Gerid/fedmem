@@ -27,8 +27,11 @@ from fedprotrack.experiment.runner import ExperimentConfig
 from fedprotrack.baselines.runners import run_fedproto_full, run_ifca_full
 from fedprotrack.metrics import compute_all_metrics
 from fedprotrack.metrics.experiment_log import ExperimentLog
-from fedprotrack.posterior.fedprotrack_runner import FedProTrackRunner
-from fedprotrack.posterior.two_phase_protocol import TwoPhaseConfig
+from fedprotrack.posterior import (
+    FEDPROTRACK_VARIANTS,
+    FedProTrackRunner,
+    make_variant_bundle,
+)
 from fedprotrack.real_data import (
     CIFAR100RecurrenceConfig,
     generate_cifar100_recurrence_dataset,
@@ -68,30 +71,22 @@ def _run_task(task: dict) -> dict:
     ground_truth = dataset.concept_matrix
 
     t0 = time.time()
-    if method == "FedProTrack":
+    if method == task["fedprotrack_method_name"]:
         n_concepts = int(ground_truth.max()) + 1
-        runner = FedProTrackRunner(
-            config=TwoPhaseConfig(
-                omega=2.0,
-                kappa=0.7,
-                novelty_threshold=0.25,
-                loss_novelty_threshold=0.15,
-                sticky_dampening=1.5,
-                sticky_posterior_gate=0.35,
-                merge_threshold=0.85,
-                min_count=5.0,
-                max_concepts=max(6, n_concepts + 2),
-                merge_every=2,
-                shrink_every=6,
-            ),
-            federation_every=task["federation_every"],
-            detector_name=task["detector_name"],
-            seed=seed,
-            lr=task["fpt_lr"],
-            n_epochs=task["fpt_epochs"],
-            soft_aggregation=True,
-            blend_alpha=0.0,
+        _, config, runner_kwargs = make_variant_bundle(
+            task["fedprotrack_variant"],
+            config_overrides={
+                "max_concepts": max(6, n_concepts + 2),
+                "shrink_every": 6,
+            },
+            runner_overrides={
+                "federation_every": task["federation_every"],
+                "detector_name": task["detector_name"],
+                "lr": task["fpt_lr"],
+                "n_epochs": task["fpt_epochs"],
+            },
         )
+        runner = FedProTrackRunner(config=config, seed=seed, **runner_kwargs)
         result = runner.run(dataset)
         log = result.to_experiment_log()
         metrics = compute_all_metrics(log, identity_capable=True)
@@ -139,6 +134,11 @@ def _run_task(task: dict) -> dict:
         "final_accuracy": metrics.final_accuracy,
         "accuracy_auc": metrics.accuracy_auc,
         "concept_re_id_accuracy": metrics.concept_re_id_accuracy,
+        "assignment_switch_rate": metrics.assignment_switch_rate,
+        "avg_clients_per_concept": metrics.avg_clients_per_concept,
+        "singleton_group_ratio": metrics.singleton_group_ratio,
+        "memory_reuse_rate": metrics.memory_reuse_rate,
+        "routing_consistency": metrics.routing_consistency,
         "wrong_memory_reuse_rate": metrics.wrong_memory_reuse_rate,
         "assignment_entropy": metrics.assignment_entropy,
         "total_bytes": total_bytes,
@@ -154,6 +154,11 @@ def _write_raw_csv(rows: list[dict], path: Path) -> None:
         "final_accuracy",
         "accuracy_auc",
         "concept_re_id_accuracy",
+        "assignment_switch_rate",
+        "avg_clients_per_concept",
+        "singleton_group_ratio",
+        "memory_reuse_rate",
+        "routing_consistency",
         "wrong_memory_reuse_rate",
         "assignment_entropy",
         "total_bytes",
@@ -220,6 +225,21 @@ def _aggregate(rows: list[dict]) -> dict[str, dict[str, float | list[float]]]:
         ]
         if ent_vals:
             entry["mean_assignment_entropy"] = float(np.mean(ent_vals))
+
+        for source_key in (
+            "assignment_switch_rate",
+            "avg_clients_per_concept",
+            "singleton_group_ratio",
+            "memory_reuse_rate",
+            "routing_consistency",
+        ):
+            vals = [
+                float(row[source_key])
+                for row in method_rows
+                if row[source_key] is not None
+            ]
+            if vals:
+                entry[f"mean_{source_key}"] = float(np.mean(vals))
 
         summary[method] = entry
     return summary
@@ -288,6 +308,12 @@ def main() -> None:
     parser.add_argument("--detector-name", default="ADWIN")
     parser.add_argument("--fpt-lr", type=float, default=0.1)
     parser.add_argument("--fpt-epochs", type=int, default=10)
+    parser.add_argument(
+        "--fedprotrack-variant",
+        choices=FEDPROTRACK_VARIANTS,
+        default="legacy",
+        help="FedProTrack preset to run when methods include FedProTrack.",
+    )
     parser.add_argument("--n-workers", type=int, default=2)
     parser.add_argument("--data-root", default=".cifar100_cache")
     parser.add_argument("--feature-cache-dir", default=".feature_cache")
@@ -310,7 +336,12 @@ def main() -> None:
     results_dir.mkdir(parents=True, exist_ok=True)
 
     seeds = [int(part.strip()) for part in args.seeds.split(",") if part.strip()]
-    methods = [part.strip() for part in args.methods.split(",") if part.strip()]
+    fedprotrack_method_name, _, _ = make_variant_bundle(args.fedprotrack_variant)
+    methods = [
+        fedprotrack_method_name if part.strip().startswith("FedProTrack") else part.strip()
+        for part in args.methods.split(",")
+        if part.strip()
+    ]
 
     dataset_config = {
         "K": args.K,
@@ -342,6 +373,8 @@ def main() -> None:
             "detector_name": args.detector_name,
             "fpt_lr": args.fpt_lr,
             "fpt_epochs": args.fpt_epochs,
+            "fedprotrack_variant": args.fedprotrack_variant,
+            "fedprotrack_method_name": fedprotrack_method_name,
         }
         for seed in seeds
         for method in methods
@@ -349,7 +382,8 @@ def main() -> None:
 
     print(
         f"Running {len(tasks)} tasks on {args.max_workers} worker(s): "
-        f"methods={methods}, seeds={seeds}",
+        f"methods={methods}, seeds={seeds}, "
+        f"fedprotrack_variant={args.fedprotrack_variant}",
         flush=True,
     )
 
@@ -363,7 +397,9 @@ def main() -> None:
                 f"  {row['method']} seed={row['seed']} "
                 f"final_acc={row['final_accuracy']:.4f} "
                 f"auc={row['accuracy_auc']:.4f} "
-                f"reid={row['concept_re_id_accuracy'] if row['concept_re_id_accuracy'] is not None else '--'}",
+                f"reid={row['concept_re_id_accuracy'] if row['concept_re_id_accuracy'] is not None else '--'} "
+                f"switch={row['assignment_switch_rate'] if row['assignment_switch_rate'] is not None else '--'} "
+                f"singleton={row['singleton_group_ratio'] if row['singleton_group_ratio'] is not None else '--'}",
                 flush=True,
             )
     else:
@@ -380,7 +416,9 @@ def main() -> None:
                     f"  {row['method']} seed={row['seed']} "
                     f"final_acc={row['final_accuracy']:.4f} "
                     f"auc={row['accuracy_auc']:.4f} "
-                    f"reid={row['concept_re_id_accuracy'] if row['concept_re_id_accuracy'] is not None else '--'}",
+                    f"reid={row['concept_re_id_accuracy'] if row['concept_re_id_accuracy'] is not None else '--'} "
+                    f"switch={row['assignment_switch_rate'] if row['assignment_switch_rate'] is not None else '--'} "
+                    f"singleton={row['singleton_group_ratio'] if row['singleton_group_ratio'] is not None else '--'}",
                     flush=True,
                 )
 
@@ -396,6 +434,7 @@ def main() -> None:
                 "dataset_config": dataset_config,
                 "seeds": seeds,
                 "methods": methods,
+                "fedprotrack_variant": args.fedprotrack_variant,
                 "federation_every": args.federation_every,
                 "ifca_clusters": args.ifca_clusters,
                 "detector_name": args.detector_name,
@@ -417,6 +456,10 @@ def main() -> None:
         )
         if "mean_concept_re_id_accuracy" in entry:
             line += f" reid={entry['mean_concept_re_id_accuracy']:.4f}"
+        if "mean_assignment_switch_rate" in entry:
+            line += f" switch={entry['mean_assignment_switch_rate']:.4f}"
+        if "mean_singleton_group_ratio" in entry:
+            line += f" singleton={entry['mean_singleton_group_ratio']:.4f}"
         print(line, flush=True)
 
     print(
