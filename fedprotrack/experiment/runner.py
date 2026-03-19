@@ -98,6 +98,7 @@ class ExperimentResult:
 
     # Detection metrics
     tracking_metrics: ConceptTrackingMetrics
+    total_bytes: float | None = None
 
     def save(self, path: str | Path) -> None:
         """Save results to JSON."""
@@ -110,6 +111,7 @@ class ExperimentResult:
             "concept_tracking_accuracy": self.concept_tracking_accuracy,
             "forgetting": self.forgetting,
             "backward_transfer": self.backward_transfer,
+            "total_bytes": self.total_bytes,
             "detection_rate": self.tracking_metrics.detection_rate,
             "false_alarm_rate": self.tracking_metrics.false_alarm_rate,
             "identification_accuracy": self.tracking_metrics.identification_accuracy,

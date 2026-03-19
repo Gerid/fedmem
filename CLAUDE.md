@@ -109,6 +109,14 @@ class DriftResult:
 - **代码膨胀**：任何改动必须服务于论文主线，不做泛化重构；优先复用现有 pipeline、config 和日志系统。
 - **种子管理**：不要用全局 `np.random.seed()`；改动随机流程时必须保留可推导、可复现实验路径。
 
+## Sync Notes (2026-03)
+
+- `Oracle` baseline now means true-concept federated aggregation across clients, not per-client memorization.
+- `FeSEM` remains an alias of `IFCA` in this repo; smoke comparison entrypoints should de-duplicate it unless alias behaviour is under study.
+- Fast CIFAR-100 all-baselines smoke entrypoint: `python run_cifar100_all_baselines_smoke.py`.
+- The smoke entrypoint also supports `--fpt-mode {base,auto,calibrated,hybrid,update-ot,labelwise,hybrid-labelwise,hybrid-proto,hybrid-proto-early,hybrid-proto-firstagg,hybrid-proto-subagg}`; `calibrated` re-scales novelty/merge thresholds from fingerprint quantiles, `hybrid` mixes a lightweight projected model-signature similarity into Phase A routing, `update-ot` mixes a lightweight OT similarity over projected classifier rows, `labelwise` mixes label-wise batch-prototype-to-classifier-row OT routing, `hybrid-labelwise` combines global model-signature routing with label-wise prototype routing, `hybrid-proto` applies prototype-aware classifier alignment after aggregation, `hybrid-proto-early` uses a stronger prototype-alignment mix only in the earliest federation round before falling back to the steady-state mix, `hybrid-proto-firstagg` pre-aligns client models to concept prototypes before the earliest aggregation round, and `hybrid-proto-subagg` tries subgroup-aware prototype pre-alignment before collapsing back to one concept-level aggregate.
+- The smoke entrypoint now also emits `FedAvg-FPTTrain`, a fairness control that uses the same `--fpt-lr` and `--fpt-epochs` local training strength as FedProTrack.
+
 ### 最近完成的工作（避免重复）
 
 - `drift_generator/`：可控合成漂移生成器（SINE / SEA / CIRCLE）和 K×T 概念矩阵生成器。

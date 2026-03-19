@@ -11,8 +11,6 @@ Flash, CompressedFedAvg, LocalOnly) should have their identity metrics
 reported as ``None`` / ``"--"`` / ``NaN`` rather than zero.
 """
 
-from dataclasses import dataclass
-
 # --- Identity-capable methods ------------------------------------------------
 # Only methods that actively infer *which* concept each client is on at each
 # time step produce valid identity metrics.
@@ -45,6 +43,13 @@ NON_IDENTITY_METHODS: frozenset[str] = frozenset({
     "FLUX-prior",
 })
 
+# Methods that are currently aliases of another implementation in this repo.
+# These should be de-duplicated in comparison tables when a distinct-method
+# view is desired.
+METHOD_ALIASES: dict[str, str] = {
+    "FeSEM": "IFCA",
+}
+
 # The three identity-specific metric field names on MetricsResult.
 IDENTITY_METRIC_FIELDS: tuple[str, ...] = (
     "concept_re_id_accuracy",
@@ -65,4 +70,31 @@ def identity_metrics_valid(method_name: str) -> bool:
     -------
     bool
     """
-    return method_name in IDENTITY_CAPABLE_METHODS
+    return canonical_method_name(method_name) in IDENTITY_CAPABLE_METHODS
+
+
+def canonical_method_name(method_name: str) -> str:
+    """Return the canonical implementation name for a method label."""
+    return METHOD_ALIASES.get(method_name, method_name)
+
+
+def dedupe_method_names(method_names: list[str]) -> list[str]:
+    """Drop duplicate alias methods while preserving canonical methods."""
+    requested_canonicals = {
+        canonical_method_name(method_name) for method_name in method_names
+    }
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for method_name in method_names:
+        canonical = canonical_method_name(method_name)
+        if (
+            method_name in METHOD_ALIASES
+            and canonical in requested_canonicals
+            and canonical != method_name
+        ):
+            continue
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        deduped.append(method_name)
+    return deduped

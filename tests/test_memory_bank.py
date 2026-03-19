@@ -153,6 +153,15 @@ class TestAbsorb:
         with pytest.raises(KeyError):
             bank.absorb_fingerprint(999, _make_fp(seed=0))
 
+    def test_absorb_signature_tracks_running_mean(self) -> None:
+        bank = DynamicMemoryBank(n_features=2, n_classes=2)
+        r = bank.spawn_from_fingerprint(_make_fp(seed=0))
+        bank.absorb_signature(r.new_concept_id, np.array([1.0, 0.0], dtype=np.float64))
+        bank.absorb_signature(r.new_concept_id, np.array([0.0, 1.0], dtype=np.float64))
+        signature = bank.get_signature(r.new_concept_id)
+        assert signature is not None
+        np.testing.assert_allclose(signature, np.array([0.5, 0.5]), atol=1e-10)
+
 
 # ---------------------------------------------------------------------------
 # DynamicMemoryBank - merge
@@ -185,6 +194,21 @@ class TestMerge:
         bank = DynamicMemoryBank(n_features=2, n_classes=2)
         merged = bank.maybe_merge()
         assert merged == []
+
+    def test_merge_combines_signatures(self) -> None:
+        cfg = MemoryBankConfig(merge_threshold=0.5)
+        bank = DynamicMemoryBank(config=cfg, n_features=2, n_classes=2)
+        r1 = bank.spawn_from_fingerprint(_make_fp(seed=0, mean_shift=0.0, n_samples=50))
+        r2 = bank.spawn_from_fingerprint(_make_fp(seed=0, mean_shift=0.01, n_samples=50))
+        bank.absorb_signature(r1.new_concept_id, np.array([1.0, 0.0], dtype=np.float64))
+        bank.absorb_signature(r2.new_concept_id, np.array([0.0, 1.0], dtype=np.float64))
+
+        merged = bank.maybe_merge()
+        assert len(merged) >= 1
+        kept_id = merged[0][0]
+        signature = bank.get_signature(kept_id)
+        assert signature is not None
+        np.testing.assert_allclose(signature, np.array([0.5, 0.5]), atol=1e-10)
 
 
 # ---------------------------------------------------------------------------

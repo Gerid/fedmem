@@ -224,7 +224,8 @@ class TorchLinearClassifier:
         """
         own = self.get_params()
         blended = {
-            k: alpha * other_params[k] + (1 - alpha) * own[k]
+            k: alpha * np.asarray(other_params[k], dtype=np.float64).reshape(own[k].shape)
+            + (1 - alpha) * own[k]
             for k in own
         }
         self.set_params(blended)

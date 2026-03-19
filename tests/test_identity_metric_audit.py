@@ -13,7 +13,10 @@ import pytest
 from fedprotrack.experiments.method_registry import (
     IDENTITY_CAPABLE_METHODS,
     IDENTITY_METRIC_FIELDS,
+    METHOD_ALIASES,
     NON_IDENTITY_METHODS,
+    canonical_method_name,
+    dedupe_method_names,
     identity_metrics_valid,
 )
 from fedprotrack.metrics import compute_all_metrics
@@ -48,6 +51,15 @@ class TestMethodRegistry:
     def test_sets_are_disjoint(self) -> None:
         overlap = IDENTITY_CAPABLE_METHODS & NON_IDENTITY_METHODS
         assert len(overlap) == 0, f"Overlap: {overlap}"
+
+    def test_aliases_canonicalize(self) -> None:
+        assert METHOD_ALIASES["FeSEM"] == "IFCA"
+        assert canonical_method_name("FeSEM") == "IFCA"
+        assert identity_metrics_valid("FeSEM") is True
+
+    def test_dedupe_method_names_removes_alias_duplicates(self) -> None:
+        methods = ["FedAvg", "IFCA", "FeSEM", "FedProto"]
+        assert dedupe_method_names(methods) == ["FedAvg", "IFCA", "FedProto"]
 
 
 # ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..baselines.comm_tracker import model_bytes
 from ..drift_generator import DriftDataset, GeneratorConfig, generate_drift_dataset
 from ..models import TorchLinearClassifier
 from ..evaluation.metrics import (
@@ -98,6 +99,7 @@ def run_local_only(
         final_accuracy=float(acc_matrix[:, -1].mean()),
         forgetting=0.0,
         backward_transfer=0.0,
+        total_bytes=0.0,
         tracking_metrics=ConceptTrackingMetrics(),
     )
 
@@ -105,8 +107,12 @@ def run_local_only(
 def run_fedavg_baseline(
     config: ExperimentConfig,
     dataset: DriftDataset | None = None,
+    *,
+    lr: float = 0.1,
+    n_epochs: int = 1,
+    seed: int = 42,
 ) -> ExperimentResult:
-    """Standard FedAvg baseline: average all client models every step.
+    """Standard FedAvg baseline with configurable federation cadence.
 
     No drift detection, no concept awareness. Demonstrates the negative
     interference caused by concept heterogeneity.
@@ -115,6 +121,12 @@ def run_fedavg_baseline(
     ----------
     config : ExperimentConfig
     dataset : DriftDataset, optional
+    lr : float
+        Local learning rate for each client.
+    n_epochs : int
+        Local epochs per client update.
+    seed : int
+        Base seed for client model initialization.
 
     Returns
     -------
@@ -127,26 +139,22 @@ def run_fedavg_baseline(
     K, T = gc.K, gc.T
     n_features = _infer_n_features(gc.generator_type, dataset)
     n_classes = _infer_n_classes(dataset)
+    federation_every = max(1, int(config.federation_every))
 
     acc_matrix = np.zeros((K, T), dtype=np.float64)
     predicted_matrix = np.zeros((K, T), dtype=np.int32)
+    total_bytes = 0.0
 
-    # Global model on GPU
-    global_model = TorchLinearClassifier(
-        n_features=n_features, n_classes=n_classes,
-        lr=0.1, n_epochs=1, seed=42,
-    )
-    # Per-client local models on GPU
-    client_models = [
+    models = [
         TorchLinearClassifier(
             n_features=n_features, n_classes=n_classes,
-            lr=0.1, n_epochs=1, seed=42 + k,
+            lr=lr, n_epochs=n_epochs, seed=seed + k,
         )
         for k in range(K)
     ]
 
     for t in range(T):
-        client_params_list = []
+        client_params_list: list[dict[str, np.ndarray]] = []
 
         for k in range(K):
             X, y = dataset.data[(k, t)]
@@ -154,25 +162,27 @@ def run_fedavg_baseline(
             X_test, y_test = X[:mid], y[:mid]
             X_train, y_train = X[mid:], y[mid:]
 
-            # Predict with global model
-            y_pred = global_model.predict(X_test)
+            # Predict with the current local model copy.
+            y_pred = models[k].predict(X_test)
             acc_matrix[k, t] = float(np.mean(y_pred == y_test))
 
-            # Train local model from global init
-            if t > 0:
-                client_models[k].set_params(global_model.get_params())
-            client_models[k].partial_fit(X_train, y_train)
-            if t > 0:
-                client_models[k].blend_params(global_model.get_params(), alpha=0.5)
+            if n_epochs > 1:
+                models[k].fit(X_train, y_train)
+            else:
+                models[k].partial_fit(X_train, y_train)
+            client_params_list.append(models[k].get_params())
 
-            client_params_list.append(client_models[k].get_params())
+        if (t + 1) % federation_every == 0 and t < T - 1:
+            global_params: dict[str, np.ndarray] = {}
+            for key in client_params_list[0]:
+                stacked = np.stack([p[key] for p in client_params_list])
+                global_params[key] = np.mean(stacked, axis=0)
 
-        # Aggregate: simple average
-        global_params: dict[str, np.ndarray] = {}
-        for key in client_params_list[0]:
-            stacked = np.stack([p[key] for p in client_params_list])
-            global_params[key] = np.mean(stacked, axis=0)
-        global_model.set_params(global_params)
+            one_model_bytes = model_bytes(global_params)
+            total_bytes += K * one_model_bytes + K * one_model_bytes
+
+            for model in models:
+                model.set_params(global_params)
 
     return ExperimentResult(
         config=config,
@@ -185,6 +195,7 @@ def run_fedavg_baseline(
         final_accuracy=float(acc_matrix[:, -1].mean()),
         forgetting=0.0,
         backward_transfer=0.0,
+        total_bytes=total_bytes,
         tracking_metrics=ConceptTrackingMetrics(),
     )
 
@@ -195,8 +206,10 @@ def run_oracle_baseline(
 ) -> ExperimentResult:
     """Oracle baseline: uses ground-truth concept IDs.
 
-    Maintains separate models per true concept. Represents the upper bound
-    for concept-aware methods.
+    Maintains one federated model per true concept and aggregates across
+    all clients currently assigned to that concept. This is an upper bound
+    for concept-aware clustering methods because it assumes access to the
+    true concept identity at every step.
 
     Parameters
     ----------
@@ -215,13 +228,15 @@ def run_oracle_baseline(
 
     n_features = _infer_n_features(gc.generator_type, dataset)
     n_classes = _infer_n_classes(dataset)
+    federation_every = max(1, int(config.federation_every))
     acc_matrix = np.zeros((K, T), dtype=np.float64)
     predicted_matrix = dataset.concept_matrix.copy()
+    total_bytes = 0.0
 
-    # Per-concept models for each client (on GPU)
-    client_models: dict[tuple[int, int], TorchLinearClassifier] = {}
+    concept_params: dict[int, dict[str, np.ndarray]] = {}
 
     for t in range(T):
+        uploads_by_concept: dict[int, list[dict[str, np.ndarray]]] = {}
         for k in range(K):
             X, y = dataset.data[(k, t)]
             true_concept = int(dataset.concept_matrix[k, t])
@@ -229,20 +244,32 @@ def run_oracle_baseline(
             X_test, y_test = X[:mid], y[:mid]
             X_train, y_train = X[mid:], y[mid:]
 
-            key = (k, true_concept)
-            if key in client_models:
-                y_pred = client_models[key].predict(X_test)
-            else:
-                y_pred = np.zeros(len(y_test), dtype=np.int32)
+            model = TorchLinearClassifier(
+                n_features=n_features,
+                n_classes=n_classes,
+                lr=0.1,
+                n_epochs=1,
+                seed=42 + k,
+            )
+            if true_concept in concept_params:
+                model.set_params(concept_params[true_concept])
+
+            y_pred = model.predict(X_test)
 
             acc_matrix[k, t] = float(np.mean(y_pred == y_test))
+            model.partial_fit(X_train, y_train)
+            uploads_by_concept.setdefault(true_concept, []).append(model.get_params())
 
-            if key not in client_models:
-                client_models[key] = TorchLinearClassifier(
-                    n_features=n_features, n_classes=n_classes,
-                    lr=0.1, n_epochs=1, seed=42 + k,
-                )
-            client_models[key].partial_fit(X_train, y_train)
+        if (t + 1) % federation_every == 0 and t < T - 1:
+            for concept_id, concept_uploads in uploads_by_concept.items():
+                aggregated: dict[str, np.ndarray] = {}
+                for key in concept_uploads[0]:
+                    stacked = np.stack([params[key] for params in concept_uploads])
+                    aggregated[key] = np.mean(stacked, axis=0)
+                concept_params[concept_id] = aggregated
+                concept_model_bytes = model_bytes(aggregated)
+                n_clients = len(concept_uploads)
+                total_bytes += n_clients * concept_model_bytes + n_clients * concept_model_bytes
 
     return ExperimentResult(
         config=config,
@@ -255,5 +282,6 @@ def run_oracle_baseline(
         final_accuracy=float(acc_matrix[:, -1].mean()),
         forgetting=0.0,
         backward_transfer=0.0,
+        total_bytes=total_bytes,
         tracking_metrics=ConceptTrackingMetrics(),
     )

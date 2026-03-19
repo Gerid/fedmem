@@ -94,6 +94,8 @@ class DynamicMemoryBank:
         self.n_classes = n_classes
         self._library: dict[int, ConceptFingerprint] = {}
         self._model_store: dict[int, dict[str, np.ndarray]] = {}
+        self._signature_store: dict[int, np.ndarray] = {}
+        self._signature_counts: dict[int, float] = {}
         self._next_id: int = 0
         self._step_count: int = 0
 
@@ -136,6 +138,13 @@ class DynamicMemoryBank:
             return {k: v.copy() for k, v in params.items()}
         return None
 
+    def get_signature(self, concept_id: int) -> np.ndarray | None:
+        """Get stored lightweight routing signature for a concept."""
+        signature = self._signature_store.get(concept_id)
+        if signature is None:
+            return None
+        return signature.copy()
+
     def store_model_params(
         self,
         concept_id: int,
@@ -149,6 +158,22 @@ class DynamicMemoryBank:
         params : dict[str, np.ndarray]
         """
         self._model_store[concept_id] = {k: v.copy() for k, v in params.items()}
+
+    def absorb_signature(self, concept_id: int, signature: np.ndarray) -> None:
+        """Merge a lightweight routing signature into an existing concept."""
+        if concept_id not in self._library:
+            raise KeyError(f"Concept {concept_id} not in memory bank")
+        sig = np.asarray(signature, dtype=np.float64).reshape(-1)
+        if sig.size == 0:
+            return
+        if concept_id not in self._signature_store:
+            self._signature_store[concept_id] = sig.copy()
+            self._signature_counts[concept_id] = 1.0
+            return
+        count = self._signature_counts.get(concept_id, 1.0)
+        merged = (count * self._signature_store[concept_id] + sig) / (count + 1.0)
+        self._signature_store[concept_id] = merged
+        self._signature_counts[concept_id] = count + 1.0
 
     def spawn_from_fingerprint(self, fp: ConceptFingerprint) -> SpawnResult:
         """Create a new concept from a fingerprint, or absorb if at capacity.
@@ -235,6 +260,21 @@ class DynamicMemoryBank:
                         if ids[i] not in self._model_store:
                             self._model_store[ids[i]] = self._model_store[ids[j]]
                         del self._model_store[ids[j]]
+                    if ids[j] in self._signature_store:
+                        if ids[i] in self._signature_store:
+                            count_i = self._signature_counts.get(ids[i], 1.0)
+                            count_j = self._signature_counts.get(ids[j], 1.0)
+                            total = count_i + count_j
+                            self._signature_store[ids[i]] = (
+                                count_i * self._signature_store[ids[i]]
+                                + count_j * self._signature_store[ids[j]]
+                            ) / max(total, 1.0)
+                            self._signature_counts[ids[i]] = total
+                        else:
+                            self._signature_store[ids[i]] = self._signature_store[ids[j]].copy()
+                            self._signature_counts[ids[i]] = self._signature_counts.get(ids[j], 1.0)
+                        del self._signature_store[ids[j]]
+                        self._signature_counts.pop(ids[j], None)
                     consumed.add(ids[j])
                     merged.append((ids[i], ids[j]))
 
@@ -271,6 +311,8 @@ class DynamicMemoryBank:
             del self._library[cid]
             if not self.config.preserve_dormant_models:
                 self._model_store.pop(cid, None)
+            self._signature_store.pop(cid, None)
+            self._signature_counts.pop(cid, None)
 
         return to_remove
 

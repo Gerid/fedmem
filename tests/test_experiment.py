@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from fedprotrack.baselines.comm_tracker import model_bytes
 from fedprotrack.drift_generator import GeneratorConfig, generate_drift_dataset
 from fedprotrack.experiment.runner import ExperimentConfig, ExperimentRunner
 from fedprotrack.experiment.baselines import (
@@ -63,17 +64,56 @@ class TestBaselines:
         result = run_local_only(small_config, small_dataset)
         assert result.method_name == "LocalOnly"
         assert result.accuracy_matrix.shape == (3, 5)
+        assert result.total_bytes == 0.0
 
     def test_fedavg_baseline(self, small_config, small_dataset):
         result = run_fedavg_baseline(small_config, small_dataset)
         assert result.method_name == "FedAvg"
         assert result.accuracy_matrix.shape == (3, 5)
+        assert result.total_bytes is not None
+        assert result.total_bytes > 0.0
+
+    def test_fedavg_baseline_accepts_custom_local_training(self, small_config, small_dataset):
+        result = run_fedavg_baseline(
+            small_config,
+            small_dataset,
+            lr=0.05,
+            n_epochs=3,
+            seed=99,
+        )
+        assert result.method_name == "FedAvg"
+        assert result.accuracy_matrix.shape == (3, 5)
+        assert result.total_bytes is not None
+        assert result.total_bytes > 0.0
 
     def test_oracle_baseline(self, small_config, small_dataset):
         result = run_oracle_baseline(small_config, small_dataset)
         assert result.method_name == "Oracle"
         assert result.accuracy_matrix.shape == (3, 5)
+        assert np.array_equal(result.predicted_concept_matrix, small_dataset.concept_matrix)
+        assert result.total_bytes is not None
+        assert result.total_bytes > 0.0
 
     def test_oracle_has_best_tracking(self, small_config, small_dataset):
         result = run_oracle_baseline(small_config, small_dataset)
         assert result.concept_tracking_accuracy == 1.0
+
+    def test_fedavg_respects_federation_every(self, small_dataset):
+        config = ExperimentConfig(
+            generator_config=small_dataset.config,
+            federation_every=2,
+        )
+        result = run_fedavg_baseline(config, small_dataset)
+        n_features = small_dataset.data[(0, 0)][0].shape[1]
+        one_model_bytes = model_bytes(
+            {
+                "coef": np.zeros(n_features, dtype=np.float64),
+                "intercept": np.zeros(1, dtype=np.float64),
+            }
+        )
+        expected_rounds = sum(
+            1 for t in range(small_dataset.config.T)
+            if (t + 1) % config.federation_every == 0 and t < small_dataset.config.T - 1
+        )
+        expected_total = 2 * small_dataset.config.K * one_model_bytes * expected_rounds
+        assert result.total_bytes == pytest.approx(expected_total)
