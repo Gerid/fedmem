@@ -11,6 +11,8 @@ from fedprotrack.posterior.two_phase_protocol import (
     PhaseBResult,
     TwoPhaseConfig,
     TwoPhaseFedProTrack,
+    _split_linear_classifier_params,
+    _prototype_ot_similarity,
 )
 
 
@@ -165,6 +167,139 @@ class TestPhaseA:
         assert result.assignments == {}
         assert result.bytes_up == 0.0
 
+    def test_phase_a_accepts_prototype_ot_routing(self) -> None:
+        cfg = TwoPhaseConfig(
+            n_features=2,
+            n_classes=2,
+            prototype_ot_weight=0.5,
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+        fps = {
+            0: _make_fp(seed=0, mean_shift=0.0),
+            1: _make_fp(seed=1, mean_shift=0.05),
+        }
+        result = proto.phase_a(fps)
+        assert len(result.assignments) == 2
+        assert result.total_bytes > 0.0
+
+    def test_phase_a_accepts_update_ot_signatures(self) -> None:
+        cfg = TwoPhaseConfig(
+            n_features=2,
+            n_classes=2,
+            update_ot_weight=0.5,
+            update_ot_dim=3,
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+        fps = {
+            0: _make_fp(seed=0, mean_shift=0.0),
+            1: _make_fp(seed=1, mean_shift=0.1),
+        }
+        update_signatures = {
+            0: np.ones((2, 3), dtype=np.float64),
+            1: np.zeros((2, 3), dtype=np.float64),
+        }
+        result = proto.phase_a(fps, client_update_signatures=update_signatures)
+        assert len(result.assignments) == 2
+        assert result.total_bytes > 0.0
+
+    def test_phase_a_accepts_labelwise_proto_signatures(self) -> None:
+        cfg = TwoPhaseConfig(
+            n_features=2,
+            n_classes=2,
+            labelwise_proto_weight=0.5,
+            labelwise_proto_dim=3,
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+        fps = {
+            0: _make_fp(seed=0, mean_shift=0.0),
+            1: _make_fp(seed=1, mean_shift=0.1),
+        }
+        params = _make_model_params(seed=7)
+        proto.phase_a({0: fps[0]})
+        proto.memory_bank.store_model_params(0, params)
+        proto_sigs = {
+            0: np.ones((2, 3), dtype=np.float64),
+            1: np.eye(2, 3, dtype=np.float64),
+        }
+        result = proto.phase_a(
+            fps,
+            client_batch_prototype_signatures=proto_sigs,
+        )
+        assert len(result.assignments) == 2
+        assert result.total_bytes > 0.0
+
+    def test_novel_clustering_uses_model_signatures(self) -> None:
+        cfg = TwoPhaseConfig(
+            n_features=2,
+            n_classes=2,
+            merge_threshold=0.65,
+            model_signature_weight=0.8,
+            model_signature_dim=3,
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+        fps = {
+            0: _make_fp(seed=0, mean_shift=0.0, n_samples=80),
+            1: _make_fp(seed=1, mean_shift=6.0, n_samples=80),
+        }
+        base_clusters = proto._cluster_novel_clients([0, 1], fps)
+        assert len(base_clusters) == 2
+
+        sig = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+        hybrid_clusters = proto._cluster_novel_clients(
+            [0, 1],
+            fps,
+            client_model_signatures={0: sig, 1: sig.copy()},
+        )
+        assert len(hybrid_clusters) == 1
+
+    def test_novel_clustering_uses_update_ot_signatures(self) -> None:
+        cfg = TwoPhaseConfig(
+            n_features=2,
+            n_classes=2,
+            merge_threshold=0.65,
+            update_ot_weight=0.8,
+            update_ot_dim=2,
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+        fps = {
+            0: _make_fp(seed=3, mean_shift=0.0, n_samples=80),
+            1: _make_fp(seed=4, mean_shift=5.0, n_samples=80),
+        }
+        base_clusters = proto._cluster_novel_clients([0, 1], fps)
+        assert len(base_clusters) == 2
+
+        update_sig = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
+        ot_clusters = proto._cluster_novel_clients(
+            [0, 1],
+            fps,
+            client_update_signatures={0: update_sig, 1: update_sig.copy()},
+        )
+        assert len(ot_clusters) == 1
+
+    def test_novel_clustering_uses_labelwise_proto_signatures(self) -> None:
+        cfg = TwoPhaseConfig(
+            n_features=2,
+            n_classes=2,
+            merge_threshold=0.65,
+            labelwise_proto_weight=0.8,
+            labelwise_proto_dim=2,
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+        fps = {
+            0: _make_fp(seed=8, mean_shift=0.0, n_samples=80),
+            1: _make_fp(seed=9, mean_shift=5.0, n_samples=80),
+        }
+        base_clusters = proto._cluster_novel_clients([0, 1], fps)
+        assert len(base_clusters) == 2
+
+        proto_sig = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
+        labelwise_clusters = proto._cluster_novel_clients(
+            [0, 1],
+            fps,
+            client_batch_prototype_signatures={0: proto_sig, 1: proto_sig.copy()},
+        )
+        assert len(labelwise_clusters) == 1
+
 
 # ---------------------------------------------------------------------------
 # TwoPhaseFedProTrack - Phase B
@@ -228,6 +363,269 @@ class TestPhaseB:
         assert r.bytes_up > 0
         assert r.bytes_down > 0
 
+    def test_phase_b_can_align_rows_to_concept_prototypes(self) -> None:
+        cfg = TwoPhaseConfig(
+            n_features=2,
+            n_classes=3,
+            prototype_alignment_mix=0.5,
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+
+        X = np.array(
+            [
+                [4.0, 0.0],
+                [5.0, 0.0],
+                [0.0, 4.0],
+                [0.0, 5.0],
+                [-4.0, 0.0],
+                [-5.0, 0.0],
+            ],
+            dtype=np.float64,
+        )
+        y = np.array([0, 0, 1, 1, 2, 2], dtype=np.int64)
+        fp = ConceptFingerprint(2, 3)
+        fp.update(X, y)
+        concept_id = proto.memory_bank.spawn_from_fingerprint(fp).new_concept_id
+
+        params = {
+            0: {
+                "coef": np.array(
+                    [
+                        [0.0, 2.0],
+                        [2.0, 0.0],
+                        [0.0, -2.0],
+                    ],
+                    dtype=np.float64,
+                ),
+                "intercept": np.zeros(3, dtype=np.float64),
+            }
+        }
+        result = proto.phase_b(params, {0: concept_id})
+        aligned = result.aggregated_params[concept_id]["coef"].reshape(3, 2)
+
+        proto0 = fp.class_means[0]
+        proto1 = fp.class_means[1]
+        before0 = float(np.dot(params[0]["coef"][0], proto0))
+        before1 = float(np.dot(params[0]["coef"][1], proto1))
+        after0 = float(np.dot(aligned[0], proto0))
+        after1 = float(np.dot(aligned[1], proto1))
+
+        assert after0 > before0
+        assert after1 > before1
+
+    def test_phase_b_uses_stronger_prototype_mix_in_early_rounds(self) -> None:
+        cfg = TwoPhaseConfig(
+            n_features=2,
+            n_classes=3,
+            prototype_alignment_mix=0.2,
+            prototype_alignment_early_rounds=1,
+            prototype_alignment_early_mix=0.8,
+        )
+        proto = TwoPhaseFedProTrack(cfg)
+
+        X = np.array(
+            [
+                [4.0, 0.0],
+                [5.0, 0.0],
+                [0.0, 4.0],
+                [0.0, 5.0],
+                [-4.0, 0.0],
+                [-5.0, 0.0],
+            ],
+            dtype=np.float64,
+        )
+        y = np.array([0, 0, 1, 1, 2, 2], dtype=np.int64)
+        fp = ConceptFingerprint(2, 3)
+        fp.update(X, y)
+        concept_id = proto.memory_bank.spawn_from_fingerprint(fp).new_concept_id
+        params = {
+            0: {
+                "coef": np.array(
+                    [
+                        [0.0, 2.0],
+                        [2.0, 0.0],
+                        [0.0, -2.0],
+                    ],
+                    dtype=np.float64,
+                ),
+                "intercept": np.zeros(3, dtype=np.float64),
+            }
+        }
+
+        proto._round = 1
+        early = proto.phase_b(params, {0: concept_id}).aggregated_params[concept_id]
+        proto._round = 2
+        late = proto.phase_b(params, {0: concept_id}).aggregated_params[concept_id]
+
+        early_rows, _ = _split_linear_classifier_params(
+            early,
+            n_features=2,
+            n_classes=3,
+        )
+        late_rows, _ = _split_linear_classifier_params(
+            late,
+            n_features=2,
+            n_classes=3,
+        )
+        proto_rows = fp.class_means
+
+        assert np.linalg.norm(early_rows - proto_rows) < np.linalg.norm(late_rows - proto_rows)
+
+    def test_phase_b_can_prealign_clients_before_aggregation(self) -> None:
+        cfg_plain = TwoPhaseConfig(n_features=2, n_classes=3)
+        cfg_prealign = TwoPhaseConfig(
+            n_features=2,
+            n_classes=3,
+            prototype_prealign_early_rounds=1,
+            prototype_prealign_early_mix=0.6,
+        )
+        plain = TwoPhaseFedProTrack(cfg_plain)
+        prealign = TwoPhaseFedProTrack(cfg_prealign)
+
+        X = np.array(
+            [
+                [4.0, 0.0],
+                [5.0, 0.0],
+                [0.0, 4.0],
+                [0.0, 5.0],
+                [-4.0, 0.0],
+                [-5.0, 0.0],
+            ],
+            dtype=np.float64,
+        )
+        y = np.array([0, 0, 1, 1, 2, 2], dtype=np.int64)
+        fp = ConceptFingerprint(2, 3)
+        fp.update(X, y)
+        cid_plain = plain.memory_bank.spawn_from_fingerprint(fp).new_concept_id
+        cid_prealign = prealign.memory_bank.spawn_from_fingerprint(fp).new_concept_id
+
+        params = {
+            0: {
+                "coef": np.array(
+                    [
+                        [0.0, 2.0],
+                        [2.0, 0.0],
+                        [0.0, -2.0],
+                    ],
+                    dtype=np.float64,
+                ),
+                "intercept": np.zeros(3, dtype=np.float64),
+            },
+            1: {
+                "coef": np.array(
+                    [
+                        [0.0, 1.0],
+                        [1.0, 0.0],
+                        [0.0, -1.0],
+                    ],
+                    dtype=np.float64),
+                "intercept": np.zeros(3, dtype=np.float64),
+            },
+        }
+        assignments = {0: cid_plain, 1: cid_plain}
+
+        plain._round = 1
+        prealign._round = 1
+        plain_rows, _ = _split_linear_classifier_params(
+            plain.phase_b(params, assignments).aggregated_params[cid_plain],
+            n_features=2,
+            n_classes=3,
+        )
+        prealign_rows, _ = _split_linear_classifier_params(
+            prealign.phase_b(params, {0: cid_prealign, 1: cid_prealign}).aggregated_params[cid_prealign],
+            n_features=2,
+            n_classes=3,
+        )
+
+        proto_rows = fp.class_means
+        assert np.linalg.norm(prealign_rows - proto_rows) < np.linalg.norm(plain_rows - proto_rows)
+
+    def test_phase_b_can_prealign_predictive_subgroups_before_aggregation(self) -> None:
+        cfg_plain = TwoPhaseConfig(n_features=2, n_classes=2)
+        cfg_subgroup = TwoPhaseConfig(
+            n_features=2,
+            n_classes=2,
+            prototype_subgroup_early_rounds=1,
+            prototype_subgroup_early_mix=0.7,
+            prototype_subgroup_min_clients=3,
+            prototype_subgroup_similarity_gate=0.99,
+        )
+        plain = TwoPhaseFedProTrack(cfg_plain)
+        subgroup = TwoPhaseFedProTrack(cfg_subgroup)
+
+        base_fp = ConceptFingerprint(2, 2)
+        base_fp.update(
+            np.array(
+                [
+                    [4.0, 0.0],
+                    [5.0, 0.0],
+                    [0.0, 4.0],
+                    [0.0, 5.0],
+                ],
+                dtype=np.float64,
+            ),
+            np.array([0, 0, 1, 1], dtype=np.int64),
+        )
+        cid_plain = plain.memory_bank.spawn_from_fingerprint(base_fp).new_concept_id
+        cid_subgroup = subgroup.memory_bank.spawn_from_fingerprint(base_fp).new_concept_id
+
+        def _fp(points: np.ndarray, labels: np.ndarray) -> ConceptFingerprint:
+            fp = ConceptFingerprint(2, 2)
+            fp.update(points, labels)
+            return fp
+
+        client_fps = {
+            0: _fp(
+                np.array(
+                    [[4.0, 0.0], [5.0, 0.0], [0.0, 4.0], [0.0, 5.0], [4.5, 0.2], [0.2, 4.5]],
+                    dtype=np.float64,
+                ),
+                np.array([0, 0, 1, 1, 0, 1], dtype=np.int64),
+            ),
+            1: _fp(
+                np.array(
+                    [[3.8, 0.1], [4.8, -0.1], [0.1, 3.8], [-0.1, 4.8], [4.2, 0.2], [0.2, 4.2]],
+                    dtype=np.float64,
+                ),
+                np.array([0, 0, 1, 1, 0, 1], dtype=np.int64),
+            ),
+            2: _fp(
+                np.array(
+                    [[0.0, 4.2], [0.0, 5.2], [4.2, 0.0], [5.2, 0.0], [0.2, 4.6], [4.6, 0.2]],
+                    dtype=np.float64,
+                ),
+                np.array([0, 0, 1, 1, 0, 1], dtype=np.int64),
+            ),
+        }
+        params = {
+            client_id: {
+                "coef": np.zeros((2, 2), dtype=np.float64),
+                "intercept": np.zeros(2, dtype=np.float64),
+            }
+            for client_id in client_fps
+        }
+
+        plain._round = 1
+        subgroup._round = 1
+        plain_agg = plain.phase_b(
+            params,
+            {0: cid_plain, 1: cid_plain, 2: cid_plain},
+            client_fingerprints=client_fps,
+        ).aggregated_params[cid_plain]
+        subgroup_agg = subgroup.phase_b(
+            params,
+            {0: cid_subgroup, 1: cid_subgroup, 2: cid_subgroup},
+            client_fingerprints=client_fps,
+        ).aggregated_params[cid_subgroup]
+        subgroup_no_fp = subgroup.phase_b(
+            params,
+            {0: cid_subgroup, 1: cid_subgroup, 2: cid_subgroup},
+        ).aggregated_params[cid_subgroup]
+
+        assert not np.allclose(subgroup_agg["coef"], plain_agg["coef"])
+        assert np.linalg.norm(subgroup_agg["coef"]) > np.linalg.norm(plain_agg["coef"])
+        np.testing.assert_allclose(subgroup_no_fp["coef"], plain_agg["coef"])
+
 
 # ---------------------------------------------------------------------------
 # End-to-end protocol
@@ -264,6 +662,16 @@ class TestEndToEnd:
             prev = a_result.assignments
 
         assert proto.memory_bank.n_concepts >= 1
+
+
+class TestPrototypeOT:
+    def test_prototype_ot_similarity_prefers_nearby_fingerprints(self) -> None:
+        fp_ref = _make_fp(seed=0, mean_shift=0.0, n_samples=80)
+        fp_near = _make_fp(seed=1, mean_shift=0.1, n_samples=80)
+        fp_far = _make_fp(seed=2, mean_shift=5.0, n_samples=80)
+        sim_near = _prototype_ot_similarity(fp_ref, fp_near)
+        sim_far = _prototype_ot_similarity(fp_ref, fp_far)
+        assert 0.0 <= sim_far <= sim_near <= 1.0
 
 
 # ---------------------------------------------------------------------------

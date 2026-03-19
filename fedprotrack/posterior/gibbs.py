@@ -226,15 +226,48 @@ class GibbsPosterior:
         if not concept_library:
             raise ValueError("concept_library must be non-empty")
 
-        concept_ids = list(concept_library.keys())
-        n_concepts = len(concept_ids)
+        concept_losses = {
+            cid: self.compute_loss(observation_fp, concept_fp)
+            for cid, concept_fp in concept_library.items()
+        }
+        return self.compute_posterior_from_losses(
+            concept_losses,
+            prev_concept_id=prev_concept_id,
+        )
 
-        # Compute unnormalized log-posterior for each concept
+    def compute_posterior_from_losses(
+        self,
+        concept_losses: dict[int, float],
+        prev_concept_id: int | None = None,
+    ) -> PosteriorAssignment:
+        """Compute the full Gibbs posterior from external per-concept losses.
+
+        Parameters
+        ----------
+        concept_losses : dict[int, float]
+            Concept ID -> loss value in [0, 1]. Lower means a better match.
+        prev_concept_id : int or None
+            Previous concept assignment (None for first step).
+
+        Returns
+        -------
+        PosteriorAssignment
+            Full posterior distribution and derived quantities.
+
+        Raises
+        ------
+        ValueError
+            If concept_losses is empty.
+        """
+        if not concept_losses:
+            raise ValueError("concept_losses must be non-empty")
+
+        concept_ids = list(concept_losses.keys())
         log_posteriors: dict[int, float] = {}
         log_likelihoods: dict[int, float] = {}
 
         for cid in concept_ids:
-            loss = self.compute_loss(observation_fp, concept_library[cid])
+            loss = float(concept_losses[cid])
             log_lik = -self.omega * loss
             log_likelihoods[cid] = log_lik
 
@@ -251,23 +284,17 @@ class GibbsPosterior:
         for i, cid in enumerate(concept_ids):
             probabilities[cid] = float(np.exp(log_vals[i] - log_Z))
 
-        # MAP estimate
         map_cid = max(probabilities, key=probabilities.get)  # type: ignore[arg-type]
         map_prob = probabilities[map_cid]
 
-        # Entropy (nats)
         probs_arr = np.array(list(probabilities.values()))
-        probs_arr = np.clip(probs_arr, 1e-15, 1.0)  # avoid log(0)
+        probs_arr = np.clip(probs_arr, 1e-15, 1.0)
         entropy = float(-np.sum(probs_arr * np.log(probs_arr)))
-
-        # Novelty detection: if even the best concept has low posterior
-        # probability, the observation likely represents a new concept
-        is_novel = map_prob < self.novelty_threshold
 
         return PosteriorAssignment(
             probabilities=probabilities,
             map_concept_id=map_cid,
-            is_novel=is_novel,
+            is_novel=map_prob < self.novelty_threshold,
             entropy=entropy,
             log_likelihood=log_likelihoods,
         )
