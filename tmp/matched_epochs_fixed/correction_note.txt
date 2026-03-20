@@ -1,0 +1,53 @@
+CORRECTION NOTE: Cache Bug Fix for Disjoint-Label CIFAR-100 Experiments
+========================================================================
+
+Date: 2026-03-20
+
+Bug description:
+  _cache_file() in cifar100_recurrence.py did not include n_concepts in
+  the cache key. Disjoint-label experiments with 4 concepts (rho=7.5)
+  were reading stale caches built for 10-concept experiments. This meant
+  each concept only had 2 classes instead of 5, making the classification
+  task trivially easy and inflating all accuracy numbers.
+
+Fix applied:
+  Cache key now includes "_nc{n_concepts}" suffix. New caches are
+  regenerated automatically.
+
+Verification:
+  The corrected run confirms 5 labels per concept:
+    Concept 0: [0, 1, 2, 3, 4]
+    Concept 1: [5, 6, 7, 8, 9]
+    Concept 2: [10, 11, 12, 13, 14]
+    Concept 3: [15, 16, 17, 18, 19]
+
+========================================================================
+COMPARISON: OLD (INVALID) vs NEW (CORRECTED)
+========================================================================
+All numbers are mean +/- std across seeds [42, 123, 456].
+n_epochs=5, lr=0.1, federation_every=2, K=10, T=30, n_samples=800, rho=7.5
+
+Method          OLD FinalAcc (2 cls)    NEW FinalAcc (5 cls)    Delta
+----------------------------------------------------------------------
+Oracle          0.9672 +/- 0.006        0.8286 +/- 0.031       -0.139
+FedAvg          0.9431 +/- 0.005        0.7681 +/- 0.022       -0.175
+CFL             0.9413 +/- 0.001        0.7669 +/- 0.024       -0.174
+FedProTrack     0.9151 +/- 0.006        0.7265 +/- 0.020       -0.190
+IFCA            0.5465 +/- 0.038        0.4500 +/- 0.014       -0.097
+
+Key observations:
+  1. All methods drop 10-19 percentage points, confirming the bug made
+     the task artificially easy.
+  2. The ranking is UNCHANGED: Oracle > FedAvg ~ CFL > FedProTrack > IFCA.
+  3. FedProTrack's re-ID score is stable (0.711 old vs 0.712 new) since
+     concept identity tracking is not affected by classification difficulty.
+  4. The Oracle-to-FedAvg gap is now wider (6.1pp vs 2.4pp), showing
+     concept-aware aggregation matters more on the harder task.
+  5. FedProTrack trails FedAvg/CFL by ~4pp on accuracy, same relative
+     position as before but the gap is slightly wider in absolute terms.
+  6. IFCA remains the worst performer; the 5-class task exposes its
+     initialization sensitivity even further.
+
+Conclusion:
+  All previous disjoint-label results from before this fix are INVALID.
+  The corrected numbers here should be used as the new baseline.

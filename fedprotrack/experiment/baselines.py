@@ -23,12 +23,12 @@ from ..evaluation.metrics import (
 from .runner import ExperimentConfig, ExperimentResult
 
 
-def _infer_n_features(generator_type: str, dataset: DriftDataset | None = None) -> int:
+def _infer_n_features(generator_type: str | None, dataset: DriftDataset | None = None) -> int:
     if dataset is not None and dataset.data:
         first_key = next(iter(dataset.data))
         X, _ = dataset.data[first_key]
         return X.shape[1]
-    return {"sine": 2, "sea": 3, "circle": 2}.get(generator_type, 2)
+    return {"sine": 2, "sea": 3, "circle": 2}.get(generator_type or "", 2)
 
 
 def _infer_n_classes(dataset: DriftDataset) -> int:
@@ -64,7 +64,7 @@ def run_local_only(
     gc = config.generator_config
     K, T = gc.K, gc.T
 
-    n_features = _infer_n_features(gc.generator_type, dataset)
+    n_features = _infer_n_features(getattr(gc, "generator_type", None), dataset)
     n_classes = _infer_n_classes(dataset)
     acc_matrix = np.zeros((K, T), dtype=np.float64)
     predicted_matrix = np.zeros((K, T), dtype=np.int32)
@@ -137,7 +137,7 @@ def run_fedavg_baseline(
 
     gc = config.generator_config
     K, T = gc.K, gc.T
-    n_features = _infer_n_features(gc.generator_type, dataset)
+    n_features = _infer_n_features(getattr(gc, "generator_type", None), dataset)
     n_classes = _infer_n_classes(dataset)
     federation_every = max(1, int(config.federation_every))
 
@@ -203,6 +203,10 @@ def run_fedavg_baseline(
 def run_oracle_baseline(
     config: ExperimentConfig,
     dataset: DriftDataset | None = None,
+    *,
+    lr: float = 0.1,
+    n_epochs: int = 5,
+    seed: int = 42,
 ) -> ExperimentResult:
     """Oracle baseline: uses ground-truth concept IDs.
 
@@ -215,6 +219,12 @@ def run_oracle_baseline(
     ----------
     config : ExperimentConfig
     dataset : DriftDataset, optional
+    lr : float
+        Local learning rate for each client. Default 0.1.
+    n_epochs : int
+        Local epochs per client update. Default 5.
+    seed : int
+        Base seed for client model initialization. Default 42.
 
     Returns
     -------
@@ -226,12 +236,26 @@ def run_oracle_baseline(
     gc = config.generator_config
     K, T = gc.K, gc.T
 
-    n_features = _infer_n_features(gc.generator_type, dataset)
+    n_features = _infer_n_features(getattr(gc, "generator_type", None), dataset)
     n_classes = _infer_n_classes(dataset)
     federation_every = max(1, int(config.federation_every))
     acc_matrix = np.zeros((K, T), dtype=np.float64)
     predicted_matrix = dataset.concept_matrix.copy()
     total_bytes = 0.0
+
+    # Persistent per-concept models (not recreated each step)
+    concept_models: dict[int, TorchLinearClassifier] = {}
+
+    def _get_concept_model(concept_id: int, client_k: int) -> TorchLinearClassifier:
+        if concept_id not in concept_models:
+            concept_models[concept_id] = TorchLinearClassifier(
+                n_features=n_features,
+                n_classes=n_classes,
+                lr=lr,
+                n_epochs=n_epochs,
+                seed=seed + concept_id * 1000 + client_k,
+            )
+        return concept_models[concept_id]
 
     concept_params: dict[int, dict[str, np.ndarray]] = {}
 
@@ -244,20 +268,17 @@ def run_oracle_baseline(
             X_test, y_test = X[:mid], y[:mid]
             X_train, y_train = X[mid:], y[mid:]
 
-            model = TorchLinearClassifier(
-                n_features=n_features,
-                n_classes=n_classes,
-                lr=0.1,
-                n_epochs=1,
-                seed=42 + k,
-            )
+            model = _get_concept_model(true_concept, k)
             if true_concept in concept_params:
                 model.set_params(concept_params[true_concept])
 
             y_pred = model.predict(X_test)
 
             acc_matrix[k, t] = float(np.mean(y_pred == y_test))
-            model.partial_fit(X_train, y_train)
+            if n_epochs > 1:
+                model.fit(X_train, y_train)
+            else:
+                model.partial_fit(X_train, y_train)
             uploads_by_concept.setdefault(true_concept, []).append(model.get_params())
 
         if (t + 1) % federation_every == 0 and t < T - 1:

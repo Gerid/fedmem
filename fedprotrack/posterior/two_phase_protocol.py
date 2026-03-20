@@ -83,6 +83,13 @@ class TwoPhaseConfig:
         current behaviour (no hysteresis). Values > 1 suppress one-off
         overspawn by falling back to the best existing concept until the
         novelty signal persists.
+    spawn_pressure_damping : float
+        When > 0, progressively raises the effective loss novelty threshold
+        as the number of active concepts approaches ``max_concepts``.
+        The scaling factor is ``1 + damping * (n_concepts / max_concepts)^2``.
+        This creates back-pressure against spawning when the concept budget
+        is filling up, forcing the system to reuse existing concepts rather
+        than creating spurious new ones. Default 0.0 (disabled).
     merge_every : int
         Run merge maintenance every this many federation rounds.
     shrink_every : int
@@ -163,6 +170,7 @@ class TwoPhaseConfig:
     max_concepts: int = 20
     max_spawn_clusters_per_round: int | None = None
     novelty_hysteresis_rounds: int = 1
+    spawn_pressure_damping: float = 0.0
     merge_every: int = 2
     shrink_every: int = 5
     key_mode: str = "legacy_fingerprint"
@@ -195,6 +203,10 @@ class TwoPhaseConfig:
     prototype_subgroup_early_mix: float = 0.0
     prototype_subgroup_min_clients: int = 3
     prototype_subgroup_similarity_gate: float = 0.8
+    min_agg_group_size: int = 1
+    cross_time_ema: float = 1.0
+    concept_global_mix: float = 0.0
+    concept_delta_mode: bool = False
 
 
 @dataclass
@@ -302,6 +314,7 @@ class TwoPhaseFedProTrack:
         self._round: int = 0
         self._last_addressing_round: int = -1
         self._novelty_streaks: dict[int, int] = {}
+        self._latest_global_fedavg: dict[str, np.ndarray] | None = None
 
     def phase_a(
         self,
@@ -505,6 +518,21 @@ class TwoPhaseFedProTrack:
                 prev_prob = assignment.probabilities[prev_cid]
                 if prev_prob >= self.config.sticky_posterior_gate:
                     effective_threshold *= self.config.sticky_dampening
+
+            # --- Spawn pressure damping ---
+            # As concept count grows toward max_concepts, raise the
+            # effective novelty threshold to create back-pressure against
+            # spawning.  This prevents the "6 concepts for 4 true" scenario
+            # on real data where fingerprint noise triggers spurious spawns.
+            if (
+                self.config.spawn_pressure_damping > 0.0
+                and self.config.max_concepts > 0
+                and n_library >= 2
+            ):
+                fill_ratio = n_library / self.config.max_concepts
+                pressure = 1.0 + self.config.spawn_pressure_damping * fill_ratio ** 2
+                effective_threshold *= pressure
+
             client_fp_losses[client_id] = float(fp_loss)
             client_effective_thresholds[client_id] = float(effective_threshold)
             client_map_probabilities[client_id] = float(
@@ -988,6 +1016,120 @@ class TwoPhaseFedProTrack:
             sum(weight * sim for weight, sim in weighted_terms) / max(total_weight, 1e-12)
         )
 
+    def _store_aggregated_models(
+        self,
+        aggregated: dict[int, dict[str, np.ndarray]],
+        global_fedavg: dict[str, np.ndarray] | None,
+    ) -> None:
+        """Store aggregated models in memory bank.
+
+        Applies cross-time EMA blending, concept-global interpolation,
+        and concept-delta storage according to config.
+
+        Parameters
+        ----------
+        aggregated : dict[int, dict[str, np.ndarray]]
+            Concept ID -> aggregated model parameters. Modified in place
+            to reflect any blending applied before storage.
+        global_fedavg : dict[str, np.ndarray] or None
+            Global FedAvg model (average of all clients this round).
+        """
+        ema = self.config.cross_time_ema
+        cgm = self.config.concept_global_mix
+        delta_mode = self.config.concept_delta_mode
+
+        # Track latest global FedAvg for delta-mode reconstruction
+        if global_fedavg is not None:
+            self._latest_global_fedavg = {
+                key: arr.copy() for key, arr in global_fedavg.items()
+            }
+
+        for concept_id, agg_params in aggregated.items():
+            to_store = agg_params
+
+            # Step 1: Concept-global interpolation — blend concept model
+            # with global FedAvg to inherit regularization from all clients
+            if cgm > 0.0 and global_fedavg is not None:
+                to_store = {
+                    key: (1.0 - cgm) * to_store[key] + cgm * global_fedavg[key]
+                    for key in to_store
+                    if key in global_fedavg
+                }
+                # Keep any keys only in to_store
+                for key in agg_params:
+                    if key not in global_fedavg:
+                        to_store[key] = agg_params[key]
+                # The blended model is also what clients receive
+                aggregated[concept_id] = to_store
+
+            # Step 2: Cross-time EMA blending
+            if ema < 1.0:
+                stored = self.memory_bank.get_model_params(concept_id)
+                if stored is not None:
+                    blended = {
+                        key: ema * to_store[key] + (1.0 - ema) * stored[key]
+                        for key in to_store
+                        if key in stored
+                    }
+                    for key in to_store:
+                        if key not in stored:
+                            blended[key] = to_store[key]
+                    to_store = blended
+                    aggregated[concept_id] = blended
+
+            # Step 3: Delta mode — store concept_model - global_model
+            # so that at recall time we reconstruct with the latest global
+            if delta_mode and global_fedavg is not None:
+                delta = {
+                    key: to_store[key] - global_fedavg[key]
+                    for key in to_store
+                    if key in global_fedavg
+                }
+                for key in to_store:
+                    if key not in global_fedavg:
+                        delta[key] = to_store[key]
+                self.memory_bank.store_model_params(concept_id, delta)
+            else:
+                self.memory_bank.store_model_params(concept_id, to_store)
+
+    def recall_concept_model(
+        self,
+        concept_id: int,
+    ) -> dict[str, np.ndarray] | None:
+        """Recall a concept model from the memory bank.
+
+        When ``concept_delta_mode`` is enabled, reconstructs the full model
+        from the stored delta and the latest global FedAvg:
+        ``model = latest_global + stored_delta``.
+
+        Parameters
+        ----------
+        concept_id : int
+            Concept slot ID.
+
+        Returns
+        -------
+        dict[str, np.ndarray] or None
+            Full model parameters, or None if not stored.
+        """
+        stored = self.memory_bank.get_model_params(concept_id)
+        if stored is None:
+            return None
+        if (
+            self.config.concept_delta_mode
+            and self._latest_global_fedavg is not None
+        ):
+            reconstructed = {
+                key: self._latest_global_fedavg[key] + stored[key]
+                for key in stored
+                if key in self._latest_global_fedavg
+            }
+            for key in stored:
+                if key not in self._latest_global_fedavg:
+                    reconstructed[key] = stored[key]
+            return reconstructed
+        return stored
+
     def _resolve_alignment_mix(
         self,
         *,
@@ -1267,6 +1409,20 @@ class TwoPhaseFedProTrack:
             if shared_payloads:
                 global_shared = self._aggregator.aggregate(shared_payloads)
 
+        # Pre-compute global FedAvg for min-group-size fallback blend,
+        # concept-global interpolation, and concept-delta mode
+        min_gs = self.config.min_agg_group_size
+        needs_global = (
+            (min_gs > 1)
+            or (self.config.concept_global_mix > 0.0)
+            or self.config.concept_delta_mode
+        )
+        global_fedavg: dict[str, np.ndarray] | None = None
+        if needs_global and not uses_namespaces:
+            all_params = list(client_params.values())
+            if len(all_params) >= 2:
+                global_fedavg = self._aggregator.aggregate(all_params)
+
         for concept_id, client_ids in concept_groups.items():
             group_params = [
                 client_params[cid] for cid in client_ids
@@ -1333,6 +1489,20 @@ class TwoPhaseFedProTrack:
                     ]
                 agg = self._aggregator.aggregate(group_params)
                 agg = self._align_params_to_concept_prototypes(concept_id, agg)
+
+                # Min-group-size fallback: blend with global FedAvg
+                group_size = len(group_params)
+                if (
+                    global_fedavg is not None
+                    and group_size < min_gs
+                    and group_size > 0
+                ):
+                    blend_w = group_size / min_gs
+                    agg = {
+                        key: blend_w * agg[key] + (1.0 - blend_w) * global_fedavg[key]
+                        for key in agg
+                    }
+
             aggregated[concept_id] = agg
 
             # Download cost: each client in this cluster gets the aggregated model
@@ -1340,8 +1510,9 @@ class TwoPhaseFedProTrack:
             bytes_down += len(client_ids) * agg_bytes
 
         # Store aggregated models in memory bank for concept-model warm-start
-        for concept_id, agg_params in aggregated.items():
-            self.memory_bank.store_model_params(concept_id, agg_params)
+        # with cross-time EMA blending, concept-global interpolation, and
+        # concept-delta mode
+        self._store_aggregated_models(aggregated, global_fedavg)
 
         return PhaseBResult(
             aggregated_params=aggregated,
@@ -1510,6 +1681,19 @@ class TwoPhaseFedProTrack:
                 )
                 bytes_down += n_recipients * model_bytes(agg)
         else:
+            # Pre-compute global FedAvg for min-group-size fallback blend
+            min_gs = self.config.min_agg_group_size
+            needs_global_soft = (
+                (min_gs > 1)
+                or (self.config.concept_global_mix > 0.0)
+                or self.config.concept_delta_mode
+            )
+            global_fedavg_soft: dict[str, np.ndarray] | None = None
+            if needs_global_soft:
+                all_params = list(client_params.values())
+                if len(all_params) >= 2:
+                    global_fedavg_soft = self._aggregator.aggregate(all_params)
+
             for concept_id in concept_ids:
                 # Gather posterior weights from all clients for this concept
                 weights: dict[int, float] = {}
@@ -1570,6 +1754,20 @@ class TwoPhaseFedProTrack:
 
                 agg = self._align_params_to_concept_prototypes(concept_id, agg)
 
+                # Min-group-size fallback: blend with global FedAvg
+                # For soft aggregation, effective group size = total posterior weight
+                effective_size = total_w
+                if (
+                    global_fedavg_soft is not None
+                    and effective_size < min_gs
+                    and effective_size > 0
+                ):
+                    blend_w = effective_size / min_gs
+                    agg = {
+                        key: blend_w * agg[key] + (1.0 - blend_w) * global_fedavg_soft[key]
+                        for key in agg
+                    }
+
                 aggregated[concept_id] = agg
 
                 # Download cost: clients assigned to this concept get the model
@@ -1579,9 +1777,9 @@ class TwoPhaseFedProTrack:
                 )
                 bytes_down += n_recipients * model_bytes(agg)
 
-        # Store aggregated models in memory bank
-        for concept_id, agg_params in aggregated.items():
-            self.memory_bank.store_model_params(concept_id, agg_params)
+        # Store aggregated models in memory bank with cross-time EMA blending,
+        # concept-global interpolation, and concept-delta mode
+        self._store_aggregated_models(aggregated, global_fedavg_soft)
 
         return PhaseBResult(
             aggregated_params=aggregated,

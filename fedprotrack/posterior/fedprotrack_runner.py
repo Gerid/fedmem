@@ -1239,6 +1239,13 @@ class FedProTrackRunner:
         evaluation step. This keeps communication accounting aligned with
         matched-budget baselines because there is no future prediction to
         benefit from the final sync. Default False.
+    warmup_rounds : int
+        Number of initial federation rounds that use plain FedAvg aggregation
+        of ALL clients (no Phase A concept routing). This builds a strong
+        shared initialization before concept divergence begins. The counter
+        counts federation rounds (not timesteps), so with federation_every=2
+        and warmup_rounds=5, the first 10 timesteps use FedAvg. Default 0
+        (no warmup, original behaviour).
     """
 
     def __init__(
@@ -1279,6 +1286,7 @@ class FedProTrackRunner:
         predictive_grouping_cache_blend_alpha: float = 0.0,
         routed_local_training: bool = False,
         skip_last_federation_round: bool = False,
+        warmup_rounds: int = 0,
         lr: float = 0.1,
         n_epochs: int = 1,
         loss_validation: bool = False,
@@ -1303,6 +1311,10 @@ class FedProTrackRunner:
         factorized_secondary_anchor_alpha: float = 0.75,
         factorized_primary_consolidation_steps: int = 0,
         factorized_primary_consolidation_mode: str = "full",
+        min_agg_group_size: int = 1,
+        cross_time_ema: float = 1.0,
+        concept_global_mix: float = 0.0,
+        concept_delta_mode: bool = False,
     ):
         self.config = config or TwoPhaseConfig()
         self.federation_every = federation_every
@@ -1340,6 +1352,7 @@ class FedProTrackRunner:
         self.predictive_grouping_cache_blend_alpha = predictive_grouping_cache_blend_alpha
         self.routed_local_training = routed_local_training
         self.skip_last_federation_round = skip_last_federation_round
+        self.warmup_rounds = warmup_rounds
         self.lr = lr
         self.n_epochs = n_epochs
         self.loss_validation = loss_validation
@@ -1368,6 +1381,10 @@ class FedProTrackRunner:
         self.factorized_secondary_anchor_alpha = factorized_secondary_anchor_alpha
         self.factorized_primary_consolidation_steps = factorized_primary_consolidation_steps
         self.factorized_primary_consolidation_mode = factorized_primary_consolidation_mode
+        self.min_agg_group_size = min_agg_group_size
+        self.cross_time_ema = cross_time_ema
+        self.concept_global_mix = concept_global_mix
+        self.concept_delta_mode = concept_delta_mode
 
     def run(self, dataset: DriftDataset) -> FedProTrackResult:
         """Execute the full FedProTrack simulation.
@@ -1411,9 +1428,10 @@ class FedProTrackRunner:
             raise ValueError(
                 "expert_update_policy must be one of ['map_only', 'posterior_weighted']"
             )
-        if self.shared_update_policy not in {"always", "freeze_on_multiroute"}:
+        if self.shared_update_policy not in {"always", "freeze_on_multiroute", "never"}:
             raise ValueError(
-                "shared_update_policy must be one of ['always', 'freeze_on_multiroute']"
+                "shared_update_policy must be one of "
+                "['always', 'freeze_on_multiroute', 'never']"
             )
         if self.routed_write_top_k is not None and int(self.routed_write_top_k) < 1:
             raise ValueError("routed_write_top_k must be >= 1 when provided")
@@ -1524,6 +1542,7 @@ class FedProTrackRunner:
             max_concepts=max_concepts,
             max_spawn_clusters_per_round=self.config.max_spawn_clusters_per_round,
             novelty_hysteresis_rounds=self.config.novelty_hysteresis_rounds,
+            spawn_pressure_damping=self.config.spawn_pressure_damping,
             merge_every=self.config.merge_every,
             shrink_every=self.config.shrink_every,
             key_mode=self.config.key_mode,
@@ -1553,6 +1572,10 @@ class FedProTrackRunner:
             prototype_subgroup_early_mix=self.prototype_subgroup_early_mix,
             prototype_subgroup_min_clients=self.prototype_subgroup_min_clients,
             prototype_subgroup_similarity_gate=self.prototype_subgroup_similarity_gate,
+            min_agg_group_size=self.min_agg_group_size,
+            cross_time_ema=self.cross_time_ema,
+            concept_global_mix=self.concept_global_mix,
+            concept_delta_mode=self.concept_delta_mode,
         )
 
         protocol = TwoPhaseFedProTrack(cfg)
@@ -1594,6 +1617,7 @@ class FedProTrackRunner:
         total_merged = 0
         total_pruned = 0
         federation_rounds_completed = 0
+        warmup_federation_rounds_done = 0
         prev_assignments: dict[int, int] | None = None
         old_assignments: dict[int, int] | None = None
         last_a_result: PhaseAResult | None = None
@@ -1679,7 +1703,9 @@ class FedProTrackRunner:
                         current_slot_id,
                         training_slot_weights,
                     )
-                    if (
+                    if self.shared_update_policy == "never":
+                        update_shared = False
+                    elif (
                         self.shared_update_policy == "freeze_on_multiroute"
                         and len(effective_training_weights) > 1
                     ):
@@ -1842,6 +1868,40 @@ class FedProTrackRunner:
             if self.skip_last_federation_round and t == T - 1:
                 is_federation_step = False
             if is_federation_step:
+                # --- Warmup: plain FedAvg without concept routing ---
+                if (
+                    self.warmup_rounds > 0
+                    and warmup_federation_rounds_done < self.warmup_rounds
+                ):
+                    warmup_federation_rounds_done += 1
+                    all_params = [
+                        model_params[k]
+                        for k in range(K)
+                        if model_params[k]
+                    ]
+                    if all_params:
+                        global_avg = _average_params(all_params)
+                        # Comm accounting: each client uploads + downloads
+                        warmup_up = sum(
+                            model_bytes(p, precision_bits=32)
+                            for p in all_params
+                        )
+                        warmup_down = (
+                            model_bytes(global_avg, precision_bits=32) * K
+                        )
+                        phase_b_bytes += warmup_up + warmup_down
+                        federation_rounds_completed += 1
+                        for k in range(K):
+                            _model_set_params(models[k], global_avg)
+                            model_params[k] = {
+                                key: arr.copy()
+                                for key, arr in global_avg.items()
+                            }
+                    # Record trivial concept assignment (all concept 0)
+                    for k in range(K):
+                        predicted_matrix[k, t] = 0
+                    continue  # Skip Phase A + Phase B
+
                 # Decide whether to run Phase A
                 # In event-triggered mode: only run Phase A when drift
                 # detected or no assignments exist yet (bootstrap)
@@ -1910,7 +1970,7 @@ class FedProTrackRunner:
                         # Collect candidate models (top-K by posterior)
                         candidate_models: dict[int, dict[str, np.ndarray]] = {}
                         for cid in all_cids:
-                            m = protocol.memory_bank.get_model_params(cid)
+                            m = protocol.recall_concept_model(cid)
                             if m is not None:
                                 candidate_models[cid] = m
 
@@ -2064,7 +2124,7 @@ class FedProTrackRunner:
                             and old_cid is not None
                             and new_cid != old_cid
                         ):
-                            stored = protocol.memory_bank.get_model_params(new_cid)
+                            stored = protocol.recall_concept_model(new_cid)
                             if stored is not None:
                                 _model_set_params(models[k], stored)
                                 model_params[k] = {
@@ -2187,7 +2247,7 @@ class FedProTrackRunner:
                                     for slot_id in routing_weights:
                                         params = b_result.aggregated_params.get(slot_id)
                                         if params is None:
-                                            params = protocol.memory_bank.get_model_params(slot_id)
+                                            params = protocol.recall_concept_model(slot_id)
                                         if params is not None:
                                             candidate_payloads[int(slot_id)] = params
                                     filtered_write_weights = {

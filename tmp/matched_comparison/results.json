@@ -1,0 +1,137 @@
+{
+  "rows": [
+    {
+      "method": "FPT-linear",
+      "seed": 42,
+      "final_accuracy": 0.4959999999999999,
+      "accuracy_auc": 6.4378,
+      "concept_re_id_accuracy": 0.365,
+      "assignment_entropy": 1.1613600116432616,
+      "wrong_memory_reuse_rate": 0.635,
+      "total_bytes": 1243200.0,
+      "wall_clock_s": 1.8261160850524902
+    },
+    {
+      "method": "FPT-adapter",
+      "seed": 42,
+      "final_accuracy": 0.13240000000000002,
+      "accuracy_auc": 2.0596,
+      "concept_re_id_accuracy": 0.365,
+      "assignment_entropy": 1.1613600116432616,
+      "wrong_memory_reuse_rate": 0.635,
+      "total_bytes": 5750112.0,
+      "wall_clock_s": 2.572774887084961
+    },
+    {
+      "method": "CFL",
+      "seed": 42,
+      "final_accuracy": 0.6282,
+      "accuracy_auc": 9.005899999999999,
+      "concept_re_id_accuracy": null,
+      "assignment_entropy": null,
+      "wrong_memory_reuse_rate": null,
+      "total_bytes": 936000.0,
+      "wall_clock_s": 0.724003791809082
+    },
+    {
+      "method": "Oracle",
+      "seed": 42,
+      "final_accuracy": 0.37679999999999997,
+      "accuracy_auc": 5.084999999999999,
+      "concept_re_id_accuracy": 1.0,
+      "assignment_entropy": 1.63257754801676,
+      "wrong_memory_reuse_rate": 0.0,
+      "total_bytes": 936000.0,
+      "wall_clock_s": 0.3455648422241211
+    },
+    {
+      "method": "FPT-linear",
+      "seed": 43,
+      "final_accuracy": 0.45519999999999994,
+      "accuracy_auc": 6.6396,
+      "concept_re_id_accuracy": 0.47,
+      "assignment_entropy": 1.1323210873395255,
+      "wrong_memory_reuse_rate": 0.53,
+      "total_bytes": 1243200.0,
+      "wall_clock_s": 1.9063389301300049
+    },
+    {
+      "method": "FPT-adapter",
+      "seed": 43,
+      "final_accuracy": 0.1924,
+      "accuracy_auc": 2.4350000000000005,
+      "concept_re_id_accuracy": 0.47,
+      "assignment_entropy": 1.1323210873395255,
+      "wrong_memory_reuse_rate": 0.53,
+      "total_bytes": 5996928.0,
+      "wall_clock_s": 2.6300735473632812
+    },
+    {
+      "method": "CFL",
+      "seed": 43,
+      "final_accuracy": 0.5914,
+      "accuracy_auc": 9.2386,
+      "concept_re_id_accuracy": null,
+      "assignment_entropy": null,
+      "wrong_memory_reuse_rate": null,
+      "total_bytes": 936000.0,
+      "wall_clock_s": 0.7115776538848877
+    },
+    {
+      "method": "Oracle",
+      "seed": 43,
+      "final_accuracy": 0.3536,
+      "accuracy_auc": 5.393000000000001,
+      "concept_re_id_accuracy": 1.0,
+      "assignment_entropy": 1.6358544570596176,
+      "wrong_memory_reuse_rate": 0.0,
+      "total_bytes": 936000.0,
+      "wall_clock_s": 0.2942354679107666
+    },
+    {
+      "method": "FPT-linear",
+      "seed": 44,
+      "final_accuracy": 0.4675999999999999,
+      "accuracy_auc": 6.4922,
+      "concept_re_id_accuracy": 0.43,
+      "assignment_entropy": 1.1656692244766764,
+      "wrong_memory_reuse_rate": 0.57,
+      "total_bytes": 1232800.0,
+      "wall_clock_s": 1.7892253398895264
+    },
+    {
+      "method": "FPT-adapter",
+      "seed": 44,
+      "final_accuracy": 0.10400000000000002,
+      "accuracy_auc": 1.8407999999999998,
+      "concept_re_id_accuracy": 0.43,
+      "assignment_entropy": 1.1656692244766764,
+      "wrong_memory_reuse_rate": 0.57,
+      "total_bytes": 5867664.0,
+      "wall_clock_s": 2.4685051441192627
+    },
+    {
+      "method": "CFL",
+      "seed": 44,
+      "final_accuracy": 0.624,
+      "accuracy_auc": 8.899099999999999,
+      "concept_re_id_accuracy": null,
+      "assignment_entropy": null,
+      "wrong_memory_reuse_rate": null,
+      "total_bytes": 936000.0,
+      "wall_clock_s": 0.7381577491760254
+    },
+    {
+      "method": "Oracle",
+      "seed": 44,
+      "final_accuracy": 0.3884,
+      "accuracy_auc": 5.727199999999999,
+      "concept_re_id_accuracy": 1.0,
+      "assignment_entropy": 1.583108448669987,
+      "wrong_memory_reuse_rate": 0.0,
+      "total_bytes": 936000.0,
+      "wall_clock_s": 0.28695106506347656
+    }
+  ],
+  "failures": []
+}

@@ -1,0 +1,101 @@
+[
+  {
+    "name": "FPT-baseline",
+    "spawned": 7,
+    "merged": 0,
+    "active": 8,
+    "true_concepts": 5,
+    "final_accuracy": 0.6283333333333333,
+    "mean_accuracy": 0.0,
+    "re_id": 0.5833333333333334,
+    "elapsed": 0.2
+  },
+  {
+    "name": "FPT-pressure2",
+    "spawned": 7,
+    "merged": 0,
+    "active": 8,
+    "true_concepts": 5,
+    "final_accuracy": 0.6266666666666667,
+    "mean_accuracy": 0.0,
+    "re_id": 0.6166666666666667,
+    "elapsed": 0.2
+  },
+  {
+    "name": "FPT-pressure4",
+    "spawned": 7,
+    "merged": 0,
+    "active": 8,
+    "true_concepts": 5,
+    "final_accuracy": 0.6683333333333334,
+    "mean_accuracy": 0.0,
+    "re_id": 0.2833333333333333,
+    "elapsed": 0.2
+  },
+  {
+    "name": "FPT-pressure8",
+    "spawned": 5,
+    "merged": 0,
+    "active": 6,
+    "true_concepts": 5,
+    "final_accuracy": 0.6533333333333334,
+    "mean_accuracy": 0.0,
+    "re_id": 0.35,
+    "elapsed": 0.2
+  },
+  {
+    "name": "FPT-cap5-pressure3",
+    "spawned": 4,
+    "merged": 0,
+    "active": 5,
+    "true_concepts": 5,
+    "final_accuracy": 0.6416666666666666,
+    "mean_accuracy": 0.0,
+    "re_id": 0.5666666666666667,
+    "elapsed": 0.2
+  },
+  {
+    "name": "FPT-hysteresis2-pressure3",
+    "spawned": 7,
+    "merged": 0,
+    "active": 8,
+    "true_concepts": 5,
+    "final_accuracy": 0.65,
+    "mean_accuracy": 0.0,
+    "re_id": 0.31666666666666665,
+    "elapsed": 0.2
+  },
+  {
+    "name": "FPT-cap5-hysteresis2-pressure4",
+    "spawned": 4,
+    "merged": 0,
+    "active": 5,
+    "true_concepts": 5,
+    "final_accuracy": 0.6766666666666666,
+    "mean_accuracy": 0.0,
+    "re_id": 0.31666666666666665,
+    "elapsed": 0.2
+  },
+  {
+    "name": "FPT-aggressive-merge",
+    "spawned": 7,
+    "merged": 0,
+    "active": 8,
+    "true_concepts": 5,
+    "final_accuracy": 0.6283333333333333,
+    "mean_accuracy": 0.0,
+    "re_id": 0.5833333333333334,
+    "elapsed": 0.2
+  },
+  {
+    "name": "FPT-aggressive-merge-pressure3",
+    "spawned": 7,
+    "merged": 0,
+    "active": 8,
+    "true_concepts": 5,
+    "final_accuracy": 0.6383333333333333,
+    "mean_accuracy": 0.0,
+    "re_id": 0.6166666666666667,
+    "elapsed": 0.2
+  }
+]

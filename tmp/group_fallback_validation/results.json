@@ -1,0 +1,29 @@
+[
+  {
+    "name": "FPT-base",
+    "final_acc": 0.6545,
+    "mean_acc": 0.525375,
+    "re_id": 0.8,
+    "total_bytes": 5067920.0,
+    "elapsed": 2.779100179672241,
+    "min_agg_group_size": 1
+  },
+  {
+    "name": "FPT+fallback3",
+    "final_acc": 0.642,
+    "mean_acc": 0.517525,
+    "re_id": 0.8,
+    "total_bytes": 5067920.0,
+    "elapsed": 2.684795379638672,
+    "min_agg_group_size": 3
+  },
+  {
+    "name": "FPT+fallback5",
+    "final_acc": 0.6460000000000001,
+    "mean_acc": 0.5167,
+    "re_id": 0.8,
+    "total_bytes": 5067920.0,
+    "elapsed": 2.706705331802368,
+    "min_agg_group_size": 5
+  }
+]

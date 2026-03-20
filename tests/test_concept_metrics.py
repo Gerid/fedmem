@@ -212,6 +212,60 @@ class TestAssignmentEntropy:
         assert assignment_entropy(soft, pred, C) >= 0.0
         assert assignment_entropy(None, pred, C) >= 0.0
 
+    def test_entropy_ignores_zero_padded_cells(self) -> None:
+        """Zero-padded cells (non-federation rounds) must not dilute entropy.
+
+        When federation_every > 1, most cells in the soft assignment matrix are
+        zero-filled.  The metric should average only over cells that actually
+        received a posterior update.
+        """
+        K, T, C = 2, 10, 3
+        # Only federation rounds at t=0, 5 (federation_every=5).
+        soft = np.zeros((K, T, C), dtype=np.float64)
+        # Fill active rounds with uniform distribution (high entropy).
+        soft[:, 0, :] = 1.0 / C
+        soft[:, 5, :] = 1.0 / C
+
+        pred = np.zeros((K, T), dtype=np.int32)
+        entropy = assignment_entropy(soft, pred, n_concepts=C)
+
+        # Expected: entropy of uniform over C=3 = ln(3) ~ 1.099
+        max_H = np.log(C)
+        assert entropy == pytest.approx(max_H, abs=1e-6)
+
+    def test_entropy_sparse_vs_dense_federation(self) -> None:
+        """Same per-round distribution should give same entropy regardless of
+        how many non-federation rounds exist between them.
+        """
+        K, C = 2, 4
+        rng = np.random.default_rng(42)
+        active_dist = rng.dirichlet(np.ones(C), size=(K,))  # (K, C)
+
+        # Dense: T=4, all rounds are federation rounds.
+        soft_dense = np.tile(active_dist[:, np.newaxis, :], (1, 4, 1))
+        pred_dense = np.zeros((K, 4), dtype=np.int32)
+        H_dense = assignment_entropy(soft_dense, pred_dense, n_concepts=C)
+
+        # Sparse: T=20, only rounds 0,5,10,15 have posteriors.
+        soft_sparse = np.zeros((K, 20, C), dtype=np.float64)
+        for t in [0, 5, 10, 15]:
+            soft_sparse[:, t, :] = active_dist
+        pred_sparse = np.zeros((K, 20), dtype=np.int32)
+        H_sparse = assignment_entropy(soft_sparse, pred_sparse, n_concepts=C)
+
+        assert H_dense == pytest.approx(H_sparse, abs=1e-10)
+
+    def test_entropy_all_zero_soft_falls_back(self) -> None:
+        """If all cells are zero (degenerate), function should not crash."""
+        K, T, C = 2, 5, 3
+        soft = np.zeros((K, T, C), dtype=np.float64)
+        pred = np.zeros((K, T), dtype=np.int32)
+
+        entropy = assignment_entropy(soft, pred, n_concepts=C)
+        # Should return a finite float (falls back to H.mean() on all-zero).
+        assert isinstance(entropy, float)
+        assert np.isfinite(entropy)
+
 
 # ---------------------------------------------------------------------------
 # Diagnostic routing / grouping metrics

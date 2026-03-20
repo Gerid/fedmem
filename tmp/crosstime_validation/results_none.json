@@ -1,0 +1,46 @@
+[
+  {
+    "cross_time_ema": 1.0,
+    "seed": 42,
+    "final_accuracy": 0.1,
+    "accuracy_auc": 1.3335,
+    "concept_re_id_accuracy": 0.68,
+    "wrong_memory_reuse_rate": 0.32,
+    "assignment_entropy": 1.3746870670846227,
+    "total_bytes": 5160800.0,
+    "wall_clock_s": 3.6
+  },
+  {
+    "cross_time_ema": 0.7,
+    "seed": 42,
+    "final_accuracy": 0.0925,
+    "accuracy_auc": 1.2582499999999999,
+    "concept_re_id_accuracy": 0.68,
+    "wrong_memory_reuse_rate": 0.32,
+    "assignment_entropy": 1.3746870670846227,
+    "total_bytes": 5160800.0,
+    "wall_clock_s": 3.6
+  },
+  {
+    "cross_time_ema": 0.5,
+    "seed": 42,
+    "final_accuracy": 0.0865,
+    "accuracy_auc": 1.2117499999999999,
+    "concept_re_id_accuracy": 0.68,
+    "wrong_memory_reuse_rate": 0.32,
+    "assignment_entropy": 1.3746870670846227,
+    "total_bytes": 5160800.0,
+    "wall_clock_s": 4.1
+  },
+  {
+    "cross_time_ema": 0.3,
+    "seed": 42,
+    "final_accuracy": 0.08249999999999999,
+    "accuracy_auc": 1.15825,
+    "concept_re_id_accuracy": 0.68,
+    "wrong_memory_reuse_rate": 0.32,
+    "assignment_entropy": 1.3746870670846227,
+    "total_bytes": 5160800.0,
+    "wall_clock_s": 3.8
+  }
+]

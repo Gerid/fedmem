@@ -1,0 +1,134 @@
+[
+  {
+    "label": "Original (CIFAR default: K=6 T=12 C=4 a=0.75)",
+    "K": 6,
+    "T": 12,
+    "n_unique_concepts": 4,
+    "singleton_ratio": 0.2361111111111111,
+    "recurrence_ratio": 0.7083333333333334,
+    "mean_active_concepts": 3.4166666666666665,
+    "min_active_concepts": 3,
+    "max_active_concepts": 4
+  },
+  {
+    "label": "Low-singleton (min_group=2, same params)",
+    "K": 6,
+    "T": 12,
+    "n_unique_concepts": 4,
+    "singleton_ratio": 0.0,
+    "recurrence_ratio": 0.7083333333333334,
+    "mean_active_concepts": 3.0,
+    "min_active_concepts": 3,
+    "max_active_concepts": 3
+  },
+  {
+    "label": "Original (K=10 T=30 C=4 a=0.75)",
+    "K": 10,
+    "T": 30,
+    "n_unique_concepts": 4,
+    "singleton_ratio": 0.09666666666666666,
+    "recurrence_ratio": 0.8766666666666667,
+    "mean_active_concepts": 3.933333333333333,
+    "min_active_concepts": 3,
+    "max_active_concepts": 4
+  },
+  {
+    "label": "Low-singleton (K=10 T=30 C=4, min_group=2)",
+    "K": 10,
+    "T": 30,
+    "n_unique_concepts": 4,
+    "singleton_ratio": 0.0,
+    "recurrence_ratio": 0.8766666666666667,
+    "mean_active_concepts": 3.933333333333333,
+    "min_active_concepts": 3,
+    "max_active_concepts": 4
+  },
+  {
+    "label": "Low-singleton (K=10 T=30 C=4, min_group=3)",
+    "K": 10,
+    "T": 30,
+    "n_unique_concepts": 4,
+    "singleton_ratio": 0.0,
+    "recurrence_ratio": 0.8666666666666667,
+    "mean_active_concepts": 3.0,
+    "min_active_concepts": 3,
+    "max_active_concepts": 3
+  },
+  {
+    "label": "Original (K=10 T=30 C=6 a=0.75)",
+    "K": 10,
+    "T": 30,
+    "n_unique_concepts": 6,
+    "singleton_ratio": 0.2,
+    "recurrence_ratio": 0.8233333333333334,
+    "mean_active_concepts": 4.8,
+    "min_active_concepts": 3,
+    "max_active_concepts": 6
+  },
+  {
+    "label": "Low-singleton (K=10 T=30 C=6, min_group=2)",
+    "K": 10,
+    "T": 30,
+    "n_unique_concepts": 6,
+    "singleton_ratio": 0.0,
+    "recurrence_ratio": 0.81,
+    "mean_active_concepts": 4.566666666666666,
+    "min_active_concepts": 3,
+    "max_active_concepts": 5
+  },
+  {
+    "label": "Original (K=10 T=30 C=4 a=0.50)",
+    "K": 10,
+    "T": 30,
+    "n_unique_concepts": 4,
+    "singleton_ratio": 0.15333333333333332,
+    "recurrence_ratio": 0.88,
+    "mean_active_concepts": 3.6333333333333333,
+    "min_active_concepts": 3,
+    "max_active_concepts": 4
+  },
+  {
+    "label": "Low-singleton (K=10 T=30 C=4 a=0.50 mg=2)",
+    "K": 10,
+    "T": 30,
+    "n_unique_concepts": 4,
+    "singleton_ratio": 0.0,
+    "recurrence_ratio": 0.8666666666666667,
+    "mean_active_concepts": 3.6333333333333333,
+    "min_active_concepts": 3,
+    "max_active_concepts": 4
+  },
+  {
+    "label": "Synchronous (K=10 T=30 C=4 a=0.0)",
+    "K": 10,
+    "T": 30,
+    "n_unique_concepts": 3,
+    "singleton_ratio": 0.0,
+    "recurrence_ratio": 0.9,
+    "mean_active_concepts": 1.0,
+    "min_active_concepts": 1,
+    "max_active_concepts": 1
+  },
+  {
+    "label": "Stress: K=6 C=5 (tight, min_group=2)",
+    "K": 6,
+    "T": 12,
+    "n_unique_concepts": 5,
+    "singleton_ratio": 0.0,
+    "recurrence_ratio": 0.5972222222222222,
+    "mean_active_concepts": 3.0,
+    "min_active_concepts": 3,
+    "max_active_concepts": 3
+  },
+  {
+    "label": "Ideal: K=20 C=4 min_group=3",
+    "K": 20,
+    "T": 30,
+    "n_unique_concepts": 4,
+    "singleton_ratio": 0.0,
+    "recurrence_ratio": 0.8766666666666667,
+    "mean_active_concepts": 4.0,
+    "min_active_concepts": 4,
+    "max_active_concepts": 4
+  }
+]

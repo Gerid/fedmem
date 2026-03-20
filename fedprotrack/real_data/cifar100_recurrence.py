@@ -26,7 +26,10 @@ from torchvision import datasets
 from torchvision.models import ResNet18_Weights, resnet18
 from torchvision.transforms import functional as TF
 
-from ..drift_generator.concept_matrix import generate_concept_matrix
+from ..drift_generator.concept_matrix import (
+    generate_concept_matrix,
+    generate_concept_matrix_low_singleton,
+)
 from ..drift_generator.configs import GeneratorConfig
 from ..drift_generator.data_streams import ConceptSpec
 from ..drift_generator.generator import DriftDataset
@@ -38,7 +41,25 @@ _STYLE_COUNT = 5
 
 @dataclass
 class CIFAR100RecurrenceConfig:
-    """Configuration for the CIFAR-100 recurrence benchmark."""
+    """Configuration for the CIFAR-100 recurrence benchmark.
+
+    Parameters
+    ----------
+    label_split : str
+        How concepts differ in label distribution:
+        - ``"none"`` (or ``"shared"``): all concepts share the same 20
+          coarse classes (concepts differ only by visual style).
+          Original behaviour.
+        - ``"disjoint"``: each concept gets a non-overlapping partition
+          of the 20 coarse classes.
+        - ``"overlap"`` (or ``"overlapping"``): each concept gets
+          ``n_classes_per_concept`` coarse classes, with controlled
+          overlap between neighbours.
+    n_classes_per_concept : int
+        Number of coarse classes per concept when
+        ``label_split="overlap"``.  Ignored for other modes.
+        Must be in ``[2, 20]``.
+    """
 
     K: int = 6
     T: int = 12
@@ -54,15 +75,18 @@ class CIFAR100RecurrenceConfig:
     feature_cache_dir: str = ".feature_cache"
     feature_seed: int = 2718
     seed: int = 42
+    label_split: str = "none"
+    n_classes_per_concept: int = 10
+    min_group_size: int = 1
 
     def __post_init__(self) -> None:
         if self.K < 1:
             raise ValueError(f"K must be >= 1, got {self.K}")
         if self.T < 2:
             raise ValueError(f"T must be >= 2, got {self.T}")
-        if self.n_samples < _N_COARSE_CLASSES:
+        if self.n_samples < 2:
             raise ValueError(
-                f"n_samples must be >= {_N_COARSE_CLASSES}, got {self.n_samples}"
+                f"n_samples must be >= 2, got {self.n_samples}"
             )
         if self.samples_per_coarse_class < 1:
             raise ValueError(
@@ -75,6 +99,25 @@ class CIFAR100RecurrenceConfig:
             raise ValueError(f"alpha must be in [0, 1], got {self.alpha}")
         if not (0.0 < self.delta <= 1.0):
             raise ValueError(f"delta must be in (0, 1], got {self.delta}")
+        # Normalise convenient aliases.
+        _aliases = {"shared": "none", "overlapping": "overlap"}
+        if self.label_split in _aliases:
+            object.__setattr__(self, "label_split", _aliases[self.label_split])
+        if self.label_split not in ("none", "disjoint", "overlap"):
+            raise ValueError(
+                f"label_split must be 'none'/'shared', 'disjoint', or "
+                f"'overlap'/'overlapping', got {self.label_split!r}"
+            )
+        if self.min_group_size < 1:
+            raise ValueError(
+                f"min_group_size must be >= 1, got {self.min_group_size}"
+            )
+        if self.label_split == "overlap":
+            if not (2 <= self.n_classes_per_concept <= _N_COARSE_CLASSES):
+                raise ValueError(
+                    f"n_classes_per_concept must be in [2, {_N_COARSE_CLASSES}], "
+                    f"got {self.n_classes_per_concept}"
+                )
 
     def to_generator_config(self) -> GeneratorConfig:
         return GeneratorConfig(
@@ -87,6 +130,58 @@ class CIFAR100RecurrenceConfig:
             generator_type="cifar100_recurrence",
             seed=self.seed,
         )
+
+
+def _concept_class_subsets(
+    n_concepts: int,
+    label_split: str,
+    n_classes_per_concept: int = 10,
+) -> dict[int, np.ndarray]:
+    """Return the coarse-class subset for each concept.
+
+    Parameters
+    ----------
+    n_concepts : int
+        Number of distinct concepts.
+    label_split : str
+        ``"none"``/``"shared"`` (all 20 classes),
+        ``"disjoint"`` (non-overlapping partitions), or
+        ``"overlap"``/``"overlapping"`` (sliding window with
+        controlled overlap).
+    n_classes_per_concept : int
+        Classes per concept for ``"overlap"`` mode.
+
+    Returns
+    -------
+    dict[int, np.ndarray]
+        Mapping from concept_id to sorted array of coarse class indices.
+    """
+    all_classes = np.arange(_N_COARSE_CLASSES)
+
+    if label_split == "none":
+        return {c: all_classes.copy() for c in range(n_concepts)}
+
+    if label_split == "disjoint":
+        # Split 20 classes evenly across concepts.  If n_concepts does not
+        # divide 20 evenly, the last concept gets the remainder.
+        per = _N_COARSE_CLASSES // n_concepts
+        subsets: dict[int, np.ndarray] = {}
+        for c in range(n_concepts):
+            start = c * per
+            end = start + per if c < n_concepts - 1 else _N_COARSE_CLASSES
+            subsets[c] = all_classes[start:end]
+        return subsets
+
+    # "overlap" mode: sliding window around the 20 classes (wrapping).
+    stride = _N_COARSE_CLASSES / n_concepts
+    subsets_ov: dict[int, np.ndarray] = {}
+    for c in range(n_concepts):
+        start = int(round(c * stride))
+        indices = np.array(
+            [(start + j) % _N_COARSE_CLASSES for j in range(n_classes_per_concept)]
+        )
+        subsets_ov[c] = np.sort(indices)
+    return subsets_ov
 
 
 class _ConceptImageDataset(Dataset):
@@ -192,15 +287,27 @@ def _select_balanced_indices(
     return np.concatenate(chosen, axis=0)
 
 
-def _cache_file(config: CIFAR100RecurrenceConfig, concept_id: int) -> Path:
+def _cache_file(
+    config: CIFAR100RecurrenceConfig,
+    concept_id: int,
+    n_concepts: int | None = None,
+) -> Path:
     cache_dir = Path(config.feature_cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
+    split_tag = config.label_split
+    if config.label_split == "overlap":
+        split_tag = f"overlap{config.n_classes_per_concept}"
+    # Include n_concepts in tag so disjoint/overlap caches with different
+    # concept counts don't collide (class subsets depend on n_concepts).
+    nc_tag = f"_nc{n_concepts}" if n_concepts is not None else ""
     tag = (
         f"cifar100_recurrence_c{concept_id}"
         f"_delta{int(round(config.delta * 100))}"
         f"_spc{config.samples_per_coarse_class}"
         f"_nf{config.n_features}"
         f"_fseed{config.feature_seed}"
+        f"_ls{split_tag}"
+        f"{nc_tag}"
     )
     return cache_dir / f"{tag}.npz"
 
@@ -211,7 +318,7 @@ def _load_cached_feature_pools(
 ) -> dict[int, tuple[np.ndarray, np.ndarray]] | None:
     pools: dict[int, tuple[np.ndarray, np.ndarray]] = {}
     for concept_id in range(n_concepts):
-        path = _cache_file(config, concept_id)
+        path = _cache_file(config, concept_id, n_concepts=n_concepts)
         if not path.exists():
             return None
         with np.load(path) as payload:
@@ -226,8 +333,9 @@ def _save_feature_pools(
     config: CIFAR100RecurrenceConfig,
     pools: dict[int, tuple[np.ndarray, np.ndarray]],
 ) -> None:
+    n_concepts = len(pools)
     for concept_id, (X, y) in pools.items():
-        path = _cache_file(config, concept_id)
+        path = _cache_file(config, concept_id, n_concepts=n_concepts)
         np.savez_compressed(path, X=X.astype(np.float32), y=y.astype(np.int64))
 
 
@@ -244,6 +352,11 @@ def _extract_feature_pools(
         coarse_labels, config.samples_per_coarse_class, config.feature_seed
     )
 
+    # Compute per-concept class subsets for label-split modes.
+    class_subsets = _concept_class_subsets(
+        n_concepts, config.label_split, config.n_classes_per_concept
+    )
+
     weights = ResNet18_Weights.DEFAULT
     preprocess = weights.transforms()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -258,10 +371,16 @@ def _extract_feature_pools(
 
     with torch.inference_mode():
         for concept_id in range(n_concepts):
+            # Filter indices to only include this concept's classes.
+            allowed_classes = set(int(c) for c in class_subsets[concept_id])
+            concept_indices = np.array(
+                [i for i in subset_indices if int(coarse_labels[i]) in allowed_classes]
+            )
+
             dataset = _ConceptImageDataset(
                 images=images,
                 labels=coarse_labels,
-                indices=subset_indices,
+                indices=concept_indices,
                 concept_id=concept_id,
                 delta=config.delta,
                 preprocess=preprocess,
@@ -343,12 +462,13 @@ def generate_cifar100_recurrence_dataset(
         config = CIFAR100RecurrenceConfig()
 
     gen_config = config.to_generator_config()
-    concept_matrix = generate_concept_matrix(
+    concept_matrix = generate_concept_matrix_low_singleton(
         K=config.K,
         T=config.T,
         n_concepts=gen_config.n_concepts,
         alpha=config.alpha,
         seed=config.seed,
+        min_group_size=config.min_group_size,
     )
     n_concepts = int(concept_matrix.max()) + 1
 

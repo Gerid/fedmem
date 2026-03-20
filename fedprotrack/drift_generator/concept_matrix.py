@@ -92,3 +92,99 @@ def generate_concept_matrix(
             matrix[k] = np.where(mask, independent, reference)
 
     return matrix
+
+
+def _fix_column(
+    col: np.ndarray,
+    min_group_size: int,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Redistribute assignments in one time-step column.
+
+    Ensures every active concept has at least ``min_group_size`` clients.
+    When no donor is available, merges the smallest group into the largest.
+
+    Parameters
+    ----------
+    col : np.ndarray of shape (K,)
+        Concept assignments for all clients at one time step.
+    min_group_size : int
+        Minimum number of clients per active concept.
+    rng : np.random.Generator
+        Used for tie-breaking when choosing which client to reassign.
+
+    Returns
+    -------
+    np.ndarray of shape (K,)
+        Adjusted assignments.
+    """
+    col = col.copy()
+    K = len(col)
+
+    for _ in range(K):
+        concepts, counts = np.unique(col, return_counts=True)
+        small_mask = counts < min_group_size
+        if not small_mask.any():
+            break
+
+        small_order = np.argsort(counts[small_mask])
+        small_concepts = concepts[small_mask][small_order]
+
+        large_mask = counts > min_group_size
+        if not large_mask.any():
+            largest_concept = concepts[np.argmax(counts)]
+            smallest_concept = small_concepts[0]
+            col[col == smallest_concept] = largest_concept
+            continue
+
+        target_concept = small_concepts[0]
+        large_concepts = concepts[large_mask]
+        large_counts = counts[large_mask]
+        donor_concept = large_concepts[np.argmax(large_counts)]
+
+        donor_clients = np.flatnonzero(col == donor_concept)
+        victim = rng.choice(donor_clients)
+        col[victim] = target_concept
+
+    return col
+
+
+def generate_concept_matrix_low_singleton(
+    K: int,
+    T: int,
+    n_concepts: int,
+    alpha: float,
+    seed: int,
+    min_group_size: int = 1,
+) -> np.ndarray:
+    """Generate a (K, T) concept matrix with bounded singleton ratio.
+
+    Wraps :func:`generate_concept_matrix` with column-wise post-processing
+    to ensure every active concept at each time step has at least
+    ``min_group_size`` clients.  When ``min_group_size <= 1``, behaviour
+    is identical to the original generator.
+
+    Parameters
+    ----------
+    K, T, n_concepts, alpha, seed
+        Same as :func:`generate_concept_matrix`.
+    min_group_size : int
+        Minimum number of clients per active concept at each time step.
+
+    Returns
+    -------
+    np.ndarray of shape (K, T), dtype int32
+    """
+    matrix = generate_concept_matrix(
+        K=K, T=T, n_concepts=n_concepts, alpha=alpha, seed=seed,
+    )
+
+    if min_group_size <= 1:
+        return matrix
+
+    rng = np.random.default_rng(seed + 999_999)
+
+    for t in range(T):
+        matrix[:, t] = _fix_column(matrix[:, t], min_group_size, rng)
+
+    return matrix.astype(np.int32)

@@ -85,10 +85,18 @@ def assignment_entropy(
     if soft_assignments is not None:
         # soft_assignments: (K, T, C)
         p = np.asarray(soft_assignments, dtype=np.float64)
+        # Identify cells that actually received a posterior update (non-zero).
+        # Zero-padded cells (non-federation steps) have sum~0 and would drag
+        # the mean entropy down, producing misleadingly low values when
+        # federation_every > 1.
+        cell_sums = p.sum(axis=-1)  # (K, T)
+        active_mask = cell_sums > eps
         # Clamp to avoid log(0).
         p = np.clip(p, eps, None)
         # Entropy per (k, t) cell: shape (K, T)
         H = -np.sum(p * np.log(p), axis=-1)
+        if active_mask.any():
+            return float(H[active_mask].mean())
         return float(H.mean())
 
     # Fallback: marginal distribution over clients at each time step.

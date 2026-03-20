@@ -1,0 +1,100 @@
+{
+  "Oracle": {
+    "mean_acc": 0.8921,
+    "final_acc": 0.9708,
+    "re_id": 1.0,
+    "total_bytes": 5985600.0,
+    "elapsed": 1.6
+  },
+  "FedAvg": {
+    "mean_acc": 0.5876,
+    "final_acc": 0.7533,
+    "re_id": 0.1533,
+    "total_bytes": 5985600.0,
+    "elapsed": 0.4
+  },
+  "FedAvg-10ep": {
+    "mean_acc": 0.6626,
+    "final_acc": 0.7955,
+    "re_id": 0.1533,
+    "total_bytes": 5985600.0,
+    "elapsed": 2.8
+  },
+  "CFL-original": {
+    "mean_acc": 0.6384,
+    "final_acc": 0.8168,
+    "re_id": 0.1533,
+    "total_bytes": 5985600.0,
+    "elapsed": 3.6
+  },
+  "CFL-fair-split": {
+    "mean_acc": 0.6396,
+    "final_acc": 0.7895,
+    "re_id": 0.1533,
+    "total_bytes": 5985600.0,
+    "elapsed": 2.9
+  },
+  "CFL-fair-1ep": {
+    "mean_acc": 0.5147,
+    "final_acc": 0.735,
+    "re_id": 0.1533,
+    "total_bytes": 5985600.0,
+    "elapsed": 0.5
+  },
+  "CFL-no-warmup": {
+    "mean_acc": 0.6396,
+    "final_acc": 0.7895,
+    "re_id": 0.1533,
+    "total_bytes": 5985600.0,
+    "elapsed": 2.9
+  },
+  "FPT-base": {
+    "mean_acc": 0.449,
+    "final_acc": 0.577,
+    "re_id": 0.8567,
+    "total_bytes": 7576080.0,
+    "elapsed": 4.5
+  },
+  "FPT-10ep": {
+    "mean_acc": 0.5012,
+    "final_acc": 0.614,
+    "re_id": 0.8567,
+    "total_bytes": 7576080.0,
+    "elapsed": 7.2
+  },
+  "FPT-10ep-blend05": {
+    "mean_acc": 0.4725,
+    "final_acc": 0.549,
+    "re_id": 0.8567,
+    "total_bytes": 7576080.0,
+    "elapsed": 7.2
+  },
+  "FPT-update-fp": {
+    "mean_acc": 0.4948,
+    "final_acc": 0.6218,
+    "re_id": 0.2133,
+    "total_bytes": 5985600.0,
+    "elapsed": 0.5
+  },
+  "FPT-update-fp-10ep": {
+    "mean_acc": 0.5662,
+    "final_acc": 0.6912,
+    "re_id": 0.1867,
+    "total_bytes": 5985600.0,
+    "elapsed": 3.0
+  },
+  "FPT-calibrated": {
+    "mean_acc": 0.4874,
+    "final_acc": 0.5208,
+    "re_id": 0.9533,
+    "total_bytes": 7534800.0,
+    "elapsed": 4.4
+  },
+  "FPT-hybrid-10ep": {
+    "mean_acc": 0.6626,
+    "final_acc": 0.7955,
+    "re_id": 0.1533,
+    "total_bytes": 7746000.0,
+    "elapsed": 8.1
+  }
+}

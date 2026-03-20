@@ -1,0 +1,409 @@
+{
+  "seeds": [
+    42,
+    123,
+    456
+  ],
+  "per_seed": {
+    "42": {
+      "Oracle": {
+        "mean_acc": 0.8921,
+        "final_acc": 0.9708,
+        "re_id": 1.0,
+        "total_bytes": 5985600.0,
+        "elapsed": 1.6
+      },
+      "FedAvg": {
+        "mean_acc": 0.5876,
+        "final_acc": 0.7533,
+        "re_id": 0.1533,
+        "total_bytes": 5985600.0,
+        "elapsed": 0.4
+      },
+      "FedAvg-10ep": {
+        "mean_acc": 0.6626,
+        "final_acc": 0.7955,
+        "re_id": 0.1533,
+        "total_bytes": 5985600.0,
+        "elapsed": 2.8
+      },
+      "CFL-original": {
+        "mean_acc": 0.6384,
+        "final_acc": 0.8168,
+        "re_id": 0.1533,
+        "total_bytes": 5985600.0,
+        "elapsed": 3.6
+      },
+      "CFL-fair-split": {
+        "mean_acc": 0.6396,
+        "final_acc": 0.7895,
+        "re_id": 0.1533,
+        "total_bytes": 5985600.0,
+        "elapsed": 2.9
+      },
+      "CFL-fair-1ep": {
+        "mean_acc": 0.5147,
+        "final_acc": 0.735,
+        "re_id": 0.1533,
+        "total_bytes": 5985600.0,
+        "elapsed": 0.5
+      },
+      "CFL-no-warmup": {
+        "mean_acc": 0.6396,
+        "final_acc": 0.7895,
+        "re_id": 0.1533,
+        "total_bytes": 5985600.0,
+        "elapsed": 2.9
+      },
+      "FPT-base": {
+        "mean_acc": 0.449,
+        "final_acc": 0.577,
+        "re_id": 0.8567,
+        "total_bytes": 7576080.0,
+        "elapsed": 4.5
+      },
+      "FPT-10ep": {
+        "mean_acc": 0.5012,
+        "final_acc": 0.614,
+        "re_id": 0.8567,
+        "total_bytes": 7576080.0,
+        "elapsed": 7.2
+      },
+      "FPT-10ep-blend05": {
+        "mean_acc": 0.4725,
+        "final_acc": 0.549,
+        "re_id": 0.8567,
+        "total_bytes": 7576080.0,
+        "elapsed": 7.2
+      },
+      "FPT-update-fp": {
+        "mean_acc": 0.4948,
+        "final_acc": 0.6218,
+        "re_id": 0.2133,
+        "total_bytes": 5985600.0,
+        "elapsed": 0.5
+      },
+      "FPT-update-fp-10ep": {
+        "mean_acc": 0.5662,
+        "final_acc": 0.6912,
+        "re_id": 0.1867,
+        "total_bytes": 5985600.0,
+        "elapsed": 3.0
+      },
+      "FPT-calibrated": {
+        "mean_acc": 0.4874,
+        "final_acc": 0.5208,
+        "re_id": 0.9533,
+        "total_bytes": 7534800.0,
+        "elapsed": 4.4
+      },
+      "FPT-hybrid-10ep": {
+        "mean_acc": 0.6626,
+        "final_acc": 0.7955,
+        "re_id": 0.1533,
+        "total_bytes": 7746000.0,
+        "elapsed": 8.1
+      }
+    },
+    "123": {
+      "Oracle": {
+        "mean_acc": 0.8864,
+        "final_acc": 0.952,
+        "re_id": 1.0,
+        "total_bytes": 5985600.0,
+        "elapsed": 1.9
+      },
+      "FedAvg": {
+        "mean_acc": 0.5651,
+        "final_acc": 0.709,
+        "re_id": 0.14,
+        "total_bytes": 5985600.0,
+        "elapsed": 0.5
+      },
+      "FedAvg-10ep": {
+        "mean_acc": 0.6393,
+        "final_acc": 0.7897,
+        "re_id": 0.14,
+        "total_bytes": 5985600.0,
+        "elapsed": 3.2
+      },
+      "CFL-original": {
+        "mean_acc": 0.614,
+        "final_acc": 0.7934,
+        "re_id": 0.14,
+        "total_bytes": 5985600.0,
+        "elapsed": 3.5
+      },
+      "CFL-fair-split": {
+        "mean_acc": 0.6182,
+        "final_acc": 0.7885,
+        "re_id": 0.14,
+        "total_bytes": 5985600.0,
+        "elapsed": 3.3
+      },
+      "CFL-fair-1ep": {
+        "mean_acc": 0.4876,
+        "final_acc": 0.6735,
+        "re_id": 0.14,
+        "total_bytes": 5985600.0,
+        "elapsed": 0.5
+      },
+      "CFL-no-warmup": {
+        "mean_acc": 0.6182,
+        "final_acc": 0.7885,
+        "re_id": 0.14,
+        "total_bytes": 5985600.0,
+        "elapsed": 3.1
+      },
+      "FPT-base": {
+        "mean_acc": 0.4478,
+        "final_acc": 0.528,
+        "re_id": 0.8033,
+        "total_bytes": 7607040.0,
+        "elapsed": 5.3
+      },
+      "FPT-10ep": {
+        "mean_acc": 0.5302,
+        "final_acc": 0.6105,
+        "re_id": 0.8033,
+        "total_bytes": 7607040.0,
+        "elapsed": 9.9
+      },
+      "FPT-10ep-blend05": {
+        "mean_acc": 0.5048,
+        "final_acc": 0.5673,
+        "re_id": 0.8033,
+        "total_bytes": 7607040.0,
+        "elapsed": 10.5
+      },
+      "FPT-update-fp": {
+        "mean_acc": 0.4652,
+        "final_acc": 0.637,
+        "re_id": 0.2,
+        "total_bytes": 5985600.0,
+        "elapsed": 0.7
+      },
+      "FPT-update-fp-10ep": {
+        "mean_acc": 0.5594,
+        "final_acc": 0.782,
+        "re_id": 0.1833,
+        "total_bytes": 5985600.0,
+        "elapsed": 3.3
+      },
+      "FPT-calibrated": {
+        "mean_acc": 0.5584,
+        "final_acc": 0.7082,
+        "re_id": 0.14,
+        "total_bytes": 7741200.0,
+        "elapsed": 5.2
+      },
+      "FPT-hybrid-10ep": {
+        "mean_acc": 0.6393,
+        "final_acc": 0.7897,
+        "re_id": 0.14,
+        "total_bytes": 7746000.0,
+        "elapsed": 9.7
+      }
+    },
+    "456": {
+      "Oracle": {
+        "mean_acc": 0.8904,
+        "final_acc": 0.9543,
+        "re_id": 1.0,
+        "total_bytes": 5985600.0,
+        "elapsed": 1.7
+      },
+      "FedAvg": {
+        "mean_acc": 0.5606,
+        "final_acc": 0.6727,
+        "re_id": 0.12,
+        "total_bytes": 5985600.0,
+        "elapsed": 0.5
+      },
+      "FedAvg-10ep": {
+        "mean_acc": 0.6277,
+        "final_acc": 0.7217,
+        "re_id": 0.12,
+        "total_bytes": 5985600.0,
+        "elapsed": 2.9
+      },
+      "CFL-original": {
+        "mean_acc": 0.6046,
+        "final_acc": 0.7421,
+        "re_id": 0.12,
+        "total_bytes": 5985600.0,
+        "elapsed": 3.3
+      },
+      "CFL-fair-split": {
+        "mean_acc": 0.6047,
+        "final_acc": 0.7235,
+        "re_id": 0.12,
+        "total_bytes": 5985600.0,
+        "elapsed": 3.0
+      },
+      "CFL-fair-1ep": {
+        "mean_acc": 0.4806,
+        "final_acc": 0.6465,
+        "re_id": 0.12,
+        "total_bytes": 5985600.0,
+        "elapsed": 0.6
+      },
+      "CFL-no-warmup": {
+        "mean_acc": 0.6047,
+        "final_acc": 0.7235,
+        "re_id": 0.12,
+        "total_bytes": 5985600.0,
+        "elapsed": 2.9
+      },
+      "FPT-base": {
+        "mean_acc": 0.4314,
+        "final_acc": 0.5777,
+        "re_id": 0.6467,
+        "total_bytes": 7565760.0,
+        "elapsed": 5.5
+      },
+      "FPT-10ep": {
+        "mean_acc": 0.4944,
+        "final_acc": 0.658,
+        "re_id": 0.6467,
+        "total_bytes": 7565760.0,
+        "elapsed": 8.8
+      },
+      "FPT-10ep-blend05": {
+        "mean_acc": 0.4781,
+        "final_acc": 0.6093,
+        "re_id": 0.6467,
+        "total_bytes": 7565760.0,
+        "elapsed": 10.2
+      },
+      "FPT-update-fp": {
+        "mean_acc": 0.4267,
+        "final_acc": 0.642,
+        "re_id": 0.2,
+        "total_bytes": 5985600.0,
+        "elapsed": 0.6
+      },
+      "FPT-update-fp-10ep": {
+        "mean_acc": 0.499,
+        "final_acc": 0.7355,
+        "re_id": 0.1867,
+        "total_bytes": 5985600.0,
+        "elapsed": 3.4
+      },
+      "FPT-calibrated": {
+        "mean_acc": 0.4844,
+        "final_acc": 0.6175,
+        "re_id": 0.35,
+        "total_bytes": 7648320.0,
+        "elapsed": 5.4
+      },
+      "FPT-hybrid-10ep": {
+        "mean_acc": 0.6277,
+        "final_acc": 0.7217,
+        "re_id": 0.12,
+        "total_bytes": 7746000.0,
+        "elapsed": 9.4
+      }
+    }
+  },
+  "summary": [
+    {
+      "method": "Oracle",
+      "mean_acc": "0.890 +/- 0.002",
+      "final_acc": "0.959 +/- 0.008",
+      "re_id": "1.000 +/- 0.000",
+      "mean_acc_val": 0.8896333333333333
+    },
+    {
+      "method": "FPT-hybrid-10ep",
+      "mean_acc": "0.643 +/- 0.015",
+      "final_acc": "0.769 +/- 0.034",
+      "re_id": "0.138 +/- 0.014",
+      "mean_acc_val": 0.6431999999999999
+    },
+    {
+      "method": "FedAvg-10ep",
+      "mean_acc": "0.643 +/- 0.015",
+      "final_acc": "0.769 +/- 0.034",
+      "re_id": "0.138 +/- 0.014",
+      "mean_acc_val": 0.6431999999999999
+    },
+    {
+      "method": "CFL-fair-split",
+      "mean_acc": "0.621 +/- 0.014",
+      "final_acc": "0.767 +/- 0.031",
+      "re_id": "0.138 +/- 0.014",
+      "mean_acc_val": 0.6208333333333333
+    },
+    {
+      "method": "CFL-no-warmup",
+      "mean_acc": "0.621 +/- 0.014",
+      "final_acc": "0.767 +/- 0.031",
+      "re_id": "0.138 +/- 0.014",
+      "mean_acc_val": 0.6208333333333333
+    },
+    {
+      "method": "CFL-original",
+      "mean_acc": "0.619 +/- 0.014",
+      "final_acc": "0.784 +/- 0.031",
+      "re_id": "0.138 +/- 0.014",
+      "mean_acc_val": 0.619
+    },
+    {
+      "method": "FedAvg",
+      "mean_acc": "0.571 +/- 0.012",
+      "final_acc": "0.712 +/- 0.033",
+      "re_id": "0.138 +/- 0.014",
+      "mean_acc_val": 0.5711
+    },
+    {
+      "method": "FPT-update-fp-10ep",
+      "mean_acc": "0.542 +/- 0.030",
+      "final_acc": "0.736 +/- 0.037",
+      "re_id": "0.186 +/- 0.002",
+      "mean_acc_val": 0.5415333333333333
+    },
+    {
+      "method": "FPT-calibrated",
+      "mean_acc": "0.510 +/- 0.034",
+      "final_acc": "0.616 +/- 0.077",
+      "re_id": "0.481 +/- 0.345",
+      "mean_acc_val": 0.5100666666666667
+    },
+    {
+      "method": "FPT-10ep",
+      "mean_acc": "0.509 +/- 0.016",
+      "final_acc": "0.627 +/- 0.022",
+      "re_id": "0.769 +/- 0.089",
+      "mean_acc_val": 0.5086
+    },
+    {
+      "method": "CFL-fair-1ep",
+      "mean_acc": "0.494 +/- 0.015",
+      "final_acc": "0.685 +/- 0.037",
+      "re_id": "0.138 +/- 0.014",
+      "mean_acc_val": 0.49429999999999996
+    },
+    {
+      "method": "FPT-10ep-blend05",
+      "mean_acc": "0.485 +/- 0.014",
+      "final_acc": "0.575 +/- 0.025",
+      "re_id": "0.769 +/- 0.089",
+      "mean_acc_val": 0.48513333333333336
+    },
+    {
+      "method": "FPT-update-fp",
+      "mean_acc": "0.462 +/- 0.028",
+      "final_acc": "0.634 +/- 0.009",
+      "re_id": "0.204 +/- 0.006",
+      "mean_acc_val": 0.46223333333333333
+    },
+    {
+      "method": "FPT-base",
+      "mean_acc": "0.443 +/- 0.008",
+      "final_acc": "0.561 +/- 0.023",
+      "re_id": "0.769 +/- 0.089",
+      "mean_acc_val": 0.44273333333333337
+    }
+  ]
+}

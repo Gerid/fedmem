@@ -1,0 +1,229 @@
+{
+  "experiment": "matched_epochs_comparison",
+  "n_epochs": 5,
+  "lr": 0.1,
+  "federation_every": 2,
+  "K": 10,
+  "T": 30,
+  "n_samples": 800,
+  "rho": 7.5,
+  "alpha": 0.5,
+  "delta": 0.85,
+  "label_split": "disjoint",
+  "min_group_size": 2,
+  "seeds": [
+    42,
+    123,
+    456
+  ],
+  "wall_clock_s": 23.3,
+  "summary": [
+    {
+      "method": "Oracle",
+      "mean_final_acc": 0.8286,
+      "std_final_acc": 0.0311,
+      "mean_re_id": 1.0,
+      "std_re_id": 0.0,
+      "mean_auc": 22.7758,
+      "std_auc": 0.4185,
+      "mean_entropy": 1.1841,
+      "mean_total_bytes": 2889600
+    },
+    {
+      "method": "FedAvg",
+      "mean_final_acc": 0.7681,
+      "std_final_acc": 0.0225,
+      "mean_re_id": 0.0,
+      "std_re_id": 0.0,
+      "mean_auc": 19.8757,
+      "std_auc": 0.2733,
+      "mean_entropy": 0.0,
+      "mean_total_bytes": 2889600
+    },
+    {
+      "method": "CFL",
+      "mean_final_acc": 0.7669,
+      "std_final_acc": 0.0236,
+      "mean_re_id": 0.0,
+      "std_re_id": 0.0,
+      "mean_auc": 19.2796,
+      "std_auc": 0.3185,
+      "mean_entropy": 0.0,
+      "mean_total_bytes": 2889600
+    },
+    {
+      "method": "FedProTrack",
+      "mean_final_acc": 0.7265,
+      "std_final_acc": 0.0202,
+      "mean_re_id": 0.7122,
+      "std_re_id": 0.0095,
+      "mean_auc": 18.4336,
+      "std_auc": 0.1324,
+      "mean_entropy": 0.7511,
+      "mean_total_bytes": 3794920
+    },
+    {
+      "method": "IFCA",
+      "mean_final_acc": 0.45,
+      "std_final_acc": 0.0138,
+      "mean_re_id": 0.9922,
+      "std_re_id": 0.0069,
+      "mean_auc": 10.6372,
+      "std_auc": 0.3888,
+      "mean_entropy": 1.1843,
+      "mean_total_bytes": 7224000
+    }
+  ],
+  "raw_rows": [
+    {
+      "seed": 42,
+      "method": "FedProTrack",
+      "final_acc": 0.7025,
+      "re_id": 0.7233,
+      "auc": 18.3419,
+      "entropy": 0.7723,
+      "total_bytes": 3808680,
+      "elapsed_s": 4.4
+    },
+    {
+      "seed": 42,
+      "method": "CFL",
+      "final_acc": 0.7337,
+      "re_id": 0.0,
+      "auc": 19.0536,
+      "entropy": 0.0,
+      "total_bytes": 2889600,
+      "elapsed_s": 0.7
+    },
+    {
+      "seed": 42,
+      "method": "IFCA",
+      "final_acc": 0.4306,
+      "re_id": 1.0,
+      "auc": 11.0267,
+      "entropy": 1.2042,
+      "total_bytes": 7224000,
+      "elapsed_s": 1.5
+    },
+    {
+      "seed": 42,
+      "method": "FedAvg",
+      "final_acc": 0.7372,
+      "re_id": 0.0,
+      "auc": 19.6713,
+      "entropy": 0.0,
+      "total_bytes": 2889600,
+      "elapsed_s": 0.5
+    },
+    {
+      "seed": 42,
+      "method": "Oracle",
+      "final_acc": 0.7863,
+      "re_id": 1.0,
+      "auc": 22.4348,
+      "entropy": 1.2042,
+      "total_bytes": 2889600,
+      "elapsed_s": 0.5
+    },
+    {
+      "seed": 123,
+      "method": "FedProTrack",
+      "final_acc": 0.752,
+      "re_id": 0.7133,
+      "auc": 18.3381,
+      "entropy": 0.7639,
+      "total_bytes": 3788040,
+      "elapsed_s": 4.2
+    },
+    {
+      "seed": 123,
+      "method": "CFL",
+      "final_acc": 0.787,
+      "re_id": 0.0,
+      "auc": 19.0552,
+      "entropy": 0.0,
+      "total_bytes": 2889600,
+      "elapsed_s": 0.7
+    },
+    {
+      "seed": 123,
+      "method": "IFCA",
+      "final_acc": 0.4617,
+      "re_id": 0.9933,
+      "auc": 10.1064,
+      "entropy": 1.2445,
+      "total_bytes": 7224000,
+      "elapsed_s": 1.5
+    },
+    {
+      "seed": 123,
+      "method": "FedAvg",
+      "final_acc": 0.79,
+      "re_id": 0.0,
+      "auc": 19.6939,
+      "entropy": 0.0,
+      "total_bytes": 2889600,
+      "elapsed_s": 0.5
+    },
+    {
+      "seed": 123,
+      "method": "Oracle",
+      "final_acc": 0.86,
+      "re_id": 1.0,
+      "auc": 22.5275,
+      "entropy": 1.2379,
+      "total_bytes": 2889600,
+      "elapsed_s": 0.5
+    },
+    {
+      "seed": 456,
+      "method": "FedProTrack",
+      "final_acc": 0.725,
+      "re_id": 0.7,
+      "auc": 18.6209,
+      "entropy": 0.7172,
+      "total_bytes": 3788040,
+      "elapsed_s": 4.6
+    },
+    {
+      "seed": 456,
+      "method": "CFL",
+      "final_acc": 0.78,
+      "re_id": 0.0,
+      "auc": 19.7301,
+      "entropy": 0.0,
+      "total_bytes": 2889600,
+      "elapsed_s": 0.8
+    },
+    {
+      "seed": 456,
+      "method": "IFCA",
+      "final_acc": 0.4576,
+      "re_id": 0.9833,
+      "auc": 10.7785,
+      "entropy": 1.1043,
+      "total_bytes": 7224000,
+      "elapsed_s": 1.6
+    },
+    {
+      "seed": 456,
+      "method": "FedAvg",
+      "final_acc": 0.7772,
+      "re_id": 0.0,
+      "auc": 20.262,
+      "entropy": 0.0,
+      "total_bytes": 2889600,
+      "elapsed_s": 0.5
+    },
+    {
+      "seed": 456,
+      "method": "Oracle",
+      "final_acc": 0.8395,
+      "re_id": 1.0,
+      "auc": 23.3652,
+      "entropy": 1.1103,
+      "total_bytes": 2889600,
+      "elapsed_s": 0.6
+    }
+  ]
+}

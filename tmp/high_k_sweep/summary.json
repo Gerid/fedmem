@@ -1,0 +1,167 @@
+[
+  {
+    "K": 10,
+    "method": "FedProTrack",
+    "final_acc_mean": 0.5296,
+    "final_acc_std": 0.0179,
+    "mean_acc_mean": 0.5103,
+    "mean_acc_std": 0.0058,
+    "re_id_mean": 0.4867,
+    "re_id_std": 0.0082,
+    "n_seeds": 3
+  },
+  {
+    "K": 10,
+    "method": "FPT-default",
+    "final_acc_mean": 0.5377,
+    "final_acc_std": 0.0071,
+    "mean_acc_mean": 0.5121,
+    "mean_acc_std": 0.0069,
+    "re_id_mean": 0.3611,
+    "re_id_std": 0.0193,
+    "n_seeds": 3
+  },
+  {
+    "K": 10,
+    "method": "CFL",
+    "final_acc_mean": 0.535,
+    "final_acc_std": 0.0148,
+    "mean_acc_mean": 0.5136,
+    "mean_acc_std": 0.0057,
+    "re_id_mean": 0.3611,
+    "re_id_std": 0.0193,
+    "n_seeds": 3
+  },
+  {
+    "K": 10,
+    "method": "FedAvg",
+    "final_acc_mean": 0.5377,
+    "final_acc_std": 0.0071,
+    "mean_acc_mean": 0.5121,
+    "mean_acc_std": 0.0069,
+    "re_id_mean": 0.0,
+    "re_id_std": 0.0,
+    "n_seeds": 3
+  },
+  {
+    "K": 10,
+    "method": "Oracle",
+    "final_acc_mean": 0.642,
+    "final_acc_std": 0.0209,
+    "mean_acc_mean": 0.5895,
+    "mean_acc_std": 0.0358,
+    "re_id_mean": 1.0,
+    "re_id_std": 0.0,
+    "n_seeds": 3
+  },
+  {
+    "K": 20,
+    "method": "FedProTrack",
+    "final_acc_mean": 0.5536,
+    "final_acc_std": 0.0134,
+    "mean_acc_mean": 0.5204,
+    "mean_acc_std": 0.0089,
+    "re_id_mean": 0.5439,
+    "re_id_std": 0.0083,
+    "n_seeds": 3
+  },
+  {
+    "K": 20,
+    "method": "FPT-default",
+    "final_acc_mean": 0.53,
+    "final_acc_std": 0.0227,
+    "mean_acc_mean": 0.5178,
+    "mean_acc_std": 0.0091,
+    "re_id_mean": 0.4039,
+    "re_id_std": 0.0354,
+    "n_seeds": 3
+  },
+  {
+    "K": 20,
+    "method": "CFL",
+    "final_acc_mean": 0.5421,
+    "final_acc_std": 0.0322,
+    "mean_acc_mean": 0.5224,
+    "mean_acc_std": 0.0087,
+    "re_id_mean": 0.4039,
+    "re_id_std": 0.0354,
+    "n_seeds": 3
+  },
+  {
+    "K": 20,
+    "method": "FedAvg",
+    "final_acc_mean": 0.53,
+    "final_acc_std": 0.0227,
+    "mean_acc_mean": 0.5178,
+    "mean_acc_std": 0.0091,
+    "re_id_mean": 0.0,
+    "re_id_std": 0.0,
+    "n_seeds": 3
+  },
+  {
+    "K": 20,
+    "method": "Oracle",
+    "final_acc_mean": 0.6373,
+    "final_acc_std": 0.0154,
+    "mean_acc_mean": 0.5884,
+    "mean_acc_std": 0.0294,
+    "re_id_mean": 1.0,
+    "re_id_std": 0.0,
+    "n_seeds": 3
+  },
+  {
+    "K": 30,
+    "method": "FedProTrack",
+    "final_acc_mean": 0.5339,
+    "final_acc_std": 0.0404,
+    "mean_acc_mean": 0.5353,
+    "mean_acc_std": 0.014,
+    "re_id_mean": 0.5589,
+    "re_id_std": 0.0164,
+    "n_seeds": 3
+  },
+  {
+    "K": 30,
+    "method": "FPT-default",
+    "final_acc_mean": 0.529,
+    "final_acc_std": 0.0307,
+    "mean_acc_mean": 0.532,
+    "mean_acc_std": 0.0123,
+    "re_id_mean": 0.4263,
+    "re_id_std": 0.041,
+    "n_seeds": 3
+  },
+  {
+    "K": 30,
+    "method": "CFL",
+    "final_acc_mean": 0.5376,
+    "final_acc_std": 0.0271,
+    "mean_acc_mean": 0.5278,
+    "mean_acc_std": 0.0097,
+    "re_id_mean": 0.4263,
+    "re_id_std": 0.041,
+    "n_seeds": 3
+  },
+  {
+    "K": 30,
+    "method": "FedAvg",
+    "final_acc_mean": 0.529,
+    "final_acc_std": 0.0307,
+    "mean_acc_mean": 0.532,
+    "mean_acc_std": 0.0123,
+    "re_id_mean": 0.0,
+    "re_id_std": 0.0,
+    "n_seeds": 3
+  },
+  {
+    "K": 30,
+    "method": "Oracle",
+    "final_acc_mean": 0.6485,
+    "final_acc_std": 0.0209,
+    "mean_acc_mean": 0.6109,
+    "mean_acc_std": 0.022,
+    "re_id_mean": 1.0,
+    "re_id_std": 0.0,
+    "n_seeds": 3
+  }
+]

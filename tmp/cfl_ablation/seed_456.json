@@ -1,0 +1,100 @@
+{
+  "Oracle": {
+    "mean_acc": 0.8904,
+    "final_acc": 0.9543,
+    "re_id": 1.0,
+    "total_bytes": 5985600.0,
+    "elapsed": 1.7
+  },
+  "FedAvg": {
+    "mean_acc": 0.5606,
+    "final_acc": 0.6727,
+    "re_id": 0.12,
+    "total_bytes": 5985600.0,
+    "elapsed": 0.5
+  },
+  "FedAvg-10ep": {
+    "mean_acc": 0.6277,
+    "final_acc": 0.7217,
+    "re_id": 0.12,
+    "total_bytes": 5985600.0,
+    "elapsed": 2.9
+  },
+  "CFL-original": {
+    "mean_acc": 0.6046,
+    "final_acc": 0.7421,
+    "re_id": 0.12,
+    "total_bytes": 5985600.0,
+    "elapsed": 3.3
+  },
+  "CFL-fair-split": {
+    "mean_acc": 0.6047,
+    "final_acc": 0.7235,
+    "re_id": 0.12,
+    "total_bytes": 5985600.0,
+    "elapsed": 3.0
+  },
+  "CFL-fair-1ep": {
+    "mean_acc": 0.4806,
+    "final_acc": 0.6465,
+    "re_id": 0.12,
+    "total_bytes": 5985600.0,
+    "elapsed": 0.6
+  },
+  "CFL-no-warmup": {
+    "mean_acc": 0.6047,
+    "final_acc": 0.7235,
+    "re_id": 0.12,
+    "total_bytes": 5985600.0,
+    "elapsed": 2.9
+  },
+  "FPT-base": {
+    "mean_acc": 0.4314,
+    "final_acc": 0.5777,
+    "re_id": 0.6467,
+    "total_bytes": 7565760.0,
+    "elapsed": 5.5
+  },
+  "FPT-10ep": {
+    "mean_acc": 0.4944,
+    "final_acc": 0.658,
+    "re_id": 0.6467,
+    "total_bytes": 7565760.0,
+    "elapsed": 8.8
+  },
+  "FPT-10ep-blend05": {
+    "mean_acc": 0.4781,
+    "final_acc": 0.6093,
+    "re_id": 0.6467,
+    "total_bytes": 7565760.0,
+    "elapsed": 10.2
+  },
+  "FPT-update-fp": {
+    "mean_acc": 0.4267,
+    "final_acc": 0.642,
+    "re_id": 0.2,
+    "total_bytes": 5985600.0,
+    "elapsed": 0.6
+  },
+  "FPT-update-fp-10ep": {
+    "mean_acc": 0.499,
+    "final_acc": 0.7355,
+    "re_id": 0.1867,
+    "total_bytes": 5985600.0,
+    "elapsed": 3.4
+  },
+  "FPT-calibrated": {
+    "mean_acc": 0.4844,
+    "final_acc": 0.6175,
+    "re_id": 0.35,
+    "total_bytes": 7648320.0,
+    "elapsed": 5.4
+  },
+  "FPT-hybrid-10ep": {
+    "mean_acc": 0.6277,
+    "final_acc": 0.7217,
+    "re_id": 0.12,
+    "total_bytes": 7746000.0,
+    "elapsed": 9.4
+  }
+}

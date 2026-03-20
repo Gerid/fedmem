@@ -1,0 +1,280 @@
+{
+  "rows": [
+    {
+      "method": "FPT-linear-base",
+      "seed": 42,
+      "final_accuracy": 0.52,
+      "accuracy_auc": 6.300624999999999,
+      "concept_re_id_accuracy": 0.3875,
+      "assignment_entropy": 0.5641763324974804,
+      "wrong_memory_reuse_rate": 0.6125,
+      "total_bytes": 462960.0,
+      "wall_clock_s": 0.7532906532287598
+    },
+    {
+      "method": "FPT-adapter-base",
+      "seed": 42,
+      "final_accuracy": 0.08,
+      "accuracy_auc": 1.4081249999999998,
+      "concept_re_id_accuracy": 0.3875,
+      "assignment_entropy": 0.5641763324974804,
+      "wrong_memory_reuse_rate": 0.6125,
+      "total_bytes": 1855648.0,
+      "wall_clock_s": 0.8941569328308105
+    },
+    {
+      "method": "FPT-adapter-hybrid-proto",
+      "seed": 42,
+      "final_accuracy": 0.24125000000000002,
+      "accuracy_auc": 2.9774999999999996,
+      "concept_re_id_accuracy": 0.2625,
+      "assignment_entropy": 0.1799597433773644,
+      "wrong_memory_reuse_rate": 0.7375,
+      "total_bytes": 2381200.0,
+      "wall_clock_s": 0.7820243835449219
+    },
+    {
+      "method": "CFL",
+      "seed": 42,
+      "final_accuracy": 0.661875,
+      "accuracy_auc": 8.6675,
+      "concept_re_id_accuracy": null,
+      "assignment_entropy": null,
+      "wrong_memory_reuse_rate": null,
+      "total_bytes": 374400.0,
+      "wall_clock_s": 0.2608063220977783
+    },
+    {
+      "method": "IFCA",
+      "seed": 42,
+      "final_accuracy": 0.334375,
+      "accuracy_auc": 3.449375,
+      "concept_re_id_accuracy": 0.15,
+      "assignment_entropy": 2.489292122685024e-10,
+      "wrong_memory_reuse_rate": 0.85,
+      "total_bytes": 936000.0,
+      "wall_clock_s": 0.34165191650390625
+    },
+    {
+      "method": "FPT-linear-base",
+      "seed": 43,
+      "final_accuracy": 0.43000000000000005,
+      "accuracy_auc": 7.355625,
+      "concept_re_id_accuracy": 0.4625,
+      "assignment_entropy": 0.5291080935899555,
+      "wrong_memory_reuse_rate": 0.5375,
+      "total_bytes": 462960.0,
+      "wall_clock_s": 0.6655473709106445
+    },
+    {
+      "method": "FPT-adapter-base",
+      "seed": 43,
+      "final_accuracy": 0.18875,
+      "accuracy_auc": 2.1612500000000003,
+      "concept_re_id_accuracy": 0.4625,
+      "assignment_entropy": 0.5291080935899555,
+      "wrong_memory_reuse_rate": 0.5375,
+      "total_bytes": 2102464.0,
+      "wall_clock_s": 0.8609664440155029
+    },
+    {
+      "method": "FPT-adapter-hybrid-proto",
+      "seed": 43,
+      "final_accuracy": 0.2375,
+      "accuracy_auc": 2.9018749999999995,
+      "concept_re_id_accuracy": 0.4875,
+      "assignment_entropy": 0.4010091342689098,
+      "wrong_memory_reuse_rate": 0.5125,
+      "total_bytes": 2397840.0,
+      "wall_clock_s": 0.8207170963287354
+    },
+    {
+      "method": "CFL",
+      "seed": 43,
+      "final_accuracy": 0.51,
+      "accuracy_auc": 9.725625,
+      "concept_re_id_accuracy": null,
+      "assignment_entropy": null,
+      "wrong_memory_reuse_rate": null,
+      "total_bytes": 374400.0,
+      "wall_clock_s": 0.2788259983062744
+    },
+    {
+      "method": "IFCA",
+      "seed": 43,
+      "final_accuracy": 0.260625,
+      "accuracy_auc": 3.6306249999999998,
+      "concept_re_id_accuracy": 0.25,
+      "assignment_entropy": 2.489292122685024e-10,
+      "wrong_memory_reuse_rate": 0.75,
+      "total_bytes": 936000.0,
+      "wall_clock_s": 0.3522322177886963
+    },
+    {
+      "method": "FPT-linear-base",
+      "seed": 44,
+      "final_accuracy": 0.48624999999999996,
+      "accuracy_auc": 6.1775,
+      "concept_re_id_accuracy": 0.5125,
+      "assignment_entropy": 0.5726430338061198,
+      "wrong_memory_reuse_rate": 0.4875,
+      "total_bytes": 462960.0,
+      "wall_clock_s": 0.6871685981750488
+    },
+    {
+      "method": "FPT-adapter-base",
+      "seed": 44,
+      "final_accuracy": 0.11875000000000001,
+      "accuracy_auc": 1.8350000000000002,
+      "concept_re_id_accuracy": 0.5125,
+      "assignment_entropy": 0.5726430338061198,
+      "wrong_memory_reuse_rate": 0.4875,
+      "total_bytes": 2047616.0,
+      "wall_clock_s": 0.9165198802947998
+    },
+    {
+      "method": "FPT-adapter-hybrid-proto",
+      "seed": 44,
+      "final_accuracy": 0.17875000000000002,
+      "accuracy_auc": 2.5575,
+      "concept_re_id_accuracy": 0.3875,
+      "assignment_entropy": 0.3673581145307615,
+      "wrong_memory_reuse_rate": 0.6125,
+      "total_bytes": 2304784.0,
+      "wall_clock_s": 0.8318278789520264
+    },
+    {
+      "method": "CFL",
+      "seed": 44,
+      "final_accuracy": 0.6018749999999999,
+      "accuracy_auc": 8.575937499999998,
+      "concept_re_id_accuracy": null,
+      "assignment_entropy": null,
+      "wrong_memory_reuse_rate": null,
+      "total_bytes": 374400.0,
+      "wall_clock_s": 0.2837038040161133
+    },
+    {
+      "method": "IFCA",
+      "seed": 44,
+      "final_accuracy": 0.28812499999999996,
+      "accuracy_auc": 3.4456249999999993,
+      "concept_re_id_accuracy": 0.175,
+      "assignment_entropy": 2.489292122685024e-10,
+      "wrong_memory_reuse_rate": 0.825,
+      "total_bytes": 936000.0,
+      "wall_clock_s": 0.35008716583251953
+    },
+    {
+      "method": "FPT-linear-base",
+      "seed": 45,
+      "final_accuracy": 0.53125,
+      "accuracy_auc": 6.246875,
+      "concept_re_id_accuracy": 0.3875,
+      "assignment_entropy": 0.5595349490402742,
+      "wrong_memory_reuse_rate": 0.6125,
+      "total_bytes": 462960.0,
+      "wall_clock_s": 0.6876144409179688
+    },
+    {
+      "method": "FPT-adapter-base",
+      "seed": 45,
+      "final_accuracy": 0.15875,
+      "accuracy_auc": 1.794375,
+      "concept_re_id_accuracy": 0.3875,
+      "assignment_entropy": 0.5595349490402742,
+      "wrong_memory_reuse_rate": 0.6125,
+      "total_bytes": 2047616.0,
+      "wall_clock_s": 0.9027562141418457
+    },
+    {
+      "method": "FPT-adapter-hybrid-proto",
+      "seed": 45,
+      "final_accuracy": 0.27249999999999996,
+      "accuracy_auc": 2.5862499999999997,
+      "concept_re_id_accuracy": 0.3625,
+      "assignment_entropy": 0.24182477031730648,
+      "wrong_memory_reuse_rate": 0.6375,
+      "total_bytes": 2254864.0,
+      "wall_clock_s": 0.8048584461212158
+    },
+    {
+      "method": "CFL",
+      "seed": 45,
+      "final_accuracy": 0.6381249999999999,
+      "accuracy_auc": 8.7065625,
+      "concept_re_id_accuracy": null,
+      "assignment_entropy": null,
+      "wrong_memory_reuse_rate": null,
+      "total_bytes": 374400.0,
+      "wall_clock_s": 0.2848994731903076
+    },
+    {
+      "method": "IFCA",
+      "seed": 45,
+      "final_accuracy": 0.334375,
+      "accuracy_auc": 3.2934375000000005,
+      "concept_re_id_accuracy": 0.1875,
+      "assignment_entropy": 2.489292122685024e-10,
+      "wrong_memory_reuse_rate": 0.8125,
+      "total_bytes": 936000.0,
+      "wall_clock_s": 0.3580629825592041
+    },
+    {
+      "method": "FPT-linear-base",
+      "seed": 46,
+      "final_accuracy": 0.49875,
+      "accuracy_auc": 7.194375,
+      "concept_re_id_accuracy": 0.425,
+      "assignment_entropy": 0.5536266773086476,
+      "wrong_memory_reuse_rate": 0.575,
+      "total_bytes": 462960.0,
+      "wall_clock_s": 0.682274341583252
+    },
+    {
+      "method": "FPT-adapter-base",
+      "seed": 46,
+      "final_accuracy": 0.11,
+      "accuracy_auc": 2.02375,
+      "concept_re_id_accuracy": 0.425,
+      "assignment_entropy": 0.5536266773086476,
+      "wrong_memory_reuse_rate": 0.575,
+      "total_bytes": 1979056.0,
+      "wall_clock_s": 0.9314892292022705
+    },
+    {
+      "method": "FPT-adapter-hybrid-proto",
+      "seed": 46,
+      "final_accuracy": 0.14125,
+      "accuracy_auc": 2.9631250000000002,
+      "concept_re_id_accuracy": 0.45,
+      "assignment_entropy": 0.374483251399695,
+      "wrong_memory_reuse_rate": 0.55,
+      "total_bytes": 2353776.0,
+      "wall_clock_s": 0.8395180702209473
+    },
+    {
+      "method": "CFL",
+      "seed": 46,
+      "final_accuracy": 0.61625,
+      "accuracy_auc": 9.775625000000002,
+      "concept_re_id_accuracy": null,
+      "assignment_entropy": null,
+      "wrong_memory_reuse_rate": null,
+      "total_bytes": 374400.0,
+      "wall_clock_s": 0.28448915481567383
+    },
+    {
+      "method": "IFCA",
+      "seed": 46,
+      "final_accuracy": 0.31,
+      "accuracy_auc": 3.8281249999999996,
+      "concept_re_id_accuracy": 0.1875,
+      "assignment_entropy": 2.489292122685024e-10,
+      "wrong_memory_reuse_rate": 0.8125,
+      "total_bytes": 936000.0,
+      "wall_clock_s": 0.3552539348602295
+    }
+  ],
+  "failures": []
+}

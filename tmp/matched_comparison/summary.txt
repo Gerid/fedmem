@@ -1,0 +1,82 @@
+MATCHED COMPARISON: FedProTrack Linear vs Feature-Adapter on CIFAR-100
+=======================================================================
+
+Date: 2026-03-20
+Command: E:/anaconda3/python.exe run_matched_comparison.py
+Wall-clock: ~18 seconds total
+
+Setup
+-----
+- K=10 clients, T=20 steps, n_samples=500, n_features=64
+- federation_every=2 (10 federation rounds) -- IDENTICAL for all methods
+- n_epochs=5, lr=0.05 -- IDENTICAL for FPT-linear, FPT-adapter, and Oracle
+- 3 seeds (42, 43, 44)
+- Feature cache pre-built (.feature_cache/)
+- Bugs fixed before run:
+  * Oracle n_epochs mismatch (now matched at 5)
+  * Adapter zero-init (fixed in torch_feature_adapter.py)
+
+Results (mean +/- std over 3 seeds)
+------------------------------------
+Method          FinalAcc             Re-ID                Entropy              AUC                  Bytes
+FPT-linear      0.4729 +/- 0.0171    0.4217 +/- 0.0433    1.1531 +/- 0.0148    6.5232 +/- 0.0853    1,239,733
+FPT-adapter     0.1429 +/- 0.0368    0.4217 +/- 0.0433    1.1531 +/- 0.0148    2.1118 +/- 0.2454    5,871,568
+CFL             0.6145 +/- 0.0164    N/A                  N/A                  9.0479 +/- 0.1417      936,000
+Oracle          0.3729 +/- 0.0145    1.0000 +/- 0.0000    1.6172 +/- 0.0241    5.4017 +/- 0.2622      936,000
+
+Key Observations
+----------------
+1. ADAPTER ACCURACY IS CATASTROPHICALLY LOW (0.14 vs 0.47 for linear).
+   Under matched federation_every=2 and n_epochs=5, the feature_adapter
+   model fails to learn meaningful representations. This is NOT a
+   federation_every confound -- it is a fundamental model training issue.
+
+2. RE-ID AND ENTROPY ARE IDENTICAL between linear and adapter.
+   This confirms that Phase A (fingerprinting + concept assignment) is
+   model-type-agnostic. The fingerprints are computed from raw data, not
+   from model outputs. The concept routing is the same; only the
+   downstream model accuracy differs.
+
+3. ADAPTER USES ~4.7x MORE BYTES (5.87M vs 1.24M).
+   The feature_adapter model has more parameters (hidden_dim=64,
+   adapter_dim=16), so each upload/download costs more. This means the
+   adapter is both worse AND more expensive under matched conditions.
+
+4. CFL DOMINATES (0.61 accuracy).
+   CFL does not use concept identity tracking (no re-ID or entropy), but
+   its clustering-based aggregation achieves the best accuracy by a wide
+   margin. This is consistent with prior findings.
+
+5. ORACLE UNDERPERFORMS LINEAR FPT (0.37 vs 0.47).
+   Even with perfect concept IDs, the Oracle's per-concept federated
+   aggregation hurts on this dataset. This is likely because K=10 clients
+   with heterogeneous data cause destructive averaging even within the
+   correct concept group -- especially with only 500 samples per step.
+
+Root Cause Analysis
+-------------------
+The adapter model's failure is not caused by mismatched hyperparameters
+(those are now identical). The likely root causes are:
+
+(a) The adapter architecture (64-dim hidden + 16-dim bottleneck) may be
+    too expressive for the 64-dim PCA features and 500-sample batches,
+    leading to overfitting or unstable gradients.
+
+(b) Even with the zero-init fix, the adapter's additional nonlinearity
+    may need different learning rate / epoch tuning than the linear model.
+    The shared lr=0.05 and n_epochs=5 were tuned for the linear model.
+
+(c) Federated averaging of adapter parameters may cause more destructive
+    interference than averaging linear parameters, because the adapter
+    has a nonlinear component where parameter averaging is not equivalent
+    to model averaging.
+
+Conclusion
+----------
+Under matched conditions, the feature_adapter model is strictly worse
+than linear on CIFAR-100 recurrence: lower accuracy, higher cost, same
+concept tracking. The previous confounded comparison (adapter with
+federation_every=5 vs linear with federation_every=2) masked this gap.
+Any future adapter experiments should either (a) tune the adapter
+hyperparameters independently, or (b) investigate whether the adapter
+architecture itself is fundamentally unsuitable for federated averaging.

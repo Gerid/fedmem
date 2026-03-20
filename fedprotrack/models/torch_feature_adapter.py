@@ -18,6 +18,9 @@ class _AdapterBlock(nn.Module):
         super().__init__()
         self.down = nn.Linear(hidden_dim, adapter_dim)
         self.up = nn.Linear(adapter_dim, hidden_dim)
+        # Zero-init the up-projection so the residual starts as identity
+        nn.init.zeros_(self.up.weight)
+        nn.init.zeros_(self.up.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x + self.up(torch.relu(self.down(x)))

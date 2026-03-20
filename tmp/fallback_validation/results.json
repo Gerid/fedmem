@@ -1,0 +1,42 @@
+[
+  {
+    "name": "FPT-base",
+    "final_acc": 0.6855,
+    "mean_acc": 0.5089166666666667,
+    "re_id": 0.79,
+    "total_bytes": 7607040.0,
+    "elapsed": 3.819312334060669,
+    "min_agg_group_size": 1,
+    "cross_time_ema": 1.0
+  },
+  {
+    "name": "FPT+fallback",
+    "final_acc": 0.7140000000000001,
+    "mean_acc": 0.5129,
+    "re_id": 0.79,
+    "total_bytes": 7607040.0,
+    "elapsed": 3.5331995487213135,
+    "min_agg_group_size": 3,
+    "cross_time_ema": 1.0
+  },
+  {
+    "name": "FPT+crosstime",
+    "final_acc": 0.639,
+    "mean_acc": 0.5054833333333334,
+    "re_id": 0.79,
+    "total_bytes": 7607040.0,
+    "elapsed": 3.6904067993164062,
+    "min_agg_group_size": 1,
+    "cross_time_ema": 0.5
+  },
+  {
+    "name": "FPT+both",
+    "final_acc": 0.667,
+    "mean_acc": 0.4725333333333333,
+    "re_id": 0.79,
+    "total_bytes": 7607040.0,
+    "elapsed": 3.708364963531494,
+    "min_agg_group_size": 3,
+    "cross_time_ema": 0.5
+  }
+]
