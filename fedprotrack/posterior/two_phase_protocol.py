@@ -207,6 +207,10 @@ class TwoPhaseConfig:
     cross_time_ema: float = 1.0
     concept_global_mix: float = 0.0
     concept_delta_mode: bool = False
+    enable_trust_estimation: bool = False
+    trust_buffer_size: int = 5
+    trust_decay: float = 0.7
+    trust_promotion_threshold: int = 2
 
 
 @dataclass
@@ -297,6 +301,10 @@ class TwoPhaseFedProTrack:
                 semantic_weight=config.key_semantic_weight,
                 prototype_weight=config.key_prototype_weight,
             ),
+            enable_trust_estimation=config.enable_trust_estimation,
+            trust_buffer_size=config.trust_buffer_size,
+            trust_decay=config.trust_decay,
+            trust_promotion_threshold=config.trust_promotion_threshold,
         )
         self.memory_bank = DynamicMemoryBank(
             config=mb_config,
@@ -1557,6 +1565,7 @@ class TwoPhaseFedProTrack:
 
         aggregated: dict[int, dict[str, np.ndarray]] = {}
         bytes_down = 0.0
+        global_fedavg_soft: dict[str, np.ndarray] | None = None
         uses_namespaces = any(
             has_namespaced_params(params) for params in client_params.values()
         )

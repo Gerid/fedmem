@@ -340,6 +340,63 @@ class GibbsPosterior:
         return weights
 
 
+def calibrate_omega(
+    concept_losses: dict[int, dict[int, float]],
+    target_confidence: float = 0.9,
+) -> float:
+    """Estimate omega from observed fingerprint loss statistics.
+
+    Computes a label-free omega that makes the posterior assign at least
+    ``target_confidence`` to the best-matching concept for a typical
+    observation.  The rule is:
+
+        omega = -log(target_confidence / (1 - target_confidence) * (K-1))
+                / (min_loss - median_other_loss)
+
+    where ``min_loss`` is the loss to the best-matching concept and
+    ``median_other_loss`` is the median loss to all other concepts,
+    averaged over observations.
+
+    Parameters
+    ----------
+    concept_losses : dict[int, dict[int, float]]
+        Mapping ``observation_id -> {concept_id: loss}``.  Typically
+        collected during the first few federation rounds.
+    target_confidence : float
+        Desired posterior probability on the best concept (default 0.9).
+
+    Returns
+    -------
+    float
+        Calibrated omega, clipped to [1.0, 100.0].
+    """
+    if not concept_losses:
+        return 1.0
+    gaps: list[float] = []
+    K_vals: list[int] = []
+    for losses in concept_losses.values():
+        if len(losses) < 2:
+            continue
+        sorted_losses = sorted(losses.values())
+        best = sorted_losses[0]
+        others = sorted_losses[1:]
+        median_other = float(np.median(others))
+        gap = median_other - best
+        if gap > 1e-8:
+            gaps.append(gap)
+            K_vals.append(len(losses))
+    if not gaps:
+        return 1.0
+    mean_gap = float(np.mean(gaps))
+    K = int(np.median(K_vals))
+    # Solve: exp(-omega * best) / (exp(-omega * best) + (K-1)*exp(-omega * med))
+    #      = target_confidence
+    # => omega * (med - best) = log(target / (1-target) * (K-1))
+    ratio = target_confidence / (1.0 - target_confidence) * max(K - 1, 1)
+    omega = float(np.log(ratio) / mean_gap)
+    return float(np.clip(omega, 1.0, 100.0))
+
+
 def _log_sum_exp(log_vals: np.ndarray) -> float:
     """Numerically stable log-sum-exp.
 

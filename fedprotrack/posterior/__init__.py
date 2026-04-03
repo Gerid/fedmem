@@ -1,4 +1,4 @@
-from .gibbs import GibbsPosterior, PosteriorAssignment, TransitionPrior
+from .gibbs import GibbsPosterior, PosteriorAssignment, TransitionPrior, calibrate_omega
 from .memory_bank import DynamicMemoryBank, MemoryBankConfig, SpawnResult
 from .retrieval_keys import CompositeRetrievalKey, RetrievalKeyConfig
 from .presets import (

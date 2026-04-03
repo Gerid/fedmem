@@ -17,7 +17,8 @@ def compute_accuracy_auc(accuracy_curve: np.ndarray) -> float:
         Trapezoidal AUC of the mean accuracy across clients over time steps 0..T-1.
     """
     mean_acc: np.ndarray = accuracy_curve.mean(axis=0)  # shape (T,)
-    return float(np.trapz(mean_acc))
+    _trapz = getattr(np, "trapezoid", None) or np.trapz
+    return float(_trapz(mean_acc))
 
 
 def budget_normalized_score(

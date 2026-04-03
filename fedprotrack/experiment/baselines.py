@@ -62,7 +62,10 @@ def run_local_only(
         dataset = generate_drift_dataset(config.generator_config)
 
     gc = config.generator_config
-    K, T = gc.K, gc.T
+    if dataset is not None and hasattr(dataset, "concept_matrix"):
+        K, T = dataset.concept_matrix.shape
+    else:
+        K, T = gc.K, gc.T
 
     n_features = _infer_n_features(getattr(gc, "generator_type", None), dataset)
     n_classes = _infer_n_classes(dataset)
@@ -136,7 +139,10 @@ def run_fedavg_baseline(
         dataset = generate_drift_dataset(config.generator_config)
 
     gc = config.generator_config
-    K, T = gc.K, gc.T
+    if dataset is not None and hasattr(dataset, "concept_matrix"):
+        K, T = dataset.concept_matrix.shape
+    else:
+        K, T = gc.K, gc.T
     n_features = _infer_n_features(getattr(gc, "generator_type", None), dataset)
     n_classes = _infer_n_classes(dataset)
     federation_every = max(1, int(config.federation_every))
@@ -234,7 +240,10 @@ def run_oracle_baseline(
         dataset = generate_drift_dataset(config.generator_config)
 
     gc = config.generator_config
-    K, T = gc.K, gc.T
+    if dataset is not None and hasattr(dataset, "concept_matrix"):
+        K, T = dataset.concept_matrix.shape
+    else:
+        K, T = gc.K, gc.T
 
     n_features = _infer_n_features(getattr(gc, "generator_type", None), dataset)
     n_classes = _infer_n_classes(dataset)

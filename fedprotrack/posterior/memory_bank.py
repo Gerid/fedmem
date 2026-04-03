@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+from scipy.cluster.hierarchy import fcluster, linkage
+from scipy.spatial.distance import squareform
 
 from ..concept_tracker.fingerprint import ConceptFingerprint
 from .retrieval_keys import (
@@ -27,6 +29,10 @@ class MemoryBankConfig:
     shrink_every: int = 5
     preserve_dormant_models: bool = False
     retrieval_key_config: RetrievalKeyConfig = field(default_factory=RetrievalKeyConfig)
+    enable_trust_estimation: bool = False
+    trust_buffer_size: int = 5
+    trust_decay: float = 0.7
+    trust_promotion_threshold: int = 2
 
     def __post_init__(self) -> None:
         if self.max_concepts < 1:
@@ -41,6 +47,18 @@ class MemoryBankConfig:
             )
         if self.min_count < 0:
             raise ValueError(f"min_count must be >= 0, got {self.min_count}")
+        if self.trust_buffer_size < 1:
+            raise ValueError(
+                f"trust_buffer_size must be >= 1, got {self.trust_buffer_size}"
+            )
+        if not 0.0 < self.trust_decay <= 1.0:
+            raise ValueError(
+                f"trust_decay must be in (0, 1], got {self.trust_decay}"
+            )
+        if self.trust_promotion_threshold < 1:
+            raise ValueError(
+                f"trust_promotion_threshold must be >= 1, got {self.trust_promotion_threshold}"
+            )
 
 
 @dataclass
@@ -64,6 +82,9 @@ class MemorySlot:
     recurrence: float = 1.0
     support_count: int = 1
     trajectory_state: dict[str, float] | None = None
+    anchor_buffer: list[np.ndarray] = field(default_factory=list)
+    is_provisional: bool = False
+    trusted_update_count: int = 0
 
 
 class DynamicMemoryBank:
@@ -197,6 +218,158 @@ class DynamicMemoryBank:
         slot.age = 0
         slot.uncertainty = 1.0 / max(slot.support_count, 1)
         self._sync_slot(concept_id)
+
+    def trust_weighted_update(
+        self,
+        concept_id: int,
+        client_fingerprints: list[ConceptFingerprint],
+        trust_scores: list[float],
+    ) -> None:
+        """Update a slot's centroid using trust-weighted fingerprint anchors.
+
+        Parameters
+        ----------
+        concept_id : int
+            Target concept slot.
+        client_fingerprints : list[ConceptFingerprint]
+            Fingerprints from clients assigned to this concept.
+        trust_scores : list[float]
+            Per-client trust scores in [0, 1].
+        """
+        if concept_id not in self._slots:
+            raise KeyError(f"Concept {concept_id} not in memory bank")
+        if len(client_fingerprints) != len(trust_scores):
+            raise ValueError("client_fingerprints and trust_scores must have same length")
+        if not client_fingerprints:
+            return
+
+        slot = self._slots[concept_id]
+        cfg = self.config
+
+        # Compute trust-weighted anchor from fingerprint means
+        scores = np.asarray(trust_scores, dtype=np.float64)
+        total_trust = float(scores.sum())
+        if total_trust < 1e-12:
+            return
+
+        means = np.stack([fp._mean for fp in client_fingerprints], axis=0)
+        weighted_anchor = (scores[:, None] * means).sum(axis=0) / total_trust
+
+        # Append to buffer, trim to W
+        slot.anchor_buffer.append(weighted_anchor)
+        if len(slot.anchor_buffer) > cfg.trust_buffer_size:
+            slot.anchor_buffer = slot.anchor_buffer[-cfg.trust_buffer_size:]
+
+        # Rebuild centroid from exponentially-decayed buffer
+        gamma = cfg.trust_decay
+        n_buf = len(slot.anchor_buffer)
+        weights = np.array(
+            [gamma ** (n_buf - 1 - i) for i in range(n_buf)],
+            dtype=np.float64,
+        )
+        total_w = float(weights.sum())
+        if total_w < 1e-12:
+            return
+
+        buf_array = np.stack(slot.anchor_buffer, axis=0)
+        new_mean = (weights[:, None] * buf_array).sum(axis=0) / total_w
+
+        # Update slot's semantic anchor set mean directly
+        slot.semantic_anchor_set._mean = new_mean
+        slot.support_count += len(client_fingerprints)
+        slot.recurrence += float(len(client_fingerprints))
+        slot.age = 0
+        slot.uncertainty = 1.0 / max(slot.support_count, 1)
+
+        # Track trusted updates for promotion
+        slot.trusted_update_count += 1
+        if (
+            slot.is_provisional
+            and slot.trusted_update_count >= cfg.trust_promotion_threshold
+        ):
+            slot.is_provisional = False
+
+        # Rebuild retrieval key and sync
+        previous_key = (
+            slot.center_key
+            if isinstance(slot.center_key, CompositeRetrievalKey)
+            else None
+        )
+        slot.center_key = build_retrieval_key(
+            slot.semantic_anchor_set,
+            config=self.config.retrieval_key_config,
+            previous=previous_key,
+        )
+        self._sync_slot(concept_id)
+
+    def batch_bootstrap(
+        self,
+        fingerprints: list[ConceptFingerprint],
+    ) -> list[int]:
+        """Bootstrap memory bank from a batch of fingerprints using clustering.
+
+        Parameters
+        ----------
+        fingerprints : list[ConceptFingerprint]
+            Initial fingerprints (e.g. from round 0 clients).
+
+        Returns
+        -------
+        list[int]
+            Cluster assignment for each fingerprint (concept IDs).
+        """
+        n = len(fingerprints)
+        if n == 0:
+            return []
+        if n == 1:
+            result = self.spawn_from_fingerprint(fingerprints[0])
+            return [result.new_concept_id]
+
+        # Compute pairwise cosine similarities
+        means = np.stack([fp._mean for fp in fingerprints], axis=0)
+        norms = np.linalg.norm(means, axis=1, keepdims=True)
+        norms = np.maximum(norms, 1e-12)
+        normed = means / norms
+        cos_sim = normed @ normed.T
+        np.clip(cos_sim, -1.0, 1.0, out=cos_sim)
+
+        # Convert to distance
+        cos_dist = 1.0 - cos_sim
+        np.fill_diagonal(cos_dist, 0.0)
+        cos_dist = np.maximum(cos_dist, 0.0)
+
+        # Find largest gap in sorted pairwise distances for auto threshold
+        condensed = squareform(cos_dist, checks=False)
+        sorted_dists = np.sort(condensed)
+        if len(sorted_dists) > 1:
+            gaps = np.diff(sorted_dists)
+            gap_idx = int(np.argmax(gaps))
+            auto_threshold = (sorted_dists[gap_idx] + sorted_dists[gap_idx + 1]) / 2.0
+        else:
+            auto_threshold = float(sorted_dists[0]) + 0.01 if len(sorted_dists) > 0 else 0.5
+
+        # Agglomerative clustering
+        Z = linkage(condensed, method="average")
+        labels = fcluster(Z, t=max(auto_threshold, 1e-6), criterion="distance")
+
+        # Spawn one slot per cluster from cluster mean
+        cluster_ids = sorted(set(labels))
+        cluster_to_concept: dict[int, int] = {}
+        for cid in cluster_ids:
+            members = [i for i, lbl in enumerate(labels) if lbl == cid]
+            representative = fingerprints[members[0]]
+            result = self.spawn_from_fingerprint(representative)
+            concept_id = result.new_concept_id
+            cluster_to_concept[cid] = concept_id
+            slot = self._slots[concept_id]
+            slot.is_provisional = True
+            # Absorb remaining cluster members
+            for idx in members[1:]:
+                self.absorb_fingerprint(concept_id, fingerprints[idx])
+
+        # Build output assignment list
+        assignments = [cluster_to_concept[int(lbl)] for lbl in labels]
+        return assignments
 
     def maybe_merge(self) -> list[tuple[int, int]]:
         merged: list[tuple[int, int]] = []
