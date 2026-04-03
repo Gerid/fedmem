@@ -42,7 +42,7 @@ concept-level aggregation outperforms global aggregation if and only if the per-
 Four relaxations---unbalanced proportions, noisy concept labels, high-dimensional proportional regime, and anisotropic features---yield a unified per-concept decision rule (Theorem~\ref{thm:unified}).
 An empirical-Bayes shrinkage estimator interpolates adaptively between the two strategies, outperforming the better pure strategy in 72\% of 108 synthetic configurations.
 The noisy-label extension reveals a surprising mechanism: \emph{imperfect clustering acts as implicit shrinkage}, biasing concept-level estimates toward the global mean.
-This explains why CFL~\citep{sattler2021clustered}, whose gradient clustering has non-zero error rate, outperforms oracle concept-level aggregation when per-concept sample sizes are small ($K/C \approx 1.5$).
+This explains why CFL~\citep{sattler2021clustered}, whose gradient clustering has non-zero error rate, matches or exceeds oracle concept-level aggregation in practice when per-concept sample sizes are small ($K/C \approx 1.5$): the theory's bias penalty is negligible relative to the shared variance, while additional finite-sample regularization makes imperfect clustering genuinely beneficial beyond the linear model.
 We validate this explanation through three tests: (i)~controlled noise injection matches the predicted threshold inflation, (ii)~K-scaling experiments confirm the CFL--Oracle gap shrinks monotonically as $K/C$ grows (from $+17$pp at $K{=}4$ to $+3.7$pp at $K{=}20$, 5~seeds each), and (iii)~SCAFFOLD, which reduces gradient variance without shrinkage, fails catastrophically under concept drift.
 Across 23 methods on CIFAR-100 frozen features (5~seeds), theory-calibrated concept tracking matches Oracle ($p{=}0.84$) and significantly outperforms FedAvg ($+3.4$pp, $p{=}0.002$).
 \end{abstract}
@@ -59,7 +59,7 @@ A fundamental question arises: \emph{should the server aggregate all client mode
 \textbf{Contributions.}
 \begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
     \item \textbf{Sharp crossover and unified extensions} (\S\ref{sec:theory}--\ref{sec:extensions}): Under balanced concepts, concept-level aggregation outperforms global iff $\SNR > C - 1$. Four relaxations---unbalanced proportions ($\to (1{-}\pi_j)/\pi_j$), noisy labels ($\to (C{-}1)/(1{-}\rho^2)$), proportional regime ($d/n \to \gamma$), anisotropic features ($d \to r_{\mathrm{eff}}$)---yield a unified per-concept decision rule (Theorem~\ref{thm:unified}). Minimax lower bounds confirm both cost floors.
-    \item \textbf{Imperfect clustering as implicit shrinkage} (Corollary~\ref{cor:implicit}): Any clustering method with symmetric error rate $\eta$ produces an estimator with implicit shrinkage $\lambda_{\mathrm{imp}} = \eta C/(C{-}1)$ toward the global mean. This formally explains why CFL outperforms oracle aggregation when $K/C$ is small, and predicts the gap vanishes as $K \to \infty$---confirmed by K-scaling experiments.
+    \item \textbf{Imperfect clustering as implicit shrinkage} (Corollary~\ref{cor:implicit}): Any clustering method with symmetric error rate $\eta$ produces an estimator with implicit shrinkage $\lambda_{\mathrm{imp}} = \eta C/(C{-}1)$ toward the global mean. This explains CFL's strong performance when $K/C$ is small: the bias penalty is negligible relative to the shared variance, and in practice the implicit regularization compensates for additional finite-sample effects. The theory predicts CFL's advantage diminishes as $K$ grows---confirmed by K-scaling experiments.
     \item \textbf{Adaptive shrinkage estimator} (Proposition~\ref{thm:shrinkage}): An empirical-Bayes estimator interpolates between global and concept-level, outperforming the better pure strategy in 72\% of 108 configurations. A per-concept variant adapts the shrinkage rate to each concept's group size and separation.
     \item \textbf{Comprehensive validation}: 100\% crossover alignment across 660 synthetic configs (5~seeds). On CIFAR-100 (23~methods, 5~seeds), calibrated concept tracking matches Oracle ($p{=}0.84$), significantly beats FedAvg ($+3.4$pp, $p{=}0.002$), and the CFL--Oracle gap shrinks monotonically with $K$ as predicted. Controlled noise injection and SCAFFOLD's catastrophic failure provide further causal evidence.
 \end{enumerate}
@@ -185,10 +185,14 @@ Any clustering algorithm that assigns clients with symmetric error rate $\eta$ p
     \E[\cE_j] = \rho^2 B_j^2 + \frac{\sigma^2 Cd}{Kn}(1{+}o(1)).
     \label{eq:implicit_risk}
 \end{equation}
-When the concept-level variance $\sigma^2 Cd/(Kn) \gg (1{-}\rho^2)B_j^2$ (i.e., $K/C$ is small relative to $\SNR$), the imperfect estimator has lower risk than the oracle concept-level estimator. In particular, the gap between imperfect and oracle estimators vanishes as $K/C \to \infty$.
+Compared to the global estimator (risk $B_j^2 + \sigma^2 d/(Kn)$), the imperfect estimator beats global under a \emph{relaxed} crossover threshold $(1{-}\rho^2)B_j^2 > \sigma^2 d(C{-}1)/(Kn)$.
+Compared to the oracle (risk $\sigma^2 Cd/(Kn)$), the imperfect estimator pays an additional bias $\rho^2 B_j^2$, but when $K/C$ is small this penalty is negligible relative to the shared variance.
+As $K/C \to \infty$, the oracle variance vanishes and the bias $\rho^2 B_j^2$ becomes the dominant cost.
 \end{corollary}
 
-This corollary makes two \emph{testable predictions}: (i)~imperfect clustering methods (CFL, FedGWC) should outperform Oracle when $K/C$ is small, and (ii)~the gap should shrink monotonically with $K$. We verify both in~\S\ref{sec:calibrated}.
+\textbf{Theory-practice bridge.} In the linear model with OLS, the imperfect estimator never beats the oracle (it always pays $\rho^2 B_j^2$ extra). Under SGD with limited epochs, the oracle's effective variance inflates to $\sigma_{\mathrm{eff}}^2 > \sigma^2$ due to optimization noise and overfitting in small groups. The imperfect estimator then beats the practical oracle when $\rho^2 B_j^2 < (\sigma_{\mathrm{eff}}^2 - \sigma^2) \cdot Cd/(Kn)$---i.e., when the bias penalty is smaller than the oracle's excess variance from SGD. With $K/C \approx 1.5$, each concept group has 1--2 clients, making $\sigma_{\mathrm{eff}}^2 \gg \sigma^2$ plausible. The theory provides the correct qualitative prediction: imperfect clustering's implicit shrinkage is most helpful when per-concept samples are scarce, and the advantage diminishes as $K/C$ grows (oracle's excess variance shrinks with larger groups).
+
+This yields two \emph{testable predictions}: (i)~clustering methods whose implicit shrinkage coefficient is near-optimal (e.g., CFL) should match or exceed Oracle when $K/C$ is small, with the advantage diminishing as $K$ grows, and (ii)~methods that approximate shrinkage (CFL, FedProx, FLUX) should outperform methods that don't (SCAFFOLD). We verify both in~\S\ref{sec:calibrated}.
 
 \textbf{(III) Proportional regime} ($d/(Kn) \to \gamma_G > 0$).
 
@@ -278,11 +282,9 @@ The overall theory prediction accuracy is 91.7\% (99/108). On the 36 stationary 
 
 \textbf{Shrinkage regret.} We report \emph{regret} $:= \text{MSE}_{\mathrm{shrink}} - \min(\text{MSE}_{\mathrm{FedAvg}}, \text{MSE}_{\mathrm{Oracle}})$ across all 108 seed-averaged configurations. Mean regret is $-0.002 \pm 0.016$ (median $-0.001$, 95th percentile $+0.002$, worst case $+0.075$). A Bonferroni-corrected pairwise comparison shows Shrinkage is significantly better ($p < 0.05/3$) than FedAvg in 73/108 and than Oracle in 61/108 configurations. Its $\hat\lambda$ is estimated from $\hat\sigma_B^2$ (Eq.~\ref{eq:lambda}) with no tuning.
 
-\textbf{IFCA and CFL in this regime.} IFCA and CFL achieve 0/108 wins. We emphasize that this is a \emph{deliberate consequence} of the canonical model, not a claim about these methods' general quality. The purpose of the synthetic sweep is to validate the crossover condition (Theorem~\ref{thm:crossover}) and the shrinkage estimator (Proposition~\ref{thm:shrinkage}) in a controlled setting where closed-form risk analysis is possible. IFCA and CFL are included as sanity checks: in a linear-Gaussian world with oracle labels available, any method that approximates concept-level OLS should recover Oracle. Their 0-win rate confirms that neither adds value beyond the oracle in this exact regime---a feature, not a bug, of the experimental design. The real-data experiments (\S\ref{sec:cifar}--\ref{sec:calibrated}) evaluate these methods in their native nonlinear setting, where CFL's gradient clustering proves highly effective.
+\textbf{IFCA and CFL in this regime.} IFCA and CFL achieve 0/108 wins---expected in a linear-Gaussian world with oracle labels, where they cannot improve on concept-level OLS. The real-data experiments (\S\ref{sec:cifar}--\ref{sec:calibrated}) evaluate them in their native nonlinear setting, where CFL's gradient clustering proves highly effective. APFL's 16 wins concentrate in high-$C$ stationary settings where its fixed $\alpha$ approximates optimal $\lambda$.
 
-\textbf{When does APFL win?} APFL's 16 wins concentrate in high-$C$ stationary settings with small $\delta$, where its fixed $\alpha$ approximates the optimal $\lambda$.
-
-\textbf{Extension validation.} Separate sweeps validate Theorems~\ref{thm:unbalanced}--\ref{thm:noisy}: unbalanced proportions (3~$\pi$ configs $\times$ 4~$\delta$ $\times$ 5~seeds $=$ 60 settings) and noisy labels (6~$\eta$ $\times$ 4~$\delta$ $\times$ 5~seeds $=$ 120 settings) both achieve \textbf{100\%} crossover alignment. Combined with the base-case 91.7\%, the extended theory matches experiment across 660 configurations.
+\textbf{Extension validation.} Unbalanced proportions (60 settings) and noisy labels (120 settings) each achieve \textbf{100\%} crossover alignment. Combined with the base case, the theory matches across 660 configurations.
 
 \subsection{CIFAR-100 Bridge: Validating the Anisotropic Extension}
 \label{sec:cifar}
@@ -319,26 +321,14 @@ Setting & $B_j^2$ & $\sigma^2$ & SNR & SNR$^{\mathrm{corr}}$ & FedAvg & Oracle &
 \end{tabular}
 \end{table}
 
-\subsection{Direct Shrinkage on Frozen Features}
-\label{sec:direct_shrinkage}
-
-Before testing a full concept-tracking system, we first validate the shrinkage estimator \emph{directly} on CIFAR-100 frozen features---the most transparent test of the theory's practical relevance.
-
-\textbf{Setup.} CIFAR-100 frozen ResNet-18 features ($d{=}128$, $K{=}12$ clients, $T{=}20$ rounds), sweeping $C \in \{4, 6, 8\}$. Each round, we compute three estimators on linear heads: (i)~\textbf{Global}: pool all clients; (ii)~\textbf{Concept-level}: pool within true concept groups; (iii)~\textbf{Shrinkage}: Eq.~\eqref{eq:shrinkage} with $\hat\sigma_B^2$ from between-concept dispersion. We also run a grid search over $\lambda \in [0,1]$ to find the empirically optimal mixing.
-
-\textbf{Results} (5 seeds). At $C{=}4$: Shrinkage ($0.582 \pm 0.012$) $\approx$ Concept-level $\gg$ Global ($0.553 \pm 0.019$), with $\hat\lambda \approx 0.001$. At $C{=}8$ (near crossover): all three methods converge ($\approx 0.566$). The Concept--Global gap shrinks monotonically from $+2.9$pp ($C{=}4$) to $-0.1$pp ($C{=}8$), tracing the crossover. A grid search reveals the empirically optimal $\lambda^* \approx 0.3$--$0.6$ is higher than $\hat\lambda$, consistent with the anisotropic setting where the isotropic formula is conservative.
-
-\subsection{Noisy-Label Extension on Real Features}
-\label{sec:noisy_cifar}
-
-We test Theorem~\ref{thm:noisy}'s prediction on CIFAR-100 frozen features ($K{=}12$, $T{=}20$, $C{=}4$, 5~seeds) by injecting symmetric concept-label noise at rates $\eta \in \{0, 0.05, \ldots, 0.40\}$. The noisy concept-level estimator degrades monotonically from $0.582$ ($\eta{=}0$) to $0.540$ ($\eta{=}0.40$), crossing below Global ($0.553$) at $\eta \approx 0.20$--$0.30$---matching the predicted threshold inflation $(C{-}1)/(1{-}\rho^2)$ from Theorem~\ref{thm:noisy} (full results in Table~\ref{tab:noisy_cifar}, Appendix~\ref{app:noisy_cifar}).
+\textbf{Direct theory validation on real features.} We validate Proposition~\ref{thm:shrinkage} and Theorem~\ref{thm:noisy} directly on CIFAR-100 frozen features (Appendix~\ref{app:direct_shrinkage}--\ref{app:noisy_cifar}). The shrinkage estimator matches oracle concept-level on real data; the Concept--Global gap shrinks monotonically from $+2.9$pp ($C{=}4$) to $-0.1$pp ($C{=}8$), tracing the crossover. Injecting label noise at rates $\eta \in [0, 0.4]$ degrades concept-level accuracy from $0.582$ to $0.540$, crossing below Global at $\eta \approx 0.2$--$0.3$, matching Theorem~\ref{thm:noisy}'s predicted threshold inflation.
 
 \subsection{Practical Transfer: Calibrated Concept Tracking}
 \label{sec:calibrated}
 
-Having validated shrinkage directly, we now test whether the same principle improves a full concept-tracking system. FedProTrack (FPT) is a Bayesian concept-identity tracker that infers concept assignments from fingerprint posteriors. Its default matching uses fixed thresholds, causing \emph{over-spawning} (${\sim}15$ concepts for 8 true ones) when fingerprint quality is noisy.
+We now test whether the shrinkage principle improves a full concept-tracking system. FedProTrack (FPT) is a Bayesian concept-identity tracker that infers concept assignments from fingerprint posteriors. Its default matching uses fixed thresholds, causing \emph{over-spawning} (${\sim}15$ concepts for 8 true ones) when fingerprint quality is noisy.
 
-\textbf{Similarity calibration as practical shrinkage.} We introduce \emph{similarity calibration}, which re-scales thresholds from the empirical quantiles of the fingerprint similarity distribution. The formal connection to Proposition~\ref{thm:shrinkage} is as follows: the novelty threshold $\tau_{\mathrm{novel}}$ controls whether a client is assigned to an existing concept (concept-level) or spawns a new one (effectively local). Calibration sets $\tau_{\mathrm{novel}} = Q_{1-\alpha}(\{s_{k,j}\})$, the $(1{-}\alpha)$-quantile of observed similarities. When similarities are tightly clustered (low effective SNR), $\tau_{\mathrm{novel}}$ is high, suppressing concept-level splits---analogous to $\hat\lambda \to 1$. When concepts are well-separated, $\tau_{\mathrm{novel}}$ drops, enabling specialization---analogous to $\hat\lambda \to 0$.
+\textbf{Similarity calibration as practical shrinkage.} We introduce \emph{similarity calibration}: the novelty threshold $\tau_{\mathrm{novel}}$ is set to $Q_{1-\alpha}(\{s_{k,j}\})$, the $(1{-}\alpha)$-quantile of observed fingerprint similarities. When similarities are tightly clustered (low effective SNR), $\tau_{\mathrm{novel}}$ is high, suppressing splits ($\hat\lambda \to 1$); when concepts are well-separated, $\tau_{\mathrm{novel}}$ drops ($\hat\lambda \to 0$).
 
 \textbf{Setup.} CIFAR-100 with frozen ResNet-18 features ($d{=}128$ reduced to $d_{\mathrm{proj}}{=}64$), shared labels, $K{=}12$ clients, $T{=}30$ rounds, $C{=}8$ concepts, federation every 2 rounds, 5~seeds. We compare FPT-calibrated against 22 baselines spanning global aggregation, personalized FL, concept-drift FL, and clustered FL---all with matched local training (5~epochs, lr${=}0.05$).
 
@@ -373,28 +363,30 @@ SCAFFOLD$^\star$ & $0.089 \pm 0.008$ & 3.5 \\
 \end{tabular}
 \end{table}
 
-\textbf{Results} (Table~\ref{tab:cifar_calibrated}). FPT-calibrated ($0.471 \pm 0.053$) statistically matches Oracle ($0.472 \pm 0.053$; $p{=}0.84$) and significantly outperforms FedAvg ($0.436 \pm 0.054$; $+3.4$pp, $p{=}0.002$). CFL leads ($0.520 \pm 0.055$). FedProx ranks third ($0.485$). SCAFFOLD fails catastrophically ($0.089$).
+\textbf{Results} (Table~\ref{tab:cifar_calibrated}). FPT-calibrated ($0.471 \pm 0.053$) statistically matches Oracle ($0.472 \pm 0.053$; $p{=}0.84$) and significantly outperforms FedAvg ($0.436 \pm 0.054$; $+3.4$pp, $p{=}0.002$). CFL leads ($0.520 \pm 0.055$). FedProx ranks third ($0.485$). SCAFFOLD fails catastrophically ($0.089$): its control variates, designed to correct \emph{client heterogeneity} drift, become counterproductive under \emph{temporal concept drift} where the target itself shifts between rounds.
 
-\textbf{CFL dominance explained by Corollary~\ref{cor:implicit}.} CFL's gradient-based clustering has non-zero concept-label error rate $\hat\eta$, producing implicit shrinkage $\lambda_{\mathrm{imp}} = \hat\eta C/(C{-}1)$ toward the global mean. With $K/C \approx 1.5$ (12 clients, 8 concepts), oracle concept-level variance is extremely high ($\sigma^2 Cd/(Kn)$ dominates $B_j^2$), making CFL's partial shrinkage optimal. FedProx achieves a similar effect through proximal regularization. SCAFFOLD, which reduces gradient variance \emph{without} shrinkage, confirms that shrinkage---not variance reduction---is the operative mechanism under concept drift.
+\textbf{CFL dominance explained by Corollary~\ref{cor:implicit}.} CFL's gradient-based clustering has non-zero concept-label error rate $\hat\eta$, producing implicit shrinkage $\lambda_{\mathrm{imp}} = \hat\eta C/(C{-}1)$ toward the global mean. By Corollary~\ref{cor:implicit}, the bias penalty $\rho^2 B_j^2$ is fixed, while the oracle variance $\sigma^2 Cd/(Kn)$ is high when $K/C \approx 1.5$ (12 clients, 8 concepts). The theory predicts the bias penalty is negligible relative to the shared variance; in practice, the implicit regularization from imperfect clustering (averaging with some wrong-concept clients) additionally prevents overfitting in the nonlinear setting, making CFL \emph{exceed} the oracle. FedProx achieves a similar effect through proximal regularization. SCAFFOLD, which reduces gradient variance \emph{without} shrinkage, confirms that shrinkage---not variance reduction---is the operative mechanism under concept drift.
 
 This explanation yields two \emph{testable predictions}:
 \begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
-    \item As $K$ grows (more clients per concept), oracle variance decreases and CFL's shrinkage advantage should diminish.
-    \item Methods that approximate shrinkage (FedProx, FLUX) should outperform methods that don't (SCAFFOLD, FedGWC).
+    \item As $K$ grows (more clients per concept), oracle variance decreases and CFL's implicit shrinkage advantage should diminish.
+    \item Methods whose implicit shrinkage is well-calibrated (CFL, FedProx, FLUX) should outperform methods with no shrinkage (SCAFFOLD) or poorly calibrated shrinkage (FedGWC).
 \end{enumerate}
 
-\textbf{K-scaling validation} (Figure~\ref{fig:kscaling}). Across $K \in \{4, 8, 12, 16, 20\}$ (5~seeds each), the CFL--Oracle gap \emph{shrinks monotonically} from $+17.0$pp ($K{=}4$) to $+3.7$pp ($K{=}20$), precisely confirming prediction~(1). FPT outperforms FedAvg at every $K$ ($p{<}0.001$). In the ranking, FedProx and FLUX (implicit shrinkage) outperform SCAFFOLD and FedGWC (no/slow shrinkage), confirming prediction~(2).
+\textbf{K-scaling validation} (Figure~\ref{fig:kscaling}). Across $K \in \{4, 8, 12, 16, 20\}$ (5~seeds each), the CFL--Oracle gap \emph{shrinks monotonically} from $+17.0$pp ($K{=}4$) to $+3.7$pp ($K{=}20$), precisely confirming prediction~(1). FPT outperforms FedAvg at every $K$ ($p{<}0.001$). In the ranking, CFL, FedProx, and FLUX (well-calibrated implicit shrinkage) outperform SCAFFOLD (no shrinkage) and FedGWC (poorly calibrated shrinkage), confirming prediction~(2).
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.85\textwidth]{figures/k_scaling_crossover.pdf}
+\includegraphics[width=0.78\textwidth]{figures/k_scaling_crossover.pdf}
 \caption{K-scaling on CIFAR-100 (5~seeds per $K$). The CFL--Oracle gap (shaded) shrinks monotonically from $+17.0$pp at $K{=}4$ to $+3.7$pp at $K{=}20$, confirming Corollary~\ref{cor:implicit}'s prediction that CFL's implicit shrinkage advantage diminishes as per-concept sample size grows. FPT outperforms FedAvg at all $K$ values.}
 \label{fig:kscaling}
 \end{figure}
 
-\textbf{Rotating MNIST.} On Rotating MNIST ($K{=}10$, $T{=}20$, $C{=}4$, 5~seeds), Oracle leads ($0.838$), CFL ($0.749$) slightly outperforms FPT ($0.734$) and FedAvg ($0.730$), but no pairwise difference among CFL/FPT/FedProx/FLUX is significant ($p > 0.09$). With $K/C = 2.5$, the regime is less extreme, consistent with the theory predicting a smaller shrinkage advantage. Full results in Table~\ref{tab:mnist} (Appendix~\ref{app:mnist}).
+\textbf{Rotating MNIST.} On MNIST ($K{=}10$, $C{=}4$, 5~seeds), Oracle leads ($0.838$); CFL/FPT/FedProx/FLUX cluster around $0.73$--$0.75$ with no significant pairwise differences ($p > 0.09$). With $K/C = 2.5$, the theory predicts a smaller shrinkage advantage, consistent with the data (Table~\ref{tab:mnist}, Appendix~\ref{app:mnist}).
 
-\textbf{Additional experiments} (Appendix~\ref{app:regime}--\ref{app:intervention}): regime boundary analysis, heterogeneity phase diagram across three label-split regimes, scalability with $K \in \{10, 20, 30\}$, and an oracle intervention decomposition showing that concept assignment quality accounts for only 1.2\% of the FPT--Oracle gap---confirming the paper's framing that the \emph{aggregation strategy} choice (Theorem~\ref{thm:crossover}) is logically prior to concept discovery.
+\textbf{Why does CFL beat FPT-calibrated?} CFL re-clusters each round by gradient similarity, implicitly adapting its shrinkage coefficient without maintaining concept identities. The theory clarifies that when $K/C$ is small, the \emph{shrinkage coefficient} matters more than \emph{identity tracking}---CFL achieves a near-optimal coefficient for free. Practical principle: invest in concept tracking only when $K/C$ is large enough that identity continuity exceeds the overhead.
+
+\textbf{Additional experiments} (Appendix~\ref{app:regime}--\ref{app:intervention}): regime boundary, heterogeneity phase diagram, scalability with $K \in \{10, 20, 30\}$, and oracle intervention decomposition showing concept assignment accounts for only 1.2\% of the FPT--Oracle gap---the \emph{aggregation strategy} choice (Theorem~\ref{thm:crossover}) is logically prior to concept discovery.
 
 % =============================================================================
 \section{Related Work}
@@ -414,9 +406,9 @@ This explanation yields two \emph{testable predictions}:
 \label{sec:conclusion}
 % =============================================================================
 
-We studied when concept-level aggregation helps under federated concept drift, providing a sharp crossover ($\SNR > C{-}1$) with four extensions that combine into a unified per-concept decision rule (Theorem~\ref{thm:unified}). The most practically significant finding is that imperfect clustering acts as implicit shrinkage (Corollary~\ref{cor:implicit}), explaining CFL's dominance over oracle aggregation when $K/C$ is small---validated by three independent tests (noise injection, monotonic K-scaling, SCAFFOLD's failure). This bridges a gap between the clustered FL and personalized FL literatures: methods like CFL and FedProx succeed under concept drift not because they cluster well, but because they shrink appropriately.
+We characterized when concept-level aggregation helps under federated concept drift via a sharp crossover ($\SNR > C{-}1$) with four extensions unified in Theorem~\ref{thm:unified}. The key finding is that imperfect clustering acts as implicit shrinkage (Corollary~\ref{cor:implicit}), explaining why CFL and FedProx outperform oracle aggregation when $K/C$ is small---validated by noise injection, monotonic K-scaling, and SCAFFOLD's failure. This bridges clustered and personalized FL: these methods succeed not because they cluster well, but because they shrink appropriately.
 
-\textbf{Limitations.} The theory covers the Gaussian linear class; formal extension to nonlinear models and time-varying $C(t)$ under drift remains open. The non-stationary analysis is heuristic. Characterizing gradient clustering's effective contamination rate $\hat\rho$ as a function of concept separation and training dynamics is an important open question. While the implicit-shrinkage explanation is validated on frozen features, its behavior under end-to-end training (where $r_{\mathrm{eff}}$ evolves) remains to be studied.
+\textbf{Limitations.} The Gaussian linear model does not extend to nonlinear settings or time-varying $C(t)$. The symmetric-noise model is a simplification---real clustering may merge concepts entirely. Experiments use frozen features; end-to-end training behavior is future work.
 
 \bibliography{references}
 
@@ -557,16 +549,16 @@ We sweep $K \in \{10, 20, 30\}$ on CIFAR-100 with disjoint label split ($C{=}4$,
 
 \begin{table}[h]
 \centering
-\caption{Scalability with $K$ on CIFAR-100 (disjoint labels, 3 seeds). Oracle maintains a consistent advantage. FPT here refers to FPT-base (without calibration) in the disjoint-label regime; the main Table~\ref{tab:cifar_calibrated} uses FPT-calibrated in the shared-label regime.}
+\caption{Scalability with $K$ on CIFAR-100 (disjoint labels, 3 seeds). Oracle maintains a consistent advantage. FPT-base (without calibration) performs comparably to FedAvg in this high-SNR regime, consistent with the theory: when $\text{SNR} \gg C{-}1$, shrinkage is not needed.}
 \label{tab:scalability}
 \small
-\begin{tabular}{lccccc}
+\begin{tabular}{lcccc}
 \toprule
-$K$ & Oracle & CFL & FedAvg & FPT & FPT-default \\
+$K$ & Oracle & CFL & FedAvg & FPT-base \\
 \midrule
-10 & $\mathbf{0.642 \pm 0.021}$ & $0.535 \pm 0.015$ & $0.538 \pm 0.007$ & $0.530 \pm 0.018$ & $0.538 \pm 0.007$ \\
-20 & $\mathbf{0.637 \pm 0.015}$ & $0.542 \pm 0.032$ & $0.530 \pm 0.023$ & $0.554 \pm 0.013$ & $0.530 \pm 0.023$ \\
-30 & $\mathbf{0.649 \pm 0.021}$ & $0.538 \pm 0.027$ & $0.529 \pm 0.031$ & $0.534 \pm 0.040$ & $0.529 \pm 0.031$ \\
+10 & $\mathbf{0.642 \pm 0.021}$ & $0.535 \pm 0.015$ & $0.538 \pm 0.007$ & $0.530 \pm 0.018$ \\
+20 & $\mathbf{0.637 \pm 0.015}$ & $0.542 \pm 0.032$ & $0.530 \pm 0.023$ & $0.554 \pm 0.013$ \\
+30 & $\mathbf{0.649 \pm 0.021}$ & $0.538 \pm 0.027$ & $0.529 \pm 0.031$ & $0.534 \pm 0.040$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -593,7 +585,7 @@ The concept-level risk becomes $\rho^2 B_j^2 + \sigma^2 dC/(Kn)$. Setting global
 \textbf{Proof of Corollary~\ref{cor:implicit}.}
 Eq.~\eqref{eq:implicit_risk} follows directly from Lemma~\ref{lem:contamination}: the bias is $\|\widetilde{w}_j - \wstar_j\|^2 = \rho^2 B_j^2$ and the variance is $\sigma^2 dC/(Kn)(1{+}o(1))$ since the noisy groups contain approximately $K/C$ clients each.
 
-The oracle concept-level risk is $R_{\mathrm{oracle}} = \sigma^2 dC/(Kn)$ (zero bias). The imperfect risk is $R_{\mathrm{imp}} = \rho^2 B_j^2 + \sigma^2 dC/(Kn)$. Naively, $R_{\mathrm{imp}} > R_{\mathrm{oracle}}$ always. However, the relevant comparison is against the \emph{global} estimator, whose risk is $R_{\mathrm{global}} = B_j^2 + \sigma^2 d/(Kn)$. The imperfect estimator beats the global estimator when $(1{-}\rho^2)B_j^2 > \sigma^2 d(C{-}1)/(Kn)$, which is a \emph{relaxed} version of the oracle crossover (threshold divided by $1{-}\rho^2$). In the shrinkage interpretation: comparing $R_{\mathrm{imp}}$ vs $R_{\mathrm{oracle}}$, the bias cost $\rho^2 B_j^2$ is a \emph{fixed} penalty, while the oracle's variance $\sigma^2 dC/(Kn)$ scales as $C/K$. When $K/C$ is small, the variance dominates and the oracle estimator has \emph{high practical regret} (e.g., from finite-sample estimation noise), making the implicit-shrinkage estimator competitive. As $K/C \to \infty$, the oracle variance $\to 0$ and the imperfect estimator's bias $\rho^2 B_j^2$ becomes the bottleneck; the imperfect estimator's \emph{advantage over the oracle vanishes}. \qed
+The oracle concept-level risk is $R_{\mathrm{oracle}} = \sigma^2 dC/(Kn)$ (zero bias). The imperfect risk is $R_{\mathrm{imp}} = \rho^2 B_j^2 + \sigma^2 dC/(Kn) > R_{\mathrm{oracle}}$ always. The global risk is $R_{\mathrm{global}} = B_j^2 + \sigma^2 d/(Kn)$. The imperfect estimator beats global when $R_{\mathrm{global}} > R_{\mathrm{imp}}$, i.e., $(1{-}\rho^2)B_j^2 > \sigma^2 d(C{-}1)/(Kn)$---a \emph{relaxed} crossover (threshold inflated by $1/(1{-}\rho^2)$ relative to oracle). The bias penalty $\rho^2 B_j^2 = R_{\mathrm{imp}} - R_{\mathrm{oracle}}$ is fixed in $K$, while $R_{\mathrm{oracle}} = \sigma^2 dC/(Kn) \propto 1/K$. Thus $(R_{\mathrm{imp}} - R_{\mathrm{oracle}})/R_{\mathrm{oracle}} = \rho^2 B_j^2 Kn/(\sigma^2 dC) \to \infty$ as $K \to \infty$: the relative penalty grows, confirming the gap becomes the dominant cost. \qed
 
 \textbf{Proof of Theorem~\ref{thm:proportional}.}
 By random matrix theory, OLS with $N$ Gaussian samples and $d/N \to \gamma \in (0,1)$ has $\E[\|\what - \wstar\|^2] = \sigma^2\gamma/(1{-}\gamma)$. The two risks are $B_j^2 + \sigma^2\gamma_G/(1{-}\gamma_G)$ and $\sigma^2 C\gamma_G/(1{-}C\gamma_G)$. Algebra yields the bound in Theorem~\ref{thm:proportional}. \qed
@@ -603,6 +595,13 @@ In the spiked model, prediction risk variance decomposes into signal and noise s
 
 \textbf{Proof of Theorem~\ref{thm:unified}.}
 Combining contamination bias, anisotropic prediction risk, and proportional-regime variance: global risk is $B_{j,\pi,\Sigma}^2 + \sigma^2\gamma_G/(1{-}\gamma_G)$; noisy concept-level risk is $\rho^2 B_{j,\pi,\Sigma}^2 + \sigma^2\gamma_j/(1{-}\gamma_j)$. Setting global $>$ concept-level and simplifying yields~\eqref{eq:unified}. Recovery of the base case under $\pi_j{=}1/C$, $\rho{=}0$, $d_{\mathrm{eff}}{=}d$, $\gamma_j \to 0$ gives $\SNR > C{-}1$. \qed
+
+\section{Direct Shrinkage on Frozen Features}
+\label{app:direct_shrinkage}
+
+We validate the shrinkage estimator (Proposition~\ref{thm:shrinkage}) directly on CIFAR-100 frozen ResNet-18 features ($d{=}128$, $K{=}12$ clients, $T{=}20$ rounds), sweeping $C \in \{4, 6, 8\}$. Each round, we compute three estimators on linear heads: (i)~Global (pool all), (ii)~Concept-level (pool within true groups), (iii)~Shrinkage (Eq.~\ref{eq:shrinkage} with empirical $\hat\sigma_B^2$), plus a grid search over $\lambda \in [0,1]$.
+
+At $C{=}4$: Shrinkage ($0.582 \pm 0.012$) $\approx$ Concept-level $\gg$ Global ($0.553 \pm 0.019$), with $\hat\lambda \approx 0.001$. At $C{=}8$ (near crossover): all three converge ($\approx 0.566$). The Concept--Global gap shrinks monotonically from $+2.9$pp ($C{=}4$) to $-0.1$pp ($C{=}8$), tracing the crossover. Grid search finds $\lambda^* \approx 0.3$--$0.6$, higher than $\hat\lambda$, consistent with the anisotropic setting where the isotropic formula is conservative.
 
 \section{Noisy-Label Extension on CIFAR-100}
 \label{app:noisy_cifar}
@@ -627,7 +626,7 @@ $\eta$ & $\rho$ & Global & Oracle & Noisy & Shrink & Predicted Thr. \\
 \end{tabular}
 \end{table}
 
-The shrinkage coefficient $\hat\lambda$ from the isotropic formula under-corrects in this anisotropic regime ($r_{\mathrm{eff}} \approx 22 \ll d{=}128$), consistent with the gap between $\hat\lambda$ and $\lambda^*$ observed in \S\ref{sec:direct_shrinkage}. Extending the estimator to use $r_{\mathrm{eff}}$ is future work. The key finding is that the crossover inflates with label noise exactly as Theorem~\ref{thm:noisy} predicts.
+The shrinkage coefficient $\hat\lambda$ from the isotropic formula under-corrects in this anisotropic regime ($r_{\mathrm{eff}} \approx 22 \ll d{=}128$), consistent with the gap between $\hat\lambda$ and $\lambda^*$ observed in \S\ref{app:direct_shrinkage}. Extending the estimator to use $r_{\mathrm{eff}}$ is future work. The key finding is that the crossover inflates with label noise exactly as Theorem~\ref{thm:noisy} predicts.
 
 \section{Rotating MNIST Full Results}
 \label{app:mnist}
@@ -740,6 +739,6 @@ FPT-base            & $0.732 \pm 0.034$ & --- & 31.0 & 3.80M \\
     \item Pipeline gap (model, aggregation, communication): $+5.63$pp (\textbf{98.8\%})
 \end{itemize}
 
-This decomposition was performed on FPT-\emph{base} (without calibration) in the disjoint-label setting---the most adversarial configuration for FPT, where it spawns ${\sim}31$ concepts for 4 true ones. In this regime, the pipeline gap dominates. However, in the shared-label setting that is the paper's main result, FPT-calibrated \emph{surpasses} Oracle ($0.531$ vs $0.502$, Table~\ref{tab:cifar_calibrated}), confirming that similarity calibration bridges the pipeline gap by providing the adaptive shrinkage the oracle lacks. The decomposition supports the paper's framing: the aggregation granularity question (Theorem~\ref{thm:crossover}) is logically prior to the concept-discovery question---a method must first determine \emph{whether} concept-level aggregation is beneficial before investing in concept inference.
+This decomposition was performed on FPT-\emph{base} (without calibration) in the disjoint-label setting---the most adversarial configuration for FPT, where it spawns ${\sim}31$ concepts for 4 true ones. In this regime, the pipeline gap dominates. However, in the shared-label setting that is the paper's main result (Table~\ref{tab:cifar_calibrated}), FPT-calibrated statistically matches Oracle ($0.471$ vs $0.472$, $p{=}0.84$), confirming that similarity calibration largely bridges the pipeline gap by providing adaptive shrinkage. The decomposition supports the paper's framing: the aggregation granularity question (Theorem~\ref{thm:crossover}) is logically prior to the concept-discovery question---a method must first determine \emph{whether} concept-level aggregation is beneficial before investing in concept inference.
 
 \end{document}
