@@ -1,0 +1,27 @@
+% Minimal NeurIPS 2024 style (for preprint / anonymous submission)
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{neurips_2024}[2024/01/01 NeurIPS 2024 style (minimal)]
+
+\DeclareOption{preprint}{\def\neurips@preprint{}}
+\DeclareOption{nonatbib}{}
+\DeclareOption{final}{}
+\ProcessOptions\relax
+
+\RequirePackage[margin=1in]{geometry}
+\RequirePackage{times}
+\RequirePackage{natbib}
+\bibliographystyle{plainnat}
+
+% Title formatting
+\def\@maketitle{%
+  \begin{center}%
+    {\LARGE\bfseries \@title \par}%
+    \vskip 1.5em%
+    {\large \@author \par}%
+    \vskip 1em%
+    {\normalsize \@date \par}%
+  \end{center}%
+  \par\vskip 1.5em%
+}
+
+\endinput
