@@ -1018,7 +1018,7 @@ def run_shrinkage_full(
                 w_shrunk = (1 - lam) * concept_vecs[j] + lam * global_vec
                 concept_models[j].set_params(_flat_to_dict(w_shrunk, concept_params[j]))
 
-            param_bytes = model_bytes(n_features, n_classes)
+            param_bytes = model_bytes(concept_params[0])
             total_bytes += K * param_bytes * 2
 
     name = "Shrinkage-aniso" if use_anisotropic else "Shrinkage-iso"
