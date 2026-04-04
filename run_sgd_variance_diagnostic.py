@@ -35,7 +35,7 @@ os.environ.setdefault("PYTHONUNBUFFERED", "1")
 def _train_evaluate(X_train, y_train, X_test, y_test, n_features, n_classes,
                     n_epochs=5, lr=0.05, seed=42):
     """Train a linear model and return train/test accuracy."""
-    from fedprotrack.models.torch_model import TorchLinearClassifier
+    from fedprotrack.models import TorchLinearClassifier
     model = TorchLinearClassifier(n_features, n_classes, seed=seed, n_epochs=n_epochs, lr=lr)
     model.fit(X_train, y_train)
     train_preds = model.predict(X_train)
