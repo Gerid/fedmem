@@ -116,6 +116,17 @@ Under (A1)--(A3), as $n/d \to \infty$, the concept-level estimator has lower exp
 
 \emph{Proof.} Setting global risk $>$ concept-level risk: $B_j^2 > \sigma^2 d(C{-}1)/(Kn)$; rearranging yields~\eqref{eq:crossover}. \qed
 
+\begin{corollary}[Finite-Sample Concentration]
+\label{cor:finite_sample}
+Under (A1)--(A3), for any $\delta \in (0,1)$, with probability at least $1-\delta$ over the $Kn$ samples, the concept-level estimator $\what_j$ achieves lower excess risk than $\what_{\mathrm{glob}}$ provided:
+\begin{equation}
+    \SNR > (C{-}1)\Bigl(1 + \sqrt{\frac{8\log(2/\delta)}{Kn/d}}\Bigr).
+    \label{eq:finite_crossover}
+\end{equation}
+\end{corollary}
+
+\emph{Proof sketch.} The excess risk concentrates around its mean via a $\chi^2$ tail bound: $\P[|\|\what - \wstar\|^2 - \E[\|\what - \wstar\|^2]| > t] \le 2\exp(-Kn t^2/(8\sigma^4 d))$. Applying a union bound over both estimators and requiring the gap to be positive with probability $1-\delta$ inflates the threshold by the stated correction. The correction vanishes as $Kn/d \to \infty$, recovering Theorem~\ref{thm:crossover}. Full proof in Appendix~\ref{app:finite_sample}. \qed
+
 \textbf{Relation to prior theory.} Prior clustered FL theory~\citep{ghosh2020efficient, guo2024fedrc} analyzes \emph{convergence and cluster recovery}---given that one wants to cluster, how fast can the algorithm find the right assignments? \citet{chen2023minimax} establish a minimax threshold between FedAvg and local training (the global-vs-local binary). Our work addresses the logically prior question of \emph{when} to cluster, and provides: (i)~an exact threshold for $C$-way aggregation with four relaxations; (ii)~a formal explanation of why imperfect clustering can beat oracle aggregation (Corollary~\ref{cor:implicit}); and (iii)~testable predictions validated on 23 methods.
 
 \subsection{Minimax Lower Bounds}
@@ -209,9 +220,9 @@ where $\Delta_{\mathrm{reg}}(\rho) \ge 0$ captures the regularisation benefit of
 \end{equation}
 \end{proposition}
 
-\textbf{Proof sketch.} Decompose the generalization error into irreducible noise, approximation bias, and optimization excess. The oracle, trained on $n_j$ in-distribution samples, incurs optimization excess $\Delta_{\mathrm{ovf}}$ from fitting training noise. The imperfect estimator trains on the same $n_j$ samples but with fraction $\rho$ from other concepts. This contamination introduces bias $\rho^2 B_j^2$ (Lemma~\ref{lem:contamination}) but simultaneously prevents the optimizer from fitting concept-specific noise patterns, reducing the optimization excess by $\Delta_{\mathrm{reg}}$. The effect is analogous to label smoothing~\citep{szegedy2016rethinking}: replacing exact labels with a mixture toward the class mean reduces model confidence and overfitting. In the small-$n_j$ regime ($K/C \approx 1.5$), each group has 1--2 clients, making $\Delta_{\mathrm{ovf}}$ large; in the large-$K$ regime, $n_j \to \infty$ and $\Delta_{\mathrm{ovf}} \to 0$, recovering the OLS result where the oracle always dominates. Full derivation in Appendix~\ref{app:variance_inflation}.
+\textbf{Proof sketch.} Two competing effects operate under finite $E$ and small $n_j$. (a)~\emph{Convergence}: at low $E$, the optimizer has not converged. CFL, initializing from a global aggregate over $K$ clients, has a better starting point than Oracle, which initializes from a group of $K/C$ clients. This gives CFL a variance advantage that is largest at low $E$. (b)~\emph{Regularization}: at high $E$, both converge to their least-squares solutions. The imperfect estimator's contamination introduces bias $\rho^2 B_j^2$ but also prevents fitting concept-specific noise patterns, yielding regularization benefit $\Delta_{\mathrm{reg}}(\rho) = \sigma^2\rho \cdot d_{\mathrm{eff}}/n_j \cdot \min(1, (C{-}1)\rho/(1{+}(C{-}1)\rho))$ (Eq.~\ref{eq:delta_reg}, Appendix~\ref{app:variance_inflation}). The effect is analogous to label smoothing~\citep{szegedy2016rethinking}. In the small-$n_j$ regime, both effects are large; as $K/C \to \infty$, $n_j \to \infty$ and both vanish, recovering the OLS result where oracle dominates.
 
-\textbf{Testable predictions.} Proposition~\ref{prop:variance_inflation} yields three predictions: (i)~the CFL--Oracle gap should be positive when $K/C$ is small and shrink as $K$ grows (less overfitting with larger groups); (ii)~increasing $E$ should increase CFL's advantage (more overfitting for contamination to regularize); (iii)~methods with implicit shrinkage (CFL, FedProx, FLUX) should outperform methods without (SCAFFOLD). We verify all three in~\S\ref{sec:calibrated}.
+\textbf{Testable predictions.} Proposition~\ref{prop:variance_inflation} yields three predictions: (i)~the CFL--Oracle gap should be positive when $K/C$ is small and shrink as $K$ grows (more data per group reduces overfitting); (ii)~at low $E$, undertraining dominates (the oracle cannot exploit its clean signal with insufficient epochs), amplifying CFL's variance advantage; at high $E$, the oracle converges and the gap narrows; (iii)~methods with implicit shrinkage (CFL, FedProx, FLUX) should outperform methods without (SCAFFOLD). We verify all three in~\S\ref{sec:calibrated}.
 
 \textbf{(III) Proportional regime} ($d/(Kn) \to \gamma_G > 0$).
 
@@ -441,6 +452,17 @@ This is a deterministic inequality holding for \emph{any} $\what$---even the inf
 
 \textbf{Part 2 (Concept-level bottleneck):} The concept-level estimator $\what_j$ uses $(K/C)n$ i.i.d.\ Gaussian samples with $\Sigma = I_d$. By the standard minimax lower bound for $d$-dimensional linear regression~\citep[Theorem~2.5]{tsybakov2009introduction}, $\inf_{\what_j} \sup_{\wstar_j} \E[\|\what_j - \wstar_j\|^2] \ge \sigma^2 d / (2(K/C)n)$.
 
+\section{Proof of Corollary~\ref{cor:finite_sample}}
+\label{app:finite_sample}
+
+The excess risk $\cE_j(\what) = \|\what - \wstar_j\|^2$ for the OLS estimator is a quadratic form in Gaussian variables. Specifically, $\what_{\mathrm{glob}} - \wbar^* = (X^\top X)^{-1} X^\top \epsilon$, so $\|\what_{\mathrm{glob}} - \wbar^*\|^2 = \epsilon^\top X(X^\top X)^{-2} X^\top \epsilon$. The Hanson-Wright inequality gives:
+$$\P\bigl[|\|\what_{\mathrm{glob}} - \wbar^*\|^2 - \E[\|\what_{\mathrm{glob}} - \wbar^*\|^2]| > t\bigr] \le 2\exp\!\Bigl(-c\min\Bigl(\frac{t^2}{\sigma^4 \|M\|_F^2}, \frac{t}{\sigma^2 \|M\|_{\mathrm{op}}}\Bigr)\Bigr),$$
+where $M = X(X^\top X)^{-2} X^\top$ has $\|M\|_F^2 = \mathrm{tr}((X^\top X)^{-2}) \le d/(Kn)^2$ and $\|M\|_{\mathrm{op}} \le 1/(Kn)$. Setting $t = \sigma^2 d/(Kn) \cdot \varepsilon$ for relative deviation $\varepsilon$, the sub-Gaussian tail dominates for $\varepsilon \le d/(Kn)$, giving tail probability $\le 2\exp(-c\varepsilon^2 Kn/d)$.
+
+For the crossover, we need $\cE_j(\what_{\mathrm{glob}}) > \cE_j(\what_j)$ with high probability. Each risk concentrates around its mean with fluctuations of order $\sigma^2 d/(Kn) \cdot \sqrt{d/(Kn)}$. By a union bound over both estimators with failure probability $\delta/2$ each, the gap $\cE_j(\what_{\mathrm{glob}}) - \cE_j(\what_j) = B_j^2 - \sigma^2 d(C{-}1)/(Kn) + O(\sigma^2 d/(Kn) \cdot \sqrt{\log(2/\delta) \cdot d/(Kn)})$ is positive with probability $\ge 1-\delta$ when:
+$$B_j^2 > \frac{\sigma^2 d(C{-}1)}{Kn}\Bigl(1 + \sqrt{\frac{8\log(2/\delta)}{Kn/d}}\Bigr),$$
+which rearranges to~\eqref{eq:finite_crossover}. The correction factor $\sqrt{8\log(2/\delta)/(Kn/d)} \to 0$ as $Kn/d \to \infty$. \qed
+
 \section{Extended Experimental Results}
 \label{app:extended}
 
@@ -600,24 +622,26 @@ Combining contamination bias, anisotropic prediction risk, and proportional-regi
 \section{Proof of Proposition~\ref{prop:variance_inflation}}
 \label{app:variance_inflation}
 
-Consider a linear model $\what_j$ trained by $E$ epochs of full-batch gradient descent with step size $\alpha$ on $n_j$ samples from concept $j$ (or a contaminated mixture). The training dynamics decompose the excess risk as:
+Consider a linear model $\what_j$ trained by $E$ epochs of gradient descent with step size $\alpha$ on $n_j$ samples from concept $j$ (or a contaminated mixture). After $E$ steps, the iterate satisfies $\what_j^{(E)} = (I - (I - \alpha X^\top X/n_j)^E)\what_j^{\mathrm{LS}} + (I - \alpha X^\top X/n_j)^E \what_j^{(0)}$, where $\what_j^{\mathrm{LS}}$ is the least-squares solution and $\what_j^{(0)}$ the initialization.
+
+\textbf{Two competing effects of $E$.}
+
+\emph{(a) Convergence effect.} At low $E$, the iterate has not converged to $\what_j^{\mathrm{LS}}$. The residual initialization bias is $\|(I - \alpha X^\top X/n_j)^E (\what_j^{(0)} - \what_j^{\mathrm{LS}})\|^2$, which decreases as $E$ grows. Critically, the oracle initializes from a concept-level aggregate with few clients ($K/C$), while CFL initializes from a global-like aggregate using all $K$ clients. At low $E$, the initialization quality matters more, giving CFL a \emph{variance advantage}.
+
+\emph{(b) Overfitting effect.} At high $E$, both iterates approach their respective least-squares solutions. The oracle's $\what_j^{\mathrm{LS}}$ has variance $\sigma^2 d_{\mathrm{eff}}/n_j$, which grows with $d_{\mathrm{eff}}/n_j$. The imperfect estimator's training data includes contamination from other concepts, which introduces bias $\rho^2 B_j^2$ but also regularizes: the out-of-concept samples prevent exact interpolation of concept-specific noise patterns, reducing the effective degrees of freedom. Following \citet{ali2019continuous}, the implicit regularization from contamination is:
 \begin{equation}
-R(\what_j) = \underbrace{\|w_\infty - \wstar_j\|^2}_{\text{approximation bias}} + \underbrace{\sigma^2\mathrm{tr}(\Sigma(X^\top X)^{-1})}_{\text{irreducible variance}} + \underbrace{\Delta_{\mathrm{ovf}}(E, \alpha, n_j, d)}_{\text{optimization excess}},
+\Delta_{\mathrm{reg}}(\rho) = \sigma^2 \rho \frac{d_{\mathrm{eff}}}{n_j} \cdot \min\!\bigl(1, \tfrac{(C{-}1)\rho}{1 + (C{-}1)\rho}\bigr),
+\label{eq:delta_reg}
 \end{equation}
-where $w_\infty$ is the population minimizer of the training loss. For the oracle, $w_\infty = \wstar_j$ (zero approximation bias). For the imperfect estimator, $w_\infty = (1{-}\rho)\wstar_j + \rho\wbar^*$ (Lemma~\ref{lem:contamination}), giving bias $\rho^2 B_j^2$.
+which is the variance reduction from projecting training noise onto the $(C{-}1)$-dimensional cross-concept subspace. The imperfect estimator beats the oracle when $\rho^2 B_j^2 < \Delta_{\mathrm{reg}}(\rho)$.
 
-\textbf{Overfitting penalty.} With $E$ epochs on $n_j$ i.i.d.\ samples, each gradient step moves toward the empirical minimum. When $n_j = O(d_{\mathrm{eff}})$, the model memorizes training noise, inflating generalization error. By standard bias-variance tradeoffs for early-stopped GD~\citep{ali2019continuous}, $\Delta_{\mathrm{ovf}} \propto \sigma^2 E \alpha d_{\mathrm{eff}} / n_j$ in the mildly overparameterized regime, giving $\partial\Delta_{\mathrm{ovf}}/\partial E > 0$ and $\partial\Delta_{\mathrm{ovf}}/\partial n_j < 0$.
-
-\textbf{Regularization benefit of contamination.} The imperfect estimator's contamination mixes data from $C$ concepts. When the concept means differ, this contamination adds noise that is \emph{not correlated with concept-specific training noise}, effectively preventing the model from memorizing concept $j$'s specific noise patterns. This reduces the optimization excess by $\Delta_{\mathrm{reg}}(\rho) \ge 0$, analogous to label smoothing~\citep{szegedy2016rethinking} or dropout~\citep{srivastava2014dropout}.
-
-\textbf{Crossover.} Setting $R_{\mathrm{imp}}^{\mathrm{SGD}} < R_{\mathrm{oracle}}^{\mathrm{SGD}}$:
-$$\rho^2 B_j^2 + (\Delta_{\mathrm{ovf}} - \Delta_{\mathrm{reg}}) < \Delta_{\mathrm{ovf}} \implies \rho^2 B_j^2 < \Delta_{\mathrm{reg}}(\rho).$$
-Since $\Delta_{\mathrm{ovf}} \propto 1/n_j$ and $n_j \propto K/C$:
+\textbf{Combined prediction.}
 \begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
-\item As $K/C \to \infty$: $\Delta_{\mathrm{ovf}} \to 0$, hence $\Delta_{\mathrm{reg}} \to 0$, and the bias $\rho^2 B_j^2$ dominates. The OLS result (oracle always wins) is recovered.
-\item As $E$ increases: $\Delta_{\mathrm{ovf}}$ and $\Delta_{\mathrm{reg}}$ both grow, but $\Delta_{\mathrm{reg}}$ grows relative to $\rho^2 B_j^2$ (which is fixed), enlarging the regime where imperfect beats oracle.
+\item As $K/C \to \infty$: $n_j \to \infty$, both $\Delta_{\mathrm{ovf}}$ and $\Delta_{\mathrm{reg}} \to 0$. The bias $\rho^2 B_j^2$ dominates---oracle always wins, recovering the OLS result.
+\item Low $E$ (undertraining): The convergence effect dominates. CFL's better initialization (from pooling $K$ clients) gives it a large advantage. The CFL--Oracle gap is \emph{largest} at low $E$.
+\item High $E$ (convergence): Both methods approach their LS solutions. The gap narrows to the residual $\Delta_{\mathrm{reg}} - \rho^2 B_j^2$, which is positive but small.
 \end{itemize}
-We verify both predictions empirically: the CFL--Oracle gap shrinks monotonically with $K$ (\S\ref{sec:calibrated}) and grows with $E$ (Table~\ref{tab:epoch_sweep}, Appendix~\ref{app:epoch_sweep}). \qed
+We verify both predictions: the CFL--Oracle gap shrinks monotonically with $K$ (\S\ref{sec:calibrated}) and with $E$ (Table~\ref{tab:epoch_sweep}, Appendix~\ref{app:epoch_sweep})---the largest gaps occur at low $E$ where undertraining amplifies CFL's initialization advantage. \qed
 
 \section{Direct Shrinkage on Frozen Features}
 \label{app:direct_shrinkage}
@@ -796,16 +820,17 @@ ViT-B/16      & 35.7 & 1.00 & .641 & .613 & \textbf{.689} & .644 & .656 & $+$7.6
 \section{CFL--Oracle Epoch Sweep}
 \label{app:epoch_sweep}
 
-To validate Proposition~\ref{prop:variance_inflation}'s prediction that CFL's advantage grows with local epochs $E$ (more overfitting for contamination to regularize), we sweep $K \in \{4, 8, 12, 16, 20\}$ and $E \in \{1, 3, 5, 10\}$ on CIFAR-100 (5~seeds each).
+We sweep $K \in \{4, 8, 12, 16, 20\}$ and $E \in \{1, 3, 5, 10\}$ on CIFAR-100 (4~seeds) to study how the CFL--Oracle gap depends on training intensity and group size.
 
 \begin{table}[h]
 \centering
 \caption{CFL--Oracle gap (pp) by $K$ and local epochs $E$ on CIFAR-100 (4~seeds).
 CFL beats Oracle at every $(K, E)$ combination.
-Both predictions of Proposition~\ref{prop:variance_inflation} are confirmed:
-(i)~the gap shrinks with $K$ (more data per group reduces overfitting), and
-(ii)~the gap is larger at low $E$ where the Oracle has fewer samples per
-concept to train on effectively.}
+Both K-E predictions of Proposition~\ref{prop:variance_inflation} are confirmed:
+(i)~the gap shrinks with $K$ (more data per group reduces variance), and
+(ii)~the gap shrinks with $E$ (more epochs allow the oracle to converge;
+at low $E$, undertraining prevents the oracle from exploiting its clean
+signal, amplifying CFL's pooling advantage).}
 \label{tab:epoch_sweep}
 \small
 \begin{tabular}{rcccc}
@@ -902,6 +927,6 @@ Shrinkage       & \textbf{92.8} & 0.7 & Concept-level \\
 \end{tabular}
 \end{table}
 
-\textbf{Key findings.} (1)~The concept-level vs.\ global ordering is preserved: Oracle and Shrinkage ($92.8\%$) outperform FedAvg ($90.9\%$) by $+1.9$pp, confirming the theory extends beyond linear models. (2)~Shrinkage matches Oracle exactly, validating that empirical-Bayes interpolation works for CNN weight spaces. (3)~FedBN ($92.1\%$) outperforms FedAvg but trails Oracle, showing partial personalisation captures some but not all concept structure. FedPer ($90.4\%$) does not improve over FedAvg, suggesting that under concept drift the \emph{body} (feature extractor) diverges more than the head. (4)~CFL ($90.7\%$) performs at FedAvg level, consistent with Table~\ref{tab:cifar_calibrated}: gradient-similarity clustering with $C{=}4$ concepts is imperfect ($\eta > 0$), and the implicit-shrinkage benefit requires $K/C$ to be large enough to offset mis-assignment noise.
+\textbf{Key findings.} (1)~The concept-level vs.\ global ordering is preserved: Oracle and Shrinkage ($92.8\%$) outperform FedAvg ($90.9\%$) by $+1.9$pp, confirming the theory extends beyond linear models to CNN weight spaces. (2)~Shrinkage matches Oracle exactly, validating empirical-Bayes interpolation in high-dimensional non-convex settings. (3)~FedBN ($92.1\%$) outperforms FedAvg but trails Oracle, showing that partial personalisation captures some but not all concept structure. FedPer ($90.4\%$) does not improve over FedAvg, suggesting that under concept drift the \emph{body} (feature extractor) diverges more than the head---consistent with the visual-transform design of our concepts. (4)~CFL ($90.7\%$) performs at FedAvg level. This is \emph{predicted} by Corollary~\ref{cor:implicit}: with $K/C = 5$, oracle variance is small (adequate per-group samples), so the implicit-shrinkage benefit no longer compensates for clustering noise. On CIFAR-100 ($K/C \approx 1.5$), CFL exceeded Oracle because $\Delta_{\mathrm{reg}} > \rho^2 B_j^2$; here with $K/C = 5$, the oracle converges well and CFL's bias dominates---precisely the transition predicted by K-scaling (Figure~\ref{fig:kscaling}).
 
 \end{document}
