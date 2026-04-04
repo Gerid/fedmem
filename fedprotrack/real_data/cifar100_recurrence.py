@@ -23,7 +23,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets
-from torchvision.models import ResNet18_Weights, resnet18
+from torchvision import models as tv_models
 from torchvision.transforms import functional as TF
 
 from ..drift_generator.concept_matrix import (
@@ -78,6 +78,7 @@ class CIFAR100RecurrenceConfig:
     label_split: str = "none"
     n_classes_per_concept: int = 10
     min_group_size: int = 1
+    backbone: str = "resnet18"
 
     def __post_init__(self) -> None:
         if self.K < 1:
@@ -118,6 +119,14 @@ class CIFAR100RecurrenceConfig:
                     f"n_classes_per_concept must be in [2, {_N_COARSE_CLASSES}], "
                     f"got {self.n_classes_per_concept}"
                 )
+        _valid_backbones = (
+            "resnet18", "resnet50", "vit_b_16", "mobilenet_v2",
+        )
+        if self.backbone not in _valid_backbones:
+            raise ValueError(
+                f"backbone must be one of {_valid_backbones}, "
+                f"got {self.backbone!r}"
+            )
 
     def to_generator_config(self) -> GeneratorConfig:
         return GeneratorConfig(
@@ -287,6 +296,48 @@ def _select_balanced_indices(
     return np.concatenate(chosen, axis=0)
 
 
+def _build_backbone(
+    backbone_name: str,
+) -> tuple[nn.Module, object, int]:
+    """Build a frozen feature-extraction backbone.
+
+    Parameters
+    ----------
+    backbone_name : str
+        One of ``resnet18``, ``resnet50``, ``vit_b_16``, ``mobilenet_v2``.
+
+    Returns
+    -------
+    model : nn.Module
+        Backbone with classification head replaced by identity.
+    preprocess : callable
+        torchvision preprocessing transform.
+    raw_dim : int
+        Dimensionality of the feature vector output by *model*.
+    """
+    if backbone_name == "resnet18":
+        weights = tv_models.ResNet18_Weights.DEFAULT
+        model = tv_models.resnet18(weights=weights)
+        model.fc = nn.Identity()
+        return model, weights.transforms(), 512
+    if backbone_name == "resnet50":
+        weights = tv_models.ResNet50_Weights.DEFAULT
+        model = tv_models.resnet50(weights=weights)
+        model.fc = nn.Identity()
+        return model, weights.transforms(), 2048
+    if backbone_name == "vit_b_16":
+        weights = tv_models.ViT_B_16_Weights.DEFAULT
+        model = tv_models.vit_b_16(weights=weights)
+        model.heads = nn.Identity()
+        return model, weights.transforms(), 768
+    if backbone_name == "mobilenet_v2":
+        weights = tv_models.MobileNet_V2_Weights.DEFAULT
+        model = tv_models.mobilenet_v2(weights=weights)
+        model.classifier = nn.Identity()
+        return model, weights.transforms(), 1280
+    raise ValueError(f"Unknown backbone: {backbone_name!r}")
+
+
 def _cache_file(
     config: CIFAR100RecurrenceConfig,
     concept_id: int,
@@ -300,6 +351,8 @@ def _cache_file(
     # Include n_concepts in tag so disjoint/overlap caches with different
     # concept counts don't collide (class subsets depend on n_concepts).
     nc_tag = f"_nc{n_concepts}" if n_concepts is not None else ""
+    # Include backbone in tag so different backbones don't collide.
+    bb_tag = f"_bb{config.backbone}" if config.backbone != "resnet18" else ""
     tag = (
         f"cifar100_recurrence_c{concept_id}"
         f"_delta{int(round(config.delta * 100))}"
@@ -308,6 +361,7 @@ def _cache_file(
         f"_fseed{config.feature_seed}"
         f"_ls{split_tag}"
         f"{nc_tag}"
+        f"{bb_tag}"
     )
     return cache_dir / f"{tag}.npz"
 
@@ -357,12 +411,8 @@ def _extract_feature_pools(
         n_concepts, config.label_split, config.n_classes_per_concept
     )
 
-    weights = ResNet18_Weights.DEFAULT
-    preprocess = weights.transforms()
+    backbone, preprocess, _raw_dim = _build_backbone(config.backbone)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    backbone = resnet18(weights=weights)
-    backbone.fc = nn.Identity()
     backbone = backbone.to(device)
     backbone.eval()
 

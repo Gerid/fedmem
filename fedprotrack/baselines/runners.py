@@ -864,3 +864,172 @@ def run_compressed_fedavg_full(
         predicted_concept_matrix=predicted,
         total_bytes=total_bytes,
     )
+
+
+# ---------------------------------------------------------------------------
+# Shrinkage baselines (isotropic / anisotropic)
+# ---------------------------------------------------------------------------
+
+
+def _dict_to_flat(params: dict[str, np.ndarray]) -> np.ndarray:
+    """Concatenate param dict values into a single flat vector."""
+    return np.concatenate([v.ravel() for v in params.values()])
+
+
+def _flat_to_dict(
+    flat: np.ndarray,
+    template: dict[str, np.ndarray],
+) -> dict[str, np.ndarray]:
+    """Reshape a flat vector back into the param dict structure."""
+    result: dict[str, np.ndarray] = {}
+    offset = 0
+    for key, v in template.items():
+        size = v.size
+        result[key] = flat[offset : offset + size].reshape(v.shape)
+        offset += size
+    return result
+
+
+def run_shrinkage_full(
+    dataset: DriftDataset,
+    federation_every: int = 1,
+    use_anisotropic: bool = True,
+    lr: float = 0.05,
+    n_epochs: int = 5,
+) -> MethodResult:
+    """Run Oracle concept-level with empirical-Bayes shrinkage.
+
+    Each federation round:
+    1. Train per-concept linear heads using oracle concept labels.
+    2. Train a global linear head.
+    3. Apply shrinkage: w_shrunk = (1-λ)*w_concept + λ*w_global.
+
+    Parameters
+    ----------
+    dataset : DriftDataset
+    federation_every : int
+    use_anisotropic : bool
+        If True, compute ``r_eff`` from features and use it in λ.
+    lr : float
+        Learning rate for SGD training.
+    n_epochs : int
+        Local training epochs.
+
+    Returns
+    -------
+    MethodResult
+    """
+    from ..estimators.shrinkage import (
+        ShrinkageEstimator,
+        compute_shrinkage_lambda,
+        compute_effective_rank,
+        estimate_sigma_B2,
+    )
+    from ..models import TorchLinearClassifier
+
+    K, T, n_features, n_classes = _extract_dims(dataset)
+    concept_matrix = dataset.concept_matrix
+    C = int(concept_matrix.max()) + 1
+
+    accuracy_matrix = np.zeros((K, T), dtype=np.float64)
+    predicted_matrix = np.zeros((K, T), dtype=np.int32)
+    total_bytes = 0.0
+
+    # One model per concept + one global model.
+    concept_models = {
+        j: TorchLinearClassifier(
+            n_features, n_classes, lr=lr, n_epochs=n_epochs,
+        )
+        for j in range(C)
+    }
+    global_model = TorchLinearClassifier(
+        n_features, n_classes, lr=lr, n_epochs=n_epochs,
+    )
+
+    # Track shrinkage diagnostics for the last round.
+    last_lambda_iso = 0.0
+    last_lambda_aniso = 0.0
+    last_r_eff = float(n_features)
+
+    for t in range(T):
+        # --- Evaluate (before training this round) ---
+        for k in range(K):
+            X, y = dataset.data[(k, t)]
+            cid = int(concept_matrix[k, t])
+            predicted_matrix[k, t] = cid
+            preds = concept_models[cid].predict(X)
+            accuracy_matrix[k, t] = _accuracy(y, preds)
+
+        # --- Train (per-concept + global) ---
+        concept_data: dict[int, list[tuple[np.ndarray, np.ndarray]]] = {
+            j: [] for j in range(C)
+        }
+        all_X_list: list[np.ndarray] = []
+        all_y_list: list[np.ndarray] = []
+        for k in range(K):
+            X, y = dataset.data[(k, t)]
+            cid = int(concept_matrix[k, t])
+            concept_data[cid].append((X, y))
+            all_X_list.append(X)
+            all_y_list.append(y)
+
+        for j in range(C):
+            if concept_data[j]:
+                Xj = np.concatenate([xy[0] for xy in concept_data[j]])
+                yj = np.concatenate([xy[1] for xy in concept_data[j]])
+                concept_models[j].fit(Xj, yj)
+
+        X_all = np.concatenate(all_X_list)
+        y_all = np.concatenate(all_y_list)
+        global_model.fit(X_all, y_all)
+
+        # --- Federate with shrinkage ---
+        if (t + 1) % federation_every == 0 and t < T - 1:
+            concept_params = [concept_models[j].get_params() for j in range(C)]
+            global_params = global_model.get_params()
+
+            # Flatten to vectors for shrinkage math.
+            concept_vecs = [_dict_to_flat(p) for p in concept_params]
+            global_vec = _dict_to_flat(global_params)
+
+            # Estimate noise variance from prediction residuals.
+            logits = global_model.predict(X_all)
+            sigma2 = float(np.mean((logits != y_all).astype(np.float64)))
+            sigma2 = max(sigma2, 0.01)  # floor
+            n_per_client = len(dataset.data[(0, t)][0])
+
+            # Compute r_eff from features.
+            r_eff = compute_effective_rank(X_all) if use_anisotropic else float(n_features)
+
+            # Estimate between-concept variance.
+            sigma_B2 = estimate_sigma_B2(concept_vecs, sigma2, K, C, n_per_client)
+
+            d_param = concept_vecs[0].shape[0]
+            lambda_iso = compute_shrinkage_lambda(sigma2, sigma_B2, K, C, n_per_client, d_param)
+            lambda_aniso = compute_shrinkage_lambda(sigma2, sigma_B2, K, C, n_per_client, r_eff)
+            lam = lambda_aniso if use_anisotropic else lambda_iso
+
+            last_lambda_iso = lambda_iso
+            last_lambda_aniso = lambda_aniso
+            last_r_eff = r_eff
+
+            # Apply shrinkage.
+            for j in range(C):
+                w_shrunk = (1 - lam) * concept_vecs[j] + lam * global_vec
+                concept_models[j].set_params(_flat_to_dict(w_shrunk, concept_params[j]))
+
+            param_bytes = model_bytes(n_features, n_classes)
+            total_bytes += K * param_bytes * 2
+
+    name = "Shrinkage-aniso" if use_anisotropic else "Shrinkage-iso"
+    result = MethodResult(
+        method_name=name,
+        accuracy_matrix=accuracy_matrix,
+        predicted_concept_matrix=predicted_matrix,
+        total_bytes=total_bytes,
+    )
+    # Attach diagnostics for experiment scripts.
+    result.lambda_iso = last_lambda_iso  # type: ignore[attr-defined]
+    result.lambda_aniso = last_lambda_aniso  # type: ignore[attr-defined]
+    result.r_eff = last_r_eff  # type: ignore[attr-defined]
+    return result

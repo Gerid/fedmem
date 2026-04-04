@@ -40,6 +40,8 @@ class GeneratorConfig:
             "sine",
             "sea",
             "circle",
+            "gaussian_linear",
+            "gaussian_anisotropic",
             "rotating_mnist",
             "cifar100_recurrence",
             "fmow",

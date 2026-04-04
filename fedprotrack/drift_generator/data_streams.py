@@ -49,6 +49,8 @@ def make_concept_specs(
         n_variants = 4
     elif generator_type == "circle":
         n_variants = 1  # circle has no built-in variants, we shift center
+    elif generator_type in ("gaussian_linear", "gaussian_anisotropic"):
+        n_variants = n_concepts  # each concept gets a unique weight vector
     else:
         raise ValueError(f"Unknown generator_type: {generator_type}")
 
@@ -83,6 +85,9 @@ def generate_samples(
     X : np.ndarray of shape (n_samples, n_features)
     y : np.ndarray of shape (n_samples,) with int labels
     """
+    if spec.generator_type in ("gaussian_linear", "gaussian_anisotropic"):
+        return _generate_gaussian_samples(spec, n_samples, seed)
+
     if spec.generator_type == "sine":
         gen = synth.Sine(
             classification_function=spec.variant,
@@ -119,6 +124,61 @@ def generate_samples(
         X = X + noise
 
     return X, y
+
+
+def _generate_gaussian_samples(
+    spec: ConceptSpec,
+    n_samples: int,
+    seed: int,
+    d: int = 20,
+    sigma: float = 1.0,
+    r_signal: int = 5,
+    signal_eigenvalue: float = 10.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Generate Gaussian linear regression data for theory validation.
+
+    Parameters
+    ----------
+    spec : ConceptSpec
+        ``generator_type`` is ``"gaussian_linear"`` (isotropic, X ~ N(0, I_d))
+        or ``"gaussian_anisotropic"`` (spiked, first ``r_signal`` eigenvalues
+        are ``signal_eigenvalue``, rest are 1).
+        ``variant`` is the concept ID (used to generate per-concept weight).
+        ``noise_scale`` is ``1 - delta``, controlling concept separation.
+    n_samples : int
+    seed : int
+
+    Returns
+    -------
+    X : np.ndarray of shape ``(n_samples, d)``
+    y : np.ndarray of shape ``(n_samples,)`` with binary labels {0, 1}
+    """
+    rng = np.random.default_rng(seed)
+
+    # Generate per-concept weight vector (deterministic from concept ID).
+    w_rng = np.random.default_rng(42 + spec.concept_id * 7919)
+    w_star = w_rng.normal(0, 1, size=d)
+    # Scale by delta: higher delta = more separation between concepts.
+    delta = 1.0 - spec.noise_scale
+    w_star *= delta * 3.0  # scale so concepts are well-separated at delta=1
+
+    if spec.generator_type == "gaussian_linear":
+        # Isotropic: X ~ N(0, I_d)
+        X = rng.normal(0, 1, size=(n_samples, d))
+    elif spec.generator_type == "gaussian_anisotropic":
+        # Spiked covariance: first r_signal dims have large eigenvalue.
+        X = rng.normal(0, 1, size=(n_samples, d))
+        X[:, :r_signal] *= np.sqrt(signal_eigenvalue)
+        # Concept separation lives in the signal subspace.
+        w_star[r_signal:] *= 0.1
+    else:
+        raise ValueError(f"Unexpected: {spec.generator_type}")
+
+    # Linear regression: y = sign(<w*, x> + noise)
+    logits = X @ w_star + rng.normal(0, sigma, size=n_samples)
+    y = (logits > 0).astype(np.int32)
+
+    return X.astype(np.float64), y
 
 
 def _make_circle_generator(variant: int, seed: int):
