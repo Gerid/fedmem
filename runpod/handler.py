@@ -84,6 +84,10 @@ def handler(job: dict) -> dict:
         "--seed", str(seed),
         "--results-dir", out_dir,
     ]
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONPATH"] = f"{CODE_DIR}:{env.get('PYTHONPATH', '')}"
+
     # Probe which optional args the script accepts.
     probe = subprocess.run(
         [sys.executable, script, "--help"],
@@ -99,10 +103,6 @@ def handler(job: dict) -> dict:
     if fpt_mode != "base":
         cmd.extend(["--fpt-mode", fpt_mode])
     cmd.extend(extra_args)
-
-    env = os.environ.copy()
-    env["PYTHONUNBUFFERED"] = "1"
-    env["PYTHONPATH"] = f"{CODE_DIR}:{env.get('PYTHONPATH', '')}"
 
     # Pre-cache torch hub weights from volume (if available)
     hub_src = f"{CACHE_DIR}/.torch_hub/checkpoints"
