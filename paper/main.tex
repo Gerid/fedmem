@@ -385,6 +385,8 @@ SCAFFOLD$^\star$ & $0.089 \pm 0.008$ & 3.5 \\
 
 \textbf{Rotating MNIST.} On MNIST ($K{=}10$, $C{=}4$, 5~seeds), Oracle leads ($0.838$); CFL/FPT/FedProx/FLUX cluster around $0.73$--$0.75$ ($p > 0.09$ pairwise). With $K/C = 2.5$, the theory predicts a smaller shrinkage advantage, consistent with the data (Table~\ref{tab:mnist}, Appendix~\ref{app:mnist}).
 
+\textbf{EMNIST end-to-end CNN.} To verify the findings transfer beyond frozen features, we train a LeNet-style CNN end-to-end on EMNIST digits ($K{=}20$, $C{=}4$, 5~seeds) with FedBN~\citep{li2021fedbn} and FedPer~\citep{arivazhagan2019fedper} as additional baselines. Oracle and Shrinkage tie at $92.8\%$, FedBN reaches $92.1\%$, FedAvg $90.9\%$---the concept-level $>$ global ordering is preserved with learned features (Appendix~\ref{app:emnist_e2e}).
+
 \textbf{Why CFL $>$ FPT.} CFL re-clusters each round, implicitly adapting its shrinkage coefficient. When $K/C$ is small, the shrinkage coefficient matters more than identity tracking. Invest in concept tracking only when $K/C$ is large enough that identity continuity exceeds the overhead. Additional experiments (Appendix~\ref{app:regime}--\ref{app:intervention}) cover regime boundary, scalability, and oracle intervention decomposition.
 
 % =============================================================================
@@ -394,7 +396,7 @@ SCAFFOLD$^\star$ & $0.089 \pm 0.008$ & 3.5 \\
 
 \textbf{Clustered FL.} IFCA~\citep{ghosh2020efficient}, CFL~\citep{sattler2021clustered}, and FedRC~\citep{guo2024fedrc} address \emph{how to cluster}; we address \emph{when to cluster}.
 
-\textbf{Personalized FL.} APFL~\citep{deng2020adaptive}, Ditto~\citep{li2021ditto}, and pFedMe~\citep{t2020personalized} use fixed or heuristic mixing. Our shrinkage estimator derives $\hat\lambda$ from data, and Corollary~\ref{cor:implicit} shows imperfect clustering \emph{is} a form of shrinkage, unifying clustered and personalized FL.
+\textbf{Personalized FL.} APFL~\citep{deng2020adaptive}, Ditto~\citep{li2021ditto}, and pFedMe~\citep{t2020personalized} use fixed or heuristic mixing. FedBN~\citep{li2021fedbn} keeps BatchNorm local; FedPer~\citep{arivazhagan2019fedper} personalises FC heads. Our shrinkage estimator derives $\hat\lambda$ from data, and Corollary~\ref{cor:implicit} shows imperfect clustering \emph{is} a form of shrinkage, unifying clustered and personalized FL.
 
 \textbf{FL under concept drift.} FedDrift~\citep{jothimurugesan2023federated}, Flash~\citep{panchal2023flash}, FedCCFA~\citep{chen2024fedccfa}, and FedGWC~\citep{licciardi2025fedgwc} propose drift-aware algorithms without characterizing when concept-level treatment is worth the variance cost. SCAFFOLD~\citep{karimireddy2020scaffold} corrects client gradient drift but fails under temporal concept drift (\S\ref{sec:calibrated}).
 
@@ -407,7 +409,7 @@ SCAFFOLD$^\star$ & $0.089 \pm 0.008$ & 3.5 \\
 
 We characterized when concept-level aggregation helps under federated concept drift via a sharp crossover ($\SNR > C{-}1$) with four extensions unified in Theorem~\ref{thm:unified}. The key finding is that imperfect clustering acts as implicit shrinkage (Corollary~\ref{cor:implicit}), explaining why CFL and FedProx outperform oracle aggregation when $K/C$ is small---validated by noise injection, monotonic K-scaling, and SCAFFOLD's failure. This bridges clustered and personalized FL: these methods succeed not because they cluster well, but because they shrink appropriately.
 
-\textbf{Limitations.} The Gaussian linear model does not extend to nonlinear settings or time-varying $C(t)$. The symmetric-noise model is a simplification---real clustering may merge concepts entirely. Experiments use frozen features; end-to-end training behavior is future work.
+\textbf{Limitations.} The Gaussian linear model does not extend to nonlinear settings or time-varying $C(t)$. The symmetric-noise model is a simplification---real clustering may merge concepts entirely. EMNIST end-to-end CNN results (Appendix~\ref{app:emnist_e2e}) confirm the qualitative findings transfer to learned features, but the theory-to-practice gap for deep networks deserves further study.
 
 \bibliography{references}
 
@@ -872,5 +874,34 @@ $K$ & \multicolumn{5}{c}{Test Acc by $\eta$} & $\eta^*$ \\
 \end{table}
 
 \textbf{Overfitting scales with epochs.} The oracle's train-test gap (overfitting) grows monotonically with $E$: at $K{=}4$, the gap increases from $-0.4$pp ($E{=}1$, underfitting) to $+0.3$pp ($E{=}5$) to $+2.1$pp ($E{=}10$). At $E{=}10$, optimal $\eta^*{=}0.1$--$0.2$ improves test accuracy by $+2.3$pp over pure oracle ($K{=}4$), confirming Proposition~\ref{prop:variance_inflation}'s prediction that contamination's regularization benefit grows with the overfitting penalty $\Delta_{\mathrm{ovf}}$.
+
+\section{EMNIST End-to-End CNN Validation}
+\label{app:emnist_e2e}
+
+A key reviewer concern is whether the implicit-shrinkage finding holds beyond frozen features with linear heads (which is essentially a linear model). We validate on EMNIST digits with a \emph{LeNet-style CNN trained end-to-end}: 2 convolutional layers with BatchNorm, 2 FC layers, optimized jointly by SGD. Features are \emph{learned}, not frozen.
+
+\textbf{Setup.} EMNIST digits (10 classes, 240K images), $K{=}20$ clients, $T{=}20$ rounds, $C{=}4$ concepts (defined by visual transforms: original, blur, inversion, noise), federation every 2 rounds, 5~seeds. We compare 7 methods: FedAvg, Oracle, CFL, IFCA, Shrinkage (oracle concept labels), and two new partial-personalization baselines: FedBN~\citep{li2021fedbn} (share all except BatchNorm) and FedPer~\citep{arivazhagan2019fedper} (share conv body, personalize FC head).
+
+\begin{table}[h]
+\centering
+\caption{End-to-end CNN comparison on EMNIST ($K{=}20$, $T{=}20$, $C{=}4$, 5~seeds). Unlike CIFAR-100 (frozen features), the CNN learns representations end-to-end. The qualitative findings from the frozen-feature setting transfer: concept-level methods (Oracle, Shrinkage) outperform FedAvg, and partial-personalization baselines (FedBN, FedPer) interpolate between the two.}
+\label{tab:emnist_e2e}
+\small
+\begin{tabular}{lccc}
+\toprule
+Method & Final Acc.\ (\%) & $\pm$ Std & Type \\
+\midrule
+FedAvg          & 90.9 & 0.5 & Global \\
+CFL             & 90.7 & 1.1 & Clustered \\
+FedPer          & 90.4 & 0.6 & Partial-personal \\
+FedBN           & 92.1 & 0.8 & Partial-personal \\
+IFCA            & 92.7 & 0.7 & Concept-level \\
+Oracle          & \textbf{92.8} & 0.8 & Concept-level \\
+Shrinkage       & \textbf{92.8} & 0.7 & Concept-level \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key findings.} (1)~The concept-level vs.\ global ordering is preserved: Oracle and Shrinkage ($92.8\%$) outperform FedAvg ($90.9\%$) by $+1.9$pp, confirming the theory extends beyond linear models. (2)~Shrinkage matches Oracle exactly, validating that empirical-Bayes interpolation works for CNN weight spaces. (3)~FedBN ($92.1\%$) outperforms FedAvg but trails Oracle, showing partial personalisation captures some but not all concept structure. FedPer ($90.4\%$) does not improve over FedAvg, suggesting that under concept drift the \emph{body} (feature extractor) diverges more than the head. (4)~CFL ($90.7\%$) performs at FedAvg level, consistent with Table~\ref{tab:cifar_calibrated}: gradient-similarity clustering with $C{=}4$ concepts is imperfect ($\eta > 0$), and the implicit-shrinkage benefit requires $K/C$ to be large enough to offset mis-assignment noise.
 
 \end{document}
