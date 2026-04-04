@@ -95,13 +95,19 @@ def _run_one_backbone(
 
     rows: list[dict] = []
 
+    from fedprotrack.experiment.runner import ExperimentConfig
+    exp_cfg = ExperimentConfig(
+        generator_config=dataset.config,
+        federation_every=fed_every,
+    )
+
     # Build method runners.
     methods: dict[str, callable] = {}
     methods["FedAvg"] = lambda: ("FedAvg", run_fedavg_baseline(
-        dataset, n_epochs=n_epochs, lr=lr,
+        exp_cfg, dataset=dataset, n_epochs=n_epochs, lr=lr, seed=seed,
     ))
     methods["Oracle"] = lambda: ("Oracle", run_oracle_baseline(
-        dataset, n_epochs=n_epochs, lr=lr,
+        exp_cfg, dataset=dataset, n_epochs=n_epochs, lr=lr, seed=seed,
     ))
     methods["CFL"] = lambda: ("CFL", run_cfl_full(
         dataset, federation_every=fed_every,
