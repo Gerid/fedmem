@@ -26,6 +26,7 @@ from fedprotrack.baselines.runners import (
     run_feddrift_full,
     run_fedem_full,
     run_fedproto_full,
+    run_fedprox_full,
     run_fedrc_full,
     run_fesem_full,
     run_flash_full,
@@ -186,6 +187,7 @@ def _build_methods(
         "FLUX": lambda: run_flux_full(dataset, federation_every=federation_every),
         "FLUX-prior": lambda: run_flux_prior_full(dataset, federation_every=federation_every),
         "CompressedFedAvg": lambda: run_compressed_fedavg_full(dataset, federation_every=federation_every),
+        "FedProx": lambda: run_fedprox_full(dataset, federation_every=federation_every),
     }
 
 

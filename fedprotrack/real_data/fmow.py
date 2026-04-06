@@ -189,7 +189,7 @@ def _load_fmow_wilds(
     """
     try:
         return _load_fmow_wilds_real(data_root, n_classes, feature_seed)
-    except ImportError:
+    except (ImportError, FileNotFoundError, OSError):
         return _load_fmow_torchvision_proxy(data_root, n_classes, feature_seed)
 
 

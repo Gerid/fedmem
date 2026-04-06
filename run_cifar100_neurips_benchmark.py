@@ -61,6 +61,7 @@ from fedprotrack.baselines.runners import (
     run_feddrift_full,
     run_fedem_full,
     run_fedproto_full,
+    run_fedprox_full,
     run_fedrc_full,
     run_fesem_full,
     run_flash_full,
@@ -99,7 +100,7 @@ METHOD_GROUPS: dict[str, list[str]] = {
     "core": ["FedProTrack", "FedAvg", "Oracle", "IFCA"],
     "drift": ["FedDrift", "Flash", "FedCCFA"],
     "cluster": ["CFL", "FedRC", "FedEM", "FeSEM"],
-    "pfl": ["pFedMe", "APFL", "ATP"],
+    "pfl": ["FedProx", "pFedMe", "APFL", "ATP"],
     "extra": ["TrackedSummary", "FLUX", "FLUX-prior", "CompressedFedAvg", "LocalOnly"],
     "quick": ["FedProTrack", "FedAvg", "Oracle", "IFCA", "FedRC"],
 }
@@ -405,6 +406,9 @@ def _build_methods(
             dataset, federation_every=federation_every,
         ),
         "CompressedFedAvg": lambda: run_compressed_fedavg_full(
+            dataset, federation_every=federation_every,
+        ),
+        "FedProx": lambda: run_fedprox_full(
             dataset, federation_every=federation_every,
         ),
     }
