@@ -6,6 +6,12 @@ from .cfl import CFLUpload, CFLClient, CFLServer
 from .comm_tracker import model_bytes, prototype_bytes, fingerprint_bytes
 from .compressed_fedavg import CompressedUpload, CompressedFedAvgClient, CompressedFedAvgServer
 from .fedccfa import FedCCFAUpload, FedCCFAUpdate, FedCCFAClient, FedCCFAServer
+from .fedccfa_impl import (
+    FedCCFAImplUpload,
+    FedCCFAImplUpdate,
+    FedCCFAImplClient,
+    FedCCFAImplServer,
+)
 from .feddrift import FedDriftUpload, FedDriftClient, FedDriftServer
 from .fedem import FedEMUpload, FedEMClient, FedEMServer
 from .fedproto import ClientProtoUpload, FedProtoClient, FedProtoAggregator
@@ -13,6 +19,7 @@ from .fedrc import FedRCUpload, FedRCClient, FedRCServer
 from .fesem import FeSEMUpload, FeSEMClient, FeSEMServer
 from .flash import FlashUpload, FlashClient, FlashAggregator
 from .flux import FLUXUpload, FLUXUpdate, FLUXClient, FLUXServer, FLUXPriorServer
+from .fedprox import FedProxUpload, FedProxClient, FedProxServer
 from .ifca import IFCAUpload, IFCAClient, IFCAServer
 from .pfedme import PFedMeUpload, PFedMeClient, PFedMeServer
 from .tracked_summary import TrackedUpload, TrackedSummaryClient, TrackedSummaryServer
@@ -36,6 +43,10 @@ __all__ = [
     "FedCCFAUpdate",
     "FedCCFAClient",
     "FedCCFAServer",
+    "FedCCFAImplUpload",
+    "FedCCFAImplUpdate",
+    "FedCCFAImplClient",
+    "FedCCFAImplServer",
     "ClientProtoUpload",
     "FedProtoClient",
     "FedProtoAggregator",
@@ -51,6 +62,9 @@ __all__ = [
     "FedEMUpload",
     "FedEMClient",
     "FedEMServer",
+    "FedProxUpload",
+    "FedProxClient",
+    "FedProxServer",
     "IFCAUpload",
     "IFCAClient",
     "IFCAServer",

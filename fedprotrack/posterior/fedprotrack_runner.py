@@ -30,6 +30,8 @@ from ..models import (
     TorchFactorizedAdapterClassifier,
     TorchFeatureAdapterClassifier,
     TorchLinearClassifier,
+    TorchMobileNetV2,
+    TorchSmallCNN,
 )
 from .predictive_signatures import project_batch_prototype_signatures
 from .routing_similarity import prototype_transport_similarity
@@ -418,6 +420,7 @@ def _make_model(
     seed: int,
     hidden_dim: int,
     adapter_dim: int,
+    batch_size: int = 64,
 ):
     """Instantiate the configured client model."""
     if model_type == "linear":
@@ -448,9 +451,27 @@ def _make_model(
             n_epochs=n_epochs,
             seed=seed,
         )
+    if model_type == "small_cnn":
+        return TorchSmallCNN(
+            n_classes=n_classes,
+            lr=lr,
+            n_epochs=n_epochs,
+            batch_size=batch_size,
+            seed=seed,
+        )
+    if model_type == "mobilenetv2":
+        return TorchMobileNetV2(
+            n_classes=n_classes,
+            pretrained=False,
+            lr=lr,
+            n_epochs=n_epochs,
+            batch_size=batch_size,
+            seed=seed,
+        )
     raise ValueError(
         "Unknown model_type: "
-        f"{model_type}. Choose from ['linear', 'feature_adapter', 'factorized_adapter']"
+        f"{model_type}. Choose from ['linear', 'feature_adapter', "
+        f"'factorized_adapter', 'small_cnn', 'mobilenetv2']"
     )
 
 
@@ -907,7 +928,6 @@ def _summarize_phase_a_round(
     timestep: int,
     phase_a_result: PhaseAResult,
     active_after: int,
-    trust_diagnostics: dict[str, float] | None = None,
 ) -> dict[str, object]:
     fp_losses = list(phase_a_result.client_fp_losses.values())
     thresholds = list(phase_a_result.client_effective_thresholds.values())
@@ -925,7 +945,7 @@ def _summarize_phase_a_round(
         if client_id in phase_a_result.client_effective_thresholds
     ]
 
-    result: dict[str, object] = {
+    return {
         "t": int(timestep),
         "library_size_before": int(phase_a_result.library_size_before),
         "active_after": int(active_after),
@@ -944,10 +964,6 @@ def _summarize_phase_a_round(
         ),
         "mean_map_prob": float(np.mean(map_probs)) if map_probs else None,
     }
-    if trust_diagnostics is not None:
-        result["trust_accept_rate"] = trust_diagnostics.get("accept_rate")
-        result["trust_mean_trust"] = trust_diagnostics.get("mean_trust")
-    return result
 
 
 def _compose_routed_payload(
@@ -1244,13 +1260,6 @@ class FedProTrackRunner:
         evaluation step. This keeps communication accounting aligned with
         matched-budget baselines because there is no future prediction to
         benefit from the final sync. Default False.
-    warmup_rounds : int
-        Number of initial federation rounds that use plain FedAvg aggregation
-        of ALL clients (no Phase A concept routing). This builds a strong
-        shared initialization before concept divergence begins. The counter
-        counts federation rounds (not timesteps), so with federation_every=2
-        and warmup_rounds=5, the first 10 timesteps use FedAvg. Default 0
-        (no warmup, original behaviour).
     """
 
     def __init__(
@@ -1291,7 +1300,6 @@ class FedProTrackRunner:
         predictive_grouping_cache_blend_alpha: float = 0.0,
         routed_local_training: bool = False,
         skip_last_federation_round: bool = False,
-        warmup_rounds: int = 0,
         lr: float = 0.1,
         n_epochs: int = 1,
         loss_validation: bool = False,
@@ -1316,14 +1324,6 @@ class FedProTrackRunner:
         factorized_secondary_anchor_alpha: float = 0.75,
         factorized_primary_consolidation_steps: int = 0,
         factorized_primary_consolidation_mode: str = "full",
-        min_agg_group_size: int = 1,
-        cross_time_ema: float = 1.0,
-        concept_global_mix: float = 0.0,
-        concept_delta_mode: bool = False,
-        enable_trust_estimation: bool = False,
-        trust_buffer_size: int = 5,
-        trust_decay: float = 0.7,
-        trust_promotion_threshold: int = 2,
     ):
         self.config = config or TwoPhaseConfig()
         self.federation_every = federation_every
@@ -1361,7 +1361,6 @@ class FedProTrackRunner:
         self.predictive_grouping_cache_blend_alpha = predictive_grouping_cache_blend_alpha
         self.routed_local_training = routed_local_training
         self.skip_last_federation_round = skip_last_federation_round
-        self.warmup_rounds = warmup_rounds
         self.lr = lr
         self.n_epochs = n_epochs
         self.loss_validation = loss_validation
@@ -1390,14 +1389,6 @@ class FedProTrackRunner:
         self.factorized_secondary_anchor_alpha = factorized_secondary_anchor_alpha
         self.factorized_primary_consolidation_steps = factorized_primary_consolidation_steps
         self.factorized_primary_consolidation_mode = factorized_primary_consolidation_mode
-        self.min_agg_group_size = min_agg_group_size
-        self.cross_time_ema = cross_time_ema
-        self.concept_global_mix = concept_global_mix
-        self.concept_delta_mode = concept_delta_mode
-        self.enable_trust_estimation = enable_trust_estimation
-        self.trust_buffer_size = trust_buffer_size
-        self.trust_decay = trust_decay
-        self.trust_promotion_threshold = trust_promotion_threshold
 
     def run(self, dataset: DriftDataset) -> FedProTrackResult:
         """Execute the full FedProTrack simulation.
@@ -1441,10 +1432,9 @@ class FedProTrackRunner:
             raise ValueError(
                 "expert_update_policy must be one of ['map_only', 'posterior_weighted']"
             )
-        if self.shared_update_policy not in {"always", "freeze_on_multiroute", "never"}:
+        if self.shared_update_policy not in {"always", "freeze_on_multiroute"}:
             raise ValueError(
-                "shared_update_policy must be one of "
-                "['always', 'freeze_on_multiroute', 'never']"
+                "shared_update_policy must be one of ['always', 'freeze_on_multiroute']"
             )
         if self.routed_write_top_k is not None and int(self.routed_write_top_k) < 1:
             raise ValueError("routed_write_top_k must be >= 1 when provided")
@@ -1555,7 +1545,6 @@ class FedProTrackRunner:
             max_concepts=max_concepts,
             max_spawn_clusters_per_round=self.config.max_spawn_clusters_per_round,
             novelty_hysteresis_rounds=self.config.novelty_hysteresis_rounds,
-            spawn_pressure_damping=self.config.spawn_pressure_damping,
             merge_every=self.config.merge_every,
             shrink_every=self.config.shrink_every,
             key_mode=self.config.key_mode,
@@ -1585,14 +1574,6 @@ class FedProTrackRunner:
             prototype_subgroup_early_mix=self.prototype_subgroup_early_mix,
             prototype_subgroup_min_clients=self.prototype_subgroup_min_clients,
             prototype_subgroup_similarity_gate=self.prototype_subgroup_similarity_gate,
-            min_agg_group_size=self.min_agg_group_size,
-            cross_time_ema=self.cross_time_ema,
-            concept_global_mix=self.concept_global_mix,
-            concept_delta_mode=self.concept_delta_mode,
-            enable_trust_estimation=self.enable_trust_estimation,
-            trust_buffer_size=self.trust_buffer_size,
-            trust_decay=self.trust_decay,
-            trust_promotion_threshold=self.trust_promotion_threshold,
         )
 
         protocol = TwoPhaseFedProTrack(cfg)
@@ -1634,7 +1615,6 @@ class FedProTrackRunner:
         total_merged = 0
         total_pruned = 0
         federation_rounds_completed = 0
-        warmup_federation_rounds_done = 0
         prev_assignments: dict[int, int] | None = None
         old_assignments: dict[int, int] | None = None
         last_a_result: PhaseAResult | None = None
@@ -1720,9 +1700,7 @@ class FedProTrackRunner:
                         current_slot_id,
                         training_slot_weights,
                     )
-                    if self.shared_update_policy == "never":
-                        update_shared = False
-                    elif (
+                    if (
                         self.shared_update_policy == "freeze_on_multiroute"
                         and len(effective_training_weights) > 1
                     ):
@@ -1885,40 +1863,6 @@ class FedProTrackRunner:
             if self.skip_last_federation_round and t == T - 1:
                 is_federation_step = False
             if is_federation_step:
-                # --- Warmup: plain FedAvg without concept routing ---
-                if (
-                    self.warmup_rounds > 0
-                    and warmup_federation_rounds_done < self.warmup_rounds
-                ):
-                    warmup_federation_rounds_done += 1
-                    all_params = [
-                        model_params[k]
-                        for k in range(K)
-                        if model_params[k]
-                    ]
-                    if all_params:
-                        global_avg = _average_params(all_params)
-                        # Comm accounting: each client uploads + downloads
-                        warmup_up = sum(
-                            model_bytes(p, precision_bits=32)
-                            for p in all_params
-                        )
-                        warmup_down = (
-                            model_bytes(global_avg, precision_bits=32) * K
-                        )
-                        phase_b_bytes += warmup_up + warmup_down
-                        federation_rounds_completed += 1
-                        for k in range(K):
-                            _model_set_params(models[k], global_avg)
-                            model_params[k] = {
-                                key: arr.copy()
-                                for key, arr in global_avg.items()
-                            }
-                    # Record trivial concept assignment (all concept 0)
-                    for k in range(K):
-                        predicted_matrix[k, t] = 0
-                    continue  # Skip Phase A + Phase B
-
                 # Decide whether to run Phase A
                 # In event-triggered mode: only run Phase A when drift
                 # detected or no assignments exist yet (bootstrap)
@@ -1962,117 +1906,6 @@ class FedProTrackRunner:
                     old_assignments = prev_assignments
                     prev_assignments = last_a_result.assignments
                     posteriors_log.append((t, last_a_result.posteriors))
-                    # --- Trust-weighted centroid estimation ---
-                    trust_diag: dict[str, float] = {}
-                    if self.enable_trust_estimation:
-                        if federation_rounds_completed == 0:
-                            # Round 0: batch bootstrap
-                            fp_list = [step_fingerprints[k] for k in range(K)]
-                            bootstrap_assignments = protocol.memory_bank.batch_bootstrap(
-                                fp_list,
-                            )
-                            # Override Phase A assignments with bootstrap clusters
-                            for k_idx, concept_id in enumerate(bootstrap_assignments):
-                                prev_assignments[k_idx] = concept_id
-                            trust_diag["accept_rate"] = 1.0
-                            trust_diag["mean_trust"] = 1.0
-                        else:
-                            # Subsequent rounds: compute peer agreement & trust
-                            concept_groups: dict[int, list[int]] = {}
-                            for k_client, c_id in prev_assignments.items():
-                                concept_groups.setdefault(c_id, []).append(k_client)
-
-                            all_trusts: list[float] = []
-                            accepted = 0
-                            total_clients = 0
-                            for c_id, group_clients in concept_groups.items():
-                                if len(group_clients) < 2:
-                                    # Singletons: skip centroid update (trust=0)
-                                    total_clients += len(group_clients)
-                                    all_trusts.append(0.0)
-                                    continue
-
-                                # Collect fingerprint means for the group
-                                group_fps = [step_fingerprints[k_c] for k_c in group_clients]
-                                group_means = np.stack(
-                                    [fp._mean for fp in group_fps], axis=0,
-                                )
-
-                                # Per-client posterior probability for this concept
-                                post_probs = []
-                                for k_c in group_clients:
-                                    post = last_a_result.posteriors.get(k_c)
-                                    if post is not None:
-                                        post_probs.append(
-                                            post.probabilities.get(c_id, 0.0)
-                                        )
-                                    else:
-                                        post_probs.append(1.0)
-
-                                # Compute peer agreement via leave-one-out
-                                trust_scores: list[float] = []
-                                for i_local, k_c in enumerate(group_clients):
-                                    # Leave-one-out posterior-weighted mean
-                                    peer_weights = np.array([
-                                        post_probs[j]
-                                        for j in range(len(group_clients))
-                                        if j != i_local
-                                    ], dtype=np.float64)
-                                    peer_means = np.stack([
-                                        group_means[j]
-                                        for j in range(len(group_clients))
-                                        if j != i_local
-                                    ], axis=0)
-                                    w_sum = float(peer_weights.sum())
-                                    if w_sum < 1e-12:
-                                        trust_scores.append(0.0)
-                                        continue
-                                    loo_mean = (
-                                        peer_weights[:, None] * peer_means
-                                    ).sum(axis=0) / w_sum
-
-                                    # Cosine similarity
-                                    phi_k = group_means[i_local]
-                                    norm_phi = float(np.linalg.norm(phi_k))
-                                    norm_loo = float(np.linalg.norm(loo_mean))
-                                    if norm_phi < 1e-12 or norm_loo < 1e-12:
-                                        peer_agree = 0.0
-                                    else:
-                                        peer_agree = float(
-                                            np.dot(phi_k, loo_mean)
-                                            / (norm_phi * norm_loo)
-                                        )
-
-                                    trust_k = post_probs[i_local] * max(0.0, peer_agree)
-                                    trust_scores.append(trust_k)
-
-                                # Filter by minimum trust threshold
-                                min_trust = 0.3
-                                accepted_fps = [
-                                    fp for fp, ts in zip(group_fps, trust_scores)
-                                    if ts >= min_trust
-                                ]
-                                accepted_ts = [
-                                    ts for ts in trust_scores if ts >= min_trust
-                                ]
-                                if accepted_fps:
-                                    protocol.memory_bank.trust_weighted_update(
-                                        c_id, accepted_fps, accepted_ts,
-                                    )
-
-                                for ts in trust_scores:
-                                    all_trusts.append(ts)
-                                    if ts >= min_trust:
-                                        accepted += 1
-                                total_clients += len(group_clients)
-
-                            trust_diag["accept_rate"] = (
-                                accepted / max(total_clients, 1)
-                            )
-                            trust_diag["mean_trust"] = float(
-                                np.mean(all_trusts) if all_trusts else 0.0
-                            )
-
                     phase_a_round_diagnostics.append(
                         _summarize_phase_a_round(
                             timestep=t,
@@ -2080,7 +1913,6 @@ class FedProTrackRunner:
                             active_after=len(set(prev_assignments.values()))
                             if prev_assignments
                             else 0,
-                            trust_diagnostics=trust_diag if self.enable_trust_estimation else None,
                         )
                     )
 
@@ -2099,7 +1931,7 @@ class FedProTrackRunner:
                         # Collect candidate models (top-K by posterior)
                         candidate_models: dict[int, dict[str, np.ndarray]] = {}
                         for cid in all_cids:
-                            m = protocol.recall_concept_model(cid)
+                            m = protocol.memory_bank.get_model_params(cid)
                             if m is not None:
                                 candidate_models[cid] = m
 
@@ -2239,12 +2071,11 @@ class FedProTrackRunner:
                     )
 
                 # Concept-model warm-start on concept SWITCHES only:
-                # For namespaced (adapter) models, replace the upload with
-                # the stored expert for the new concept so that the wrong
-                # slot is not uploaded into the new concept cluster.
-                # For plain linear models, keep the freshly-trained params
-                # as the Phase B upload — overwriting them with a stored
-                # (possibly stale) model harms the aggregate.
+                # When a client switches to a different concept (recurrence),
+                # restore the stored model for that concept before Phase B.
+                # This prevents a freshly switched feature-adapter client
+                # from uploading the previous slot's expert into the new
+                # concept cluster.
                 if prev_assignments and old_assignments is not None:
                     for k in range(K):
                         new_cid = prev_assignments.get(k)
@@ -2254,17 +2085,14 @@ class FedProTrackRunner:
                             and old_cid is not None
                             and new_cid != old_cid
                         ):
-                            stored = protocol.recall_concept_model(new_cid)
+                            stored = protocol.memory_bank.get_model_params(new_cid)
                             if stored is not None:
+                                _model_set_params(models[k], stored)
+                                model_params[k] = {
+                                    key: arr.copy()
+                                    for key, arr in stored.items()
+                                }
                                 if _is_namespaced_routed_model(models[k]):
-                                    # Adapter models: replace upload with
-                                    # correct expert slot to avoid cross-
-                                    # concept expert contamination.
-                                    _model_set_params(models[k], stored)
-                                    model_params[k] = {
-                                        key: arr.copy()
-                                        for key, arr in stored.items()
-                                    }
                                     client_slot_weights[k] = {int(new_cid): 1.0}
                                     client_read_slot_weights[k] = {int(new_cid): 1.0}
 
@@ -2380,7 +2208,7 @@ class FedProTrackRunner:
                                     for slot_id in routing_weights:
                                         params = b_result.aggregated_params.get(slot_id)
                                         if params is None:
-                                            params = protocol.recall_concept_model(slot_id)
+                                            params = protocol.memory_bank.get_model_params(slot_id)
                                         if params is not None:
                                             candidate_payloads[int(slot_id)] = params
                                     filtered_write_weights = {

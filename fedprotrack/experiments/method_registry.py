@@ -22,6 +22,7 @@ IDENTITY_CAPABLE_METHODS: frozenset[str] = frozenset({
     "Oracle",
     "FedEM",
     "FedCCFA",
+    "FedCCFA-Impl",
     "TrackedSummary",
     "FedDrift",
     "IFCA",
@@ -34,6 +35,7 @@ IDENTITY_CAPABLE_METHODS: frozenset[str] = frozenset({
 NON_IDENTITY_METHODS: frozenset[str] = frozenset({
     "FedAvg",
     "FedProto",
+    "FedProx",
     "Flash",
     "CompressedFedAvg",
     "LocalOnly",
