@@ -2,7 +2,7 @@ from __future__ import annotations
 # NeurIPS Experiment Setup Gap Analysis (2026-04-07)
 
 **Purpose**: Align FedProTrack experiments with top-conference baselines (NeurIPS/ICML/ICLR 2024-2025).
-**Status**: Post first-round alignment (commit c35f04e). This document tracks remaining gaps.
+**Status**: Post second-round alignment (commit 40f8598). This document tracks remaining gaps.
 
 ---
 
@@ -37,47 +37,30 @@ from __future__ import annotations
 
 Test count: 381 -> 740 collected, 726 pass, 0 regressions.
 
+## 2b. Gaps Closed (commit 40f8598, 2026-04-08)
+
+| # | Gap | Before | After |
+|---|-----|--------|-------|
+| G1 | FedProx + FedCCFA-Impl not in benchmark | missing | wired into both smoke + neurips scripts |
+| G2 | No multi-dataset support | CIFAR-100 only | +CIFAR-10, FMNIST, FMOW via `--dataset` arg |
+| G4 | SCAFFOLD baseline missing | not implemented | scaffold.py (12 tests) |
+| G5 | Ditto baseline missing | not implemented | ditto.py (11 tests) |
+| G6 | HCFL baseline missing | not implemented | hcfl.py (16 tests, identity-capable) |
+| G7 | FedGWC baseline missing | not implemented | fedgwc.py (11 tests, identity-capable) |
+| G8 | Adaptive-FedAvg missing | not implemented | adaptive_fedavg.py (13 tests) |
+
+Test count: 726 -> 795 pass, 0 regressions.
+
 ---
 
 ## 3. Remaining Gaps
 
 ### 3.1 Code-Level Gaps (need implementation)
 
-**G1 [P0, 10 min] -- Benchmark script missing FedProx + FedCCFA-Impl wiring**
-- `run_cifar100_neurips_benchmark.py` uses old `run_fedccfa_full()` not the new `run_fedccfa_impl_full()`.
-- `FedProx` not in `_build_methods()` or `METHOD_GROUPS`.
-- Fix: add two entries in `_build_methods()`, add "FedProx" to appropriate METHOD_GROUP.
-
-**G2 [P1, 1h] -- Benchmark script has no multi-dataset support**
-- Script is hardcoded to CIFAR-100. CIFAR-10 and FMNIST dataset code exists but is not wired in.
-- Fix: add `--dataset {cifar100,cifar10,fmnist}` argument, dispatch to corresponding recurrence module.
-
 **G3 [P1, 2h] -- E2E models not wired into baseline runners**
 - All `run_xxx_full()` in `baselines/runners.py` hardcode `TorchLinearClassifier`.
 - SmallCNN and MobileNetV2 exist in `models/cnn.py` but baselines cannot use them.
 - Fix: add `model_type` parameter to each runner, factory-dispatch to correct model class.
-
-**G4 [P2, 3h] -- SCAFFOLD baseline missing**
-- Used by FedCCFA as one of its 14 baselines.
-- Requires variance reduction via control variates (server + client correction terms).
-- Reference: Karimireddy et al., ICML 2020.
-
-**G5 [P2, 2h] -- Ditto baseline missing**
-- Used by FedCCFA as PFL baseline.
-- FedAvg for global model + per-client fine-tuning with proximal regularization.
-- Reference: Li et al., ICML 2021.
-
-**G6 [P2, 4h] -- HCFL / HCFL+ baseline missing**
-- ICLR'25, latest clustered FL. Four-tier framework with integration of strategies.
-- Need to read full paper algorithm section for implementation.
-
-**G7 [P2, 4h] -- FedGWC baseline missing**
-- ICML'25, Gaussian weighting + Wasserstein Adjusted Score for clustering.
-- Need full paper for implementation details.
-
-**G8 [P2, 2h] -- Adaptive-FedAvg baseline missing**
-- Used by FedDrift and FedDAA as baseline.
-- FedAvg with drift-adaptive learning rate adjustment.
 
 ### 3.2 Experiment Design Gaps (need decisions + runs)
 
@@ -121,23 +104,19 @@ Test count: 381 -> 740 collected, 726 pass, 0 regressions.
 
 ```
 Immediate (< 30 min):
-  G1  -- Wire FedProx + FedCCFA-Impl into benchmark script
-  E6  -- Local --quick smoke run to validate end-to-end
+  E6  -- Local --quick smoke run to validate end-to-end (26 methods)
 
 This week (P1):
-  G2  -- Multi-dataset support in benchmark script
   G3  -- E2E model support in baseline runners
   E2  -- Run linear + SmallCNN dual-architecture experiments
   E4  -- Convergence curve plotting
 
 Pre-submission (P2):
-  G4-G8  -- Additional baselines (driven by reviewer expectations)
   E1     -- Dirichlet heterogeneity ablation
   E5     -- Ablations at NeurIPS scale
 
 Optional / reviewer-driven (P3):
   E3     -- CIFAR-C feature shift
-  G6-G7  -- HCFL / FedGWC baselines
 ```
 
 ---
@@ -147,25 +126,25 @@ Optional / reviewer-driven (P3):
 | Method | Implemented? | In benchmark script? | In method_registry? | Competitor usage |
 |--------|-------------|---------------------|--------------------|--------------------|
 | FedAvg | yes | yes | yes | universal |
-| FedProx | **yes (new)** | **no** | yes | FedCCFA, universal |
-| SCAFFOLD | no | no | no | FedCCFA |
+| FedProx | yes | yes | yes | FedCCFA, universal |
+| SCAFFOLD | **yes (new)** | **yes** | yes | FedCCFA |
 | IFCA | yes | yes | yes | FedRC, FedCCFA, FedDrift |
 | FeSEM | yes | yes | yes | FedRC |
 | CFL | yes | yes | yes | multiple |
 | FedRC | yes | yes | yes | HCFL, FedDAA |
 | FedEM | yes | yes | yes | FedRC |
-| FedCCFA (old) | yes | yes (uses old impl) | yes | -- |
-| FedCCFA-Impl (new) | **yes (new)** | **no** | yes | direct competitor |
+| FedCCFA (old) | yes | yes | yes | -- |
+| FedCCFA-Impl (new) | yes | **yes** | yes | direct competitor |
 | FedDrift | yes | yes | yes | FedCCFA, FedDAA |
 | Flash | yes | yes | yes | FedCCFA, FedDAA |
 | pFedMe | yes | yes | yes | multiple |
 | APFL | yes | yes | yes | multiple |
 | ATP | yes | yes | yes | -- |
-| Ditto | no | no | no | FedCCFA |
+| Ditto | **yes (new)** | **yes** | yes | FedCCFA |
 | FedRep/FedBABU | no | no | no | FedCCFA |
-| Adaptive-FedAvg | no | no | no | FedDrift, FedDAA |
-| HCFL/HCFL+ | no | no | no | ICLR'25 latest |
-| FedGWC | no | no | no | ICML'25 latest |
+| Adaptive-FedAvg | **yes (new)** | **yes** | yes | FedDrift, FedDAA |
+| HCFL | **yes (new)** | **yes** | yes | ICLR'25 latest |
+| FedGWC | **yes (new)** | **yes** | yes | ICML'25 latest |
 | FedStein | no (bib only) | no | no | shrinkage competitor |
 | FLUX / FLUX-prior | yes | yes | yes | -- |
 | CompressedFedAvg | yes | yes | yes | -- |
@@ -174,9 +153,8 @@ Optional / reviewer-driven (P3):
 | Oracle | yes | yes | yes | universal |
 | LocalOnly | yes | yes | yes | universal |
 
-**Current count**: 19 implemented / 7 missing.
-**Minimum for submission**: implement G1 (wire existing) + G4 (SCAFFOLD) + G5 (Ditto) = 21 methods.
-**Ideal**: all 26 = covers every baseline used by any direct competitor.
+**Current count**: 24 implemented, 26 in METHOD_GROUPS / 2 missing (FedRep/FedBABU, FedStein).
+**Coverage**: covers every baseline used by any direct competitor except FedRep and FedStein.
 
 ---
 
