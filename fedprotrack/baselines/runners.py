@@ -123,6 +123,10 @@ def _from_external_result(
 def run_fedproto_full(
     dataset: DriftDataset,
     federation_every: int = 1,
+    *,
+    lr: float | None = None,
+    n_epochs: int | None = None,
+    model_type: str = "linear",
 ) -> MethodResult:
     """Run FedProto and return full accuracy matrix.
 
@@ -130,11 +134,17 @@ def run_fedproto_full(
     ----------
     dataset : DriftDataset
     federation_every : int
+    lr : float | None
+        Accepted for API uniformity but ignored -- FedProto is
+        prototype-based and has no gradient-trained model.
+    n_epochs : int | None
+        Accepted for API uniformity but ignored.
 
     Returns
     -------
     MethodResult
     """
+    # lr / n_epochs are intentionally unused: FedProto is prototype-based.
     K, T, n_features, n_classes = _extract_dims(dataset)
     clients = [FedProtoClient(k, n_features, n_classes) for k in range(K)]
     aggregator = FedProtoAggregator()
@@ -180,8 +190,35 @@ def run_pfedme_full(
     K_steps: int = 5,
     lamda: float = 0.1,
     personal_learning_rate: float = 0.05,
+    lr: float | None = None,
+    n_epochs: int | None = None,
+    model_type: str = "linear",
 ) -> MethodResult:
-    """Run pFedMe and return full results."""
+    """Run pFedMe and return full results.
+
+    Parameters
+    ----------
+    dataset : DriftDataset
+    federation_every : int
+    local_epochs : int
+        Number of local epochs. Overridden by *n_epochs* when provided.
+    K_steps : int
+    lamda : float
+    personal_learning_rate : float
+        Personal learning rate. Overridden by *lr* when provided.
+    lr : float | None
+        Unified learning rate alias -- maps to *personal_learning_rate*.
+    n_epochs : int | None
+        Unified epoch alias -- maps to *local_epochs*.
+
+    Returns
+    -------
+    MethodResult
+    """
+    if lr is not None:
+        personal_learning_rate = lr
+    if n_epochs is not None:
+        local_epochs = n_epochs
     result = _run_pfedme_impl(
         dataset,
         federation_every=federation_every,
@@ -189,6 +226,7 @@ def run_pfedme_full(
         K_steps=K_steps,
         lamda=lamda,
         personal_learning_rate=personal_learning_rate,
+        model_type=model_type,
     )
     return _from_external_result(result, method_name="pFedMe")
 
@@ -200,14 +238,42 @@ def run_apfl_full(
     alpha: float = 0.5,
     alpha_lr: float = 0.05,
     local_steps: int = 2,
+    lr: float | None = None,
+    n_epochs: int | None = None,
+    model_type: str = "linear",
 ) -> MethodResult:
-    """Run APFL and return full results."""
+    """Run APFL and return full results.
+
+    Parameters
+    ----------
+    dataset : DriftDataset
+    federation_every : int
+    alpha : float
+    alpha_lr : float
+    local_steps : int
+        Number of local adaptation steps. Overridden by *n_epochs* when
+        provided.
+    lr : float | None
+        Unified learning rate alias -- maps to *alpha_lr* (the local
+        adaptation learning rate used by both global and local models).
+    n_epochs : int | None
+        Unified epoch alias -- maps to *local_steps*.
+
+    Returns
+    -------
+    MethodResult
+    """
+    effective_lr = lr if lr is not None else alpha_lr
+    if n_epochs is not None:
+        local_steps = n_epochs
     result = _run_apfl_impl(
         dataset,
         federation_every=federation_every,
         alpha=alpha,
-        alpha_lr=alpha_lr,
+        alpha_lr=effective_lr,
         local_steps=local_steps,
+        lr=effective_lr,
+        model_type=model_type,
     )
     return _from_external_result(result, method_name="APFL")
 
@@ -218,14 +284,40 @@ def run_fedem_full(
     *,
     n_components: int = 3,
     local_epochs: int = 2,
+    lr: float | None = None,
+    n_epochs: int | None = None,
+    model_type: str = "linear",
 ) -> MethodResult:
-    """Run FedEM and return full results."""
-    result = _run_fedem_impl(
-        dataset,
+    """Run FedEM and return full results.
+
+    Parameters
+    ----------
+    dataset : DriftDataset
+    federation_every : int
+    n_components : int
+    local_epochs : int
+        Number of local epochs. Overridden by *n_epochs* when provided.
+    lr : float | None
+        Unified learning rate alias -- forwarded to the FedEM
+        implementation.
+    n_epochs : int | None
+        Unified epoch alias -- maps to *local_epochs*.
+
+    Returns
+    -------
+    MethodResult
+    """
+    if n_epochs is not None:
+        local_epochs = n_epochs
+    kwargs: dict = dict(
         federation_every=federation_every,
         n_components=n_components,
         local_epochs=local_epochs,
     )
+    if lr is not None:
+        kwargs["lr"] = lr
+    kwargs["model_type"] = model_type
+    result = _run_fedem_impl(dataset, **kwargs)
     return _from_external_result(result, method_name="FedEM")
 
 
@@ -235,6 +327,10 @@ def run_fedccfa_full(
     cluster_eps: float = 0.35,
     reid_similarity_threshold: float = 0.85,
     prototype_mix: float = 0.20,
+    *,
+    lr: float = 0.01,
+    n_epochs: int = 5,
+    model_type: str = "linear",
 ) -> MethodResult:
     """Run FedCCFA and return full results.
 
@@ -260,7 +356,10 @@ def run_fedccfa_full(
             n_features,
             n_classes,
             prototype_mix=prototype_mix,
+            lr=lr,
+            n_epochs=n_epochs,
             seed=42 + k,
+            model_type=model_type,
         )
         for k in range(K)
     ]
@@ -322,11 +421,14 @@ def run_cfl_full(
     eps_2: float = 1.6,
     warmup_rounds: int = 20,
     max_clusters: int = 8,
+    lr: float = 0.1,
+    n_epochs: int = 10,
+    model_type: str = "linear",
 ) -> MethodResult:
     """Run CFL and return full results."""
     K, T, n_features, n_classes = _extract_dims(dataset)
     clients = [
-        CFLClient(k, n_features, n_classes, seed=42 + k)
+        CFLClient(k, n_features, n_classes, lr=lr, n_epochs=n_epochs, seed=42 + k, model_type=model_type)
         for k in range(K)
     ]
     server = CFLServer(
@@ -337,6 +439,7 @@ def run_cfl_full(
         eps_2=eps_2,
         warmup_rounds=warmup_rounds,
         max_clusters=max_clusters,
+        model_type=model_type,
     )
 
     accuracy_matrix = np.zeros((K, T), dtype=np.float64)
@@ -387,11 +490,15 @@ def run_fesem_full(
     dataset: DriftDataset,
     federation_every: int = 1,
     n_clusters: int = 3,
+    *,
+    lr: float = 0.01,
+    n_epochs: int = 5,
+    model_type: str = "linear",
 ) -> MethodResult:
     """Run FeSEM and return full results."""
     K, T, n_features, n_classes = _extract_dims(dataset)
     clients = [
-        FeSEMClient(k, n_features, n_classes, seed=42 + k)
+        FeSEMClient(k, n_features, n_classes, seed=42 + k, lr=lr, n_epochs=n_epochs, model_type=model_type)
         for k in range(K)
     ]
     server = FeSEMServer(
@@ -443,11 +550,14 @@ def run_fedrc_full(
     federation_every: int = 1,
     *,
     n_clusters: int = 3,
+    lr: float = 0.1,
+    n_epochs: int = 10,
+    model_type: str = "linear",
 ) -> MethodResult:
     """Run FedRC and return full results."""
     K, T, n_features, n_classes = _extract_dims(dataset)
     clients = [
-        FedRCClient(k, n_features, n_classes, n_clusters=n_clusters, seed=42 + k)
+        FedRCClient(k, n_features, n_classes, n_clusters=n_clusters, lr=lr, n_epochs=n_epochs, seed=42 + k, model_type=model_type)
         for k in range(K)
     ]
     server = FedRCServer(
@@ -455,6 +565,7 @@ def run_fedrc_full(
         n_classes=n_classes,
         n_clusters=n_clusters,
         seed=42,
+        model_type=model_type,
     )
 
     accuracy_matrix = np.zeros((K, T), dtype=np.float64)
@@ -500,6 +611,10 @@ def run_tracked_summary_full(
     dataset: DriftDataset,
     federation_every: int = 1,
     similarity_threshold: float = 0.5,
+    *,
+    lr: float = 0.01,
+    n_epochs: int = 5,
+    model_type: str = "linear",
 ) -> MethodResult:
     """Run TrackedSummary and return full accuracy matrix with cluster IDs.
 
@@ -508,6 +623,10 @@ def run_tracked_summary_full(
     dataset : DriftDataset
     federation_every : int
     similarity_threshold : float
+    lr : float
+        Local learning rate.
+    n_epochs : int
+        Local training epochs.
 
     Returns
     -------
@@ -515,7 +634,7 @@ def run_tracked_summary_full(
     """
     K, T, n_features, n_classes = _extract_dims(dataset)
     clients = [
-        TrackedSummaryClient(k, n_features, n_classes, seed=42 + k)
+        TrackedSummaryClient(k, n_features, n_classes, seed=42 + k, lr=lr, n_epochs=n_epochs, model_type=model_type)
         for k in range(K)
     ]
     server = TrackedSummaryServer(similarity_threshold=similarity_threshold)
@@ -572,6 +691,10 @@ def run_flash_full(
     dataset: DriftDataset,
     federation_every: int = 1,
     distill_alpha: float = 0.3,
+    *,
+    lr: float = 0.01,
+    n_epochs: int = 5,
+    model_type: str = "linear",
 ) -> MethodResult:
     """Run Flash (single-model drift adaptation) and return full results.
 
@@ -580,6 +703,10 @@ def run_flash_full(
     dataset : DriftDataset
     federation_every : int
     distill_alpha : float
+    lr : float
+        Local learning rate.
+    n_epochs : int
+        Local training epochs.
 
     Returns
     -------
@@ -587,7 +714,7 @@ def run_flash_full(
     """
     K, T, n_features, n_classes = _extract_dims(dataset)
     clients = [
-        FlashClient(k, n_features, n_classes, distill_alpha=distill_alpha, seed=42 + k)
+        FlashClient(k, n_features, n_classes, distill_alpha=distill_alpha, seed=42 + k, lr=lr, n_epochs=n_epochs, model_type=model_type)
         for k in range(K)
     ]
     aggregator = FlashAggregator()
@@ -631,6 +758,10 @@ def run_feddrift_full(
     dataset: DriftDataset,
     federation_every: int = 1,
     similarity_threshold: float = 0.5,
+    *,
+    lr: float = 0.01,
+    n_epochs: int = 5,
+    model_type: str = "linear",
 ) -> MethodResult:
     """Run FedDrift (multi-model with drift branching) and return full results.
 
@@ -639,6 +770,10 @@ def run_feddrift_full(
     dataset : DriftDataset
     federation_every : int
     similarity_threshold : float
+    lr : float
+        Local learning rate.
+    n_epochs : int
+        Local training epochs.
 
     Returns
     -------
@@ -646,7 +781,7 @@ def run_feddrift_full(
     """
     K, T, n_features, n_classes = _extract_dims(dataset)
     clients = [
-        FedDriftClient(k, n_features, n_classes, similarity_threshold=similarity_threshold, seed=42 + k)
+        FedDriftClient(k, n_features, n_classes, similarity_threshold=similarity_threshold, seed=42 + k, lr=lr, n_epochs=n_epochs, model_type=model_type)
         for k in range(K)
     ]
     server = FedDriftServer(similarity_threshold=similarity_threshold)
@@ -694,6 +829,7 @@ def run_ifca_full(
     n_clusters: int = 3,
     lr: float = 0.01,
     n_epochs: int = 5,
+    model_type: str = "linear",
 ) -> MethodResult:
     """Run IFCA (iterative federated clustering) and return full results.
 
@@ -713,7 +849,7 @@ def run_ifca_full(
     """
     K, T, n_features, n_classes = _extract_dims(dataset)
     clients = [
-        IFCAClient(k, n_features, n_classes, seed=42 + k, lr=lr, n_epochs=n_epochs)
+        IFCAClient(k, n_features, n_classes, seed=42 + k, lr=lr, n_epochs=n_epochs, model_type=model_type)
         for k in range(K)
     ]
     server = IFCAServer(
@@ -766,13 +902,38 @@ def run_atp_full(
     *,
     base_lr: float = 0.05,
     meta_lr: float = 0.15,
+    lr: float | None = None,
+    n_epochs: int | None = None,
+    model_type: str = "linear",
 ) -> MethodResult:
-    """Run ATP and return full results."""
+    """Run ATP and return full results.
+
+    Parameters
+    ----------
+    dataset : DriftDataset
+    federation_every : int
+    base_lr : float
+        Base learning rate. Overridden by *lr* when provided.
+    meta_lr : float
+    lr : float | None
+        Unified learning rate alias -- maps to *base_lr*.
+    n_epochs : int | None
+        Accepted for API uniformity but ignored -- ATP uses
+        meta-learning steps rather than epoch-based training.
+
+    Returns
+    -------
+    MethodResult
+    """
+    if lr is not None:
+        base_lr = lr
+    # n_epochs is intentionally unused: ATP uses meta-learning steps.
     result = _run_atp_impl(
         dataset,
         federation_every=federation_every,
         base_lr=base_lr,
         meta_lr=meta_lr,
+        model_type=model_type,
     )
     return _from_external_result(result, method_name="ATP")
 
@@ -780,11 +941,18 @@ def run_atp_full(
 def run_flux_full(
     dataset: DriftDataset,
     federation_every: int = 1,
+    *,
+    lr: float = 0.1,
+    n_epochs: int = 3,
+    model_type: str = "linear",
 ) -> MethodResult:
     """Run FLUX and return full results."""
     result = _run_flux_impl(
         dataset,
         federation_every=federation_every,
+        lr=lr,
+        n_epochs=n_epochs,
+        model_type=model_type,
     )
     return _from_external_result(
         result,
@@ -798,12 +966,18 @@ def run_flux_prior_full(
     federation_every: int = 1,
     *,
     n_clusters: int = 3,
+    lr: float = 0.1,
+    n_epochs: int = 3,
+    model_type: str = "linear",
 ) -> MethodResult:
     """Run FLUX-prior and return full results."""
     result = _run_flux_impl(
         dataset,
         federation_every=federation_every,
+        lr=lr,
+        n_epochs=n_epochs,
         prior_n_clusters=n_clusters,
+        model_type=model_type,
     )
     return _from_external_result(
         result,
@@ -816,6 +990,10 @@ def run_compressed_fedavg_full(
     dataset: DriftDataset,
     federation_every: int = 1,
     topk_fraction: float = 0.3,
+    *,
+    lr: float = 0.01,
+    n_epochs: int = 5,
+    model_type: str = "linear",
 ) -> MethodResult:
     """Run CompressedFedAvg (sparsified model exchange) and return full results.
 
@@ -824,6 +1002,10 @@ def run_compressed_fedavg_full(
     dataset : DriftDataset
     federation_every : int
     topk_fraction : float
+    lr : float
+        Local learning rate.
+    n_epochs : int
+        Local training epochs.
 
     Returns
     -------
@@ -831,7 +1013,7 @@ def run_compressed_fedavg_full(
     """
     K, T, n_features, n_classes = _extract_dims(dataset)
     clients = [
-        CompressedFedAvgClient(k, n_features, n_classes, topk_fraction=topk_fraction, seed=42 + k)
+        CompressedFedAvgClient(k, n_features, n_classes, topk_fraction=topk_fraction, seed=42 + k, lr=lr, n_epochs=n_epochs, model_type=model_type)
         for k in range(K)
     ]
     server = CompressedFedAvgServer(n_features, n_classes)

@@ -143,7 +143,7 @@ _DATASET_DISPATCH: dict[str, dict] = {
 # ---------------------------------------------------------------------------
 
 METHOD_GROUPS: dict[str, list[str]] = {
-    "core": ["FedProTrack", "FedAvg", "Oracle", "IFCA"],
+    "core": ["FedProTrack", "FedAvg", "FedAvg-FPTTrain", "Oracle", "IFCA"],
     "drift": ["FedDrift", "Flash", "FedCCFA"],
     "cluster": ["CFL", "FedRC", "FedEM", "FeSEM"],
     "pfl": ["FedProx", "pFedMe", "APFL", "ATP"],
@@ -320,6 +320,7 @@ def _build_methods(
     n_epochs: int,
     lr: float,
     seed: int,
+    model_type: str = "linear",
 ):
     """Build a dict of method-name -> callable returning a result.
 
@@ -405,9 +406,15 @@ def _build_methods(
         "FedAvg": lambda: run_fedavg_baseline(
             exp_cfg, dataset=dataset, lr=lr, n_epochs=n_epochs, seed=seed,
         ),
-        "Oracle": lambda: run_oracle_baseline(exp_cfg, dataset=dataset),
+        "FedAvg-FPTTrain": lambda: run_fedavg_baseline(
+            exp_cfg, dataset=dataset, lr=fpt_lr, n_epochs=fpt_epochs, seed=seed,
+        ),
+        "Oracle": lambda: run_oracle_baseline(
+            exp_cfg, dataset=dataset, lr=lr, n_epochs=n_epochs, seed=seed,
+        ),
         "FedProto": lambda: run_fedproto_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs, model_type=model_type,
         ),
         "IFCA": lambda: run_ifca_full(
             dataset,
@@ -415,69 +422,91 @@ def _build_methods(
             n_clusters=max(4, n_concepts),
             lr=lr,
             n_epochs=n_epochs,
+            model_type=model_type,
         ),
         "CFL": lambda: run_cfl_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs, model_type=model_type,
         ),
         "FeSEM": lambda: run_fesem_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs, model_type=model_type,
         ),
         "FedRC": lambda: run_fedrc_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs, model_type=model_type,
         ),
         "FedEM": lambda: run_fedem_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs, model_type=model_type,
         ),
         "FedCCFA": lambda: run_fedccfa_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs, model_type=model_type,
         ),
         "FedDrift": lambda: run_feddrift_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs, model_type=model_type,
         ),
         "Flash": lambda: run_flash_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs, model_type=model_type,
         ),
         "TrackedSummary": lambda: run_tracked_summary_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs, model_type=model_type,
         ),
         "pFedMe": lambda: run_pfedme_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs, model_type=model_type,
         ),
         "APFL": lambda: run_apfl_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs, model_type=model_type,
         ),
         "ATP": lambda: run_atp_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs, model_type=model_type,
         ),
         "FLUX": lambda: run_flux_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs, model_type=model_type,
         ),
         "FLUX-prior": lambda: run_flux_prior_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs, model_type=model_type,
         ),
         "CompressedFedAvg": lambda: run_compressed_fedavg_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs, model_type=model_type,
         ),
         "FedProx": lambda: run_fedprox_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs,
         ),
         "FedCCFA-Impl": lambda: run_fedccfa_impl_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs,
         ),
         "Ditto": lambda: run_ditto_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs,
         ),
         "SCAFFOLD": lambda: run_scaffold_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs,
         ),
         "Adaptive-FedAvg": lambda: run_adaptive_fedavg_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs,
         ),
         "HCFL": lambda: run_hcfl_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs,
         ),
         "FedGWC": lambda: run_fedgwc_full(
             dataset, federation_every=federation_every,
+            lr=lr, n_epochs=n_epochs,
         ),
     }
 
@@ -518,6 +547,8 @@ def _run_single_seed(
     fpt_name: str,
     participation: float,
     dataset_name: str = "cifar100",
+    model_type: str = "linear",
+    dirichlet_alpha: float | None = None,
 ) -> list[dict]:
     """Run all methods for one seed and return result rows.
 
@@ -550,6 +581,9 @@ def _run_single_seed(
     # Only recurrence datasets accept samples_per_coarse_class
     if dataset_name != "fmow":
         cfg_kwargs["samples_per_coarse_class"] = samples_per_coarse_class
+    # Dirichlet non-IID control (only CIFAR-100 currently supports it)
+    if dirichlet_alpha is not None and dataset_name == "cifar100":
+        cfg_kwargs["dirichlet_alpha"] = dirichlet_alpha
 
     dataset_cfg = ConfigCls(**cfg_kwargs)
 
@@ -572,6 +606,7 @@ def _run_single_seed(
         n_epochs=n_epochs,
         lr=lr,
         seed=seed,
+        model_type=model_type,
     )
 
     rows: list[dict] = []
@@ -969,6 +1004,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--feature-seed", type=int, default=2718, help="Feature extraction seed")
     parser.add_argument("--n-workers", type=int, default=0, help="DataLoader workers (default: 0)")
     parser.add_argument("--out-dir", default="results_neurips_benchmark", help="Output directory")
+    parser.add_argument("--model-type", choices=["linear", "small_cnn"], default="linear",
+                        help="Model architecture for baselines (default: linear)")
+    parser.add_argument(
+        "--dirichlet-alpha", type=float, default=None,
+        help="Dirichlet concentration for non-IID label distribution "
+             "(e.g. 0.01, 0.1, 0.5, 1.0). None = balanced (default).",
+    )
 
     # -- Presets --
     parser.add_argument(
@@ -1087,6 +1129,8 @@ def _run_preset(preset_name: str, args: argparse.Namespace) -> list[dict]:
             fpt_name=fpt_name,
             participation=participation,
             dataset_name=args.dataset,
+            model_type=args.model_type,
+            dirichlet_alpha=args.dirichlet_alpha,
         )
         all_rows.extend(seed_rows)
 
@@ -1220,6 +1264,8 @@ def main() -> None:
                 fpt_name=fpt_name,
                 participation=args.participation,
                 dataset_name=args.dataset,
+                model_type=args.model_type,
+                dirichlet_alpha=args.dirichlet_alpha,
             )
             all_rows.extend(seed_rows)
 

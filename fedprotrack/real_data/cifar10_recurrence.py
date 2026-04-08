@@ -91,6 +91,15 @@ class CIFAR10RecurrenceConfig:
         Seed for balanced index selection and PCA.
     seed : int
         Master seed for concept matrix and batch sampling.
+    dirichlet_alpha : float or None
+        Dirichlet concentration parameter for non-IID label
+        distributions.  When ``None`` (default), the existing
+        class-balanced sampling is used (backward compatible).
+        When set to a positive float, each (client, round) batch
+        samples label proportions from
+        ``Dir(dirichlet_alpha * ones(n_classes_in_concept))``.
+        Lower values (e.g. 0.01) produce highly skewed distributions;
+        higher values (e.g. 100.0) approach uniform.
     """
 
     K: int = 6
@@ -110,6 +119,7 @@ class CIFAR10RecurrenceConfig:
     feature_cache_dir: str = ".feature_cache"
     feature_seed: int = 2718
     seed: int = 42
+    dirichlet_alpha: float | None = None
 
     def __post_init__(self) -> None:
         if self.K < 1:
@@ -142,6 +152,10 @@ class CIFAR10RecurrenceConfig:
                         f"concept_groups[{cid}] contains invalid class {cls}; "
                         f"must be in [0, {_N_CLASSES - 1}]"
                     )
+        if self.dirichlet_alpha is not None and self.dirichlet_alpha <= 0.0:
+            raise ValueError(
+                f"dirichlet_alpha must be > 0 when set, got {self.dirichlet_alpha}"
+            )
 
     def to_generator_config(self) -> GeneratorConfig:
         """Convert to a ``GeneratorConfig`` for concept matrix generation.
@@ -564,6 +578,58 @@ def _draw_balanced_batch(
     return X_pool[batch_idx].astype(np.float32), y_pool[batch_idx].astype(np.int64)
 
 
+def _draw_dirichlet_batch(
+    X_pool: np.ndarray,
+    y_pool: np.ndarray,
+    n_samples: int,
+    dirichlet_alpha: float,
+    rng: np.random.RandomState,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Draw a Dirichlet-weighted non-IID batch from one concept pool.
+
+    Parameters
+    ----------
+    X_pool : np.ndarray
+        Feature matrix for the concept.
+    y_pool : np.ndarray
+        Label array for the concept.
+    n_samples : int
+        Total samples to draw.
+    dirichlet_alpha : float
+        Concentration parameter.  Lower values produce more skewed
+        label distributions; higher values approach uniform.
+    rng : np.random.RandomState
+        Seeded RNG.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray]
+        (X_batch, y_batch) with shapes ``(n_samples, D)`` and ``(n_samples,)``.
+    """
+    classes = np.unique(y_pool)
+    n_classes = len(classes)
+    proportions = rng.dirichlet(dirichlet_alpha * np.ones(n_classes))
+
+    # Convert proportions to integer counts that sum to n_samples.
+    raw_counts = proportions * n_samples
+    class_counts = np.floor(raw_counts).astype(int)
+    remainder = n_samples - class_counts.sum()
+    fracs = raw_counts - class_counts
+    top_indices = np.argsort(fracs)[::-1][:remainder]
+    class_counts[top_indices] += 1
+
+    chosen: list[np.ndarray] = []
+    for i, cls in enumerate(classes):
+        cls_idx = np.flatnonzero(y_pool == cls)
+        take = class_counts[i]
+        if take > 0:
+            chosen.append(rng.choice(cls_idx, size=take, replace=True))
+
+    batch_idx = np.concatenate(chosen, axis=0)
+    rng.shuffle(batch_idx)
+    return X_pool[batch_idx].astype(np.float32), y_pool[batch_idx].astype(np.int64)
+
+
 # ------------------------------------------------------------------
 # Public API
 # ------------------------------------------------------------------
@@ -622,11 +688,23 @@ def generate_cifar10_recurrence_dataset(
     for k in range(config.K):
         for t in range(config.T):
             concept_id = int(concept_matrix[k, t])
-            rng = np.random.RandomState(config.seed + 10000 + k * config.T + t)
-            X_pool, y_pool = feature_pools[concept_id]
-            data[(k, t)] = _draw_balanced_batch(
-                X_pool, y_pool, config.n_samples, rng
-            )
+            if config.dirichlet_alpha is not None:
+                rng = np.random.RandomState(
+                    config.seed + 20000 + k * config.T + t
+                )
+                X_pool, y_pool = feature_pools[concept_id]
+                data[(k, t)] = _draw_dirichlet_batch(
+                    X_pool, y_pool, config.n_samples,
+                    config.dirichlet_alpha, rng,
+                )
+            else:
+                rng = np.random.RandomState(
+                    config.seed + 10000 + k * config.T + t
+                )
+                X_pool, y_pool = feature_pools[concept_id]
+                data[(k, t)] = _draw_balanced_batch(
+                    X_pool, y_pool, config.n_samples, rng,
+                )
 
     concept_specs = [
         ConceptSpec(

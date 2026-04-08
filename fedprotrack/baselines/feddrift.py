@@ -22,6 +22,7 @@ import numpy as np
 from ..drift_detector import ADWINDetector
 from ..federation.aggregator import FedAvgAggregator
 from ..models import TorchLinearClassifier
+from ..models.factory import create_model
 from .comm_tracker import model_bytes
 
 
@@ -80,12 +81,18 @@ class FedDriftClient:
         n_classes: int,
         similarity_threshold: float = 0.5,
         seed: int = 0,
+        lr: float = 0.01,
+        n_epochs: int = 5,
+        model_type: str = "linear",
     ) -> None:
         self.client_id = client_id
         self.n_features = n_features
         self.n_classes = n_classes
         self.similarity_threshold = similarity_threshold
         self._seed = seed
+        self._lr = lr
+        self._n_epochs = n_epochs
+        self._model_type = model_type
 
         # Per-concept models: concept_id -> params dict
         self._model_params_store: dict[int, dict[str, np.ndarray]] = {}
@@ -94,9 +101,9 @@ class FedDriftClient:
 
         self._drift_detector = ADWINDetector()
         self._n_samples: int = 0
-        self._model = TorchLinearClassifier(
-            n_features=n_features, n_classes=n_classes,
-            lr=0.01, n_epochs=5, seed=seed,
+        self._model = create_model(
+            model_type, n_features, n_classes,
+            lr=lr, n_epochs=n_epochs, seed=seed,
         )
         self._current_params: dict[str, np.ndarray] = {}
 
@@ -123,9 +130,9 @@ class FedDriftClient:
         self, X: np.ndarray, y: np.ndarray,
     ) -> dict[str, np.ndarray]:
         """Fit a fresh model on GPU and return params."""
-        fresh = TorchLinearClassifier(
-            n_features=self.n_features, n_classes=self.n_classes,
-            lr=0.01, n_epochs=5,
+        fresh = create_model(
+            self._model_type, self.n_features, self.n_classes,
+            lr=self._lr, n_epochs=self._n_epochs,
             seed=self._seed + self._active_concept,
         )
         fresh.fit(X, y)

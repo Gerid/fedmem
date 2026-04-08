@@ -22,6 +22,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..models import TorchLinearClassifier
+from ..models.factory import create_model
 from .comm_tracker import model_bytes
 
 
@@ -77,17 +78,19 @@ class IFCAClient:
         seed: int = 0,
         lr: float = 0.01,
         n_epochs: int = 5,
+        model_type: str = "linear",
     ) -> None:
         self.client_id = client_id
         self.n_features = n_features
         self.n_classes = n_classes
         self._seed = seed
+        self._model_type = model_type
 
         # Cluster models received from server
         self._cluster_models: list[dict[str, np.ndarray]] = []
         self._selected_cluster: int = 0
-        self._model = TorchLinearClassifier(
-            n_features=n_features, n_classes=n_classes,
+        self._model = create_model(
+            model_type, n_features, n_classes,
             lr=lr, n_epochs=n_epochs, seed=seed,
         )
         self._model_params: dict[str, np.ndarray] = {}
@@ -117,8 +120,8 @@ class IFCAClient:
             return float("inf")
 
         # Use a temporary model to evaluate
-        temp = TorchLinearClassifier(
-            n_features=self.n_features, n_classes=self.n_classes,
+        temp = create_model(
+            self._model_type, self.n_features, self.n_classes,
             seed=self._seed,
         )
         temp.set_params(params)

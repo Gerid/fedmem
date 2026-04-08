@@ -26,6 +26,7 @@ from sklearn.cluster import DBSCAN, KMeans
 from sklearn.metrics import silhouette_score
 
 from ..models import TorchLinearClassifier
+from ..models.factory import create_model
 from .comm_tracker import model_bytes
 
 
@@ -121,16 +122,20 @@ class FLUXClient:
         n_classes: int,
         *,
         seed: int = 0,
+        lr: float = 0.1,
+        n_epochs: int = 3,
+        model_type: str = "linear",
     ) -> None:
         self.client_id = client_id
         self.n_features = n_features
         self.n_classes = n_classes
         self._seed = seed
-        self._model = TorchLinearClassifier(
-            n_features=n_features,
-            n_classes=n_classes,
-            lr=0.1,
-            n_epochs=3,
+        self._model = create_model(
+            model_type,
+            n_features,
+            n_classes,
+            lr=lr,
+            n_epochs=n_epochs,
             seed=seed,
         )
         self._model_params: dict[str, np.ndarray] = {}
@@ -336,6 +341,9 @@ def run_flux_full(
     federation_every: int = 1,
     *,
     prior_n_clusters: int | None = None,
+    lr: float = 0.1,
+    n_epochs: int = 3,
+    model_type: str = "linear",
 ) -> FLUXResult:
     """Run a small FLUX simulation on a ``DriftDataset``."""
 
@@ -349,7 +357,7 @@ def run_flux_full(
     n_classes = max(all_labels) + 1
 
     clients = [
-        FLUXClient(k, n_features, n_classes, seed=42 + k)
+        FLUXClient(k, n_features, n_classes, seed=42 + k, lr=lr, n_epochs=n_epochs, model_type=model_type)
         for k in range(K)
     ]
     if prior_n_clusters is None:

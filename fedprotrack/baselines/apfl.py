@@ -9,6 +9,7 @@ import numpy as np
 from ..drift_generator.generator import DriftDataset
 from ..metrics.experiment_log import ExperimentLog
 from ..models import TorchLinearClassifier
+from ..models.factory import create_model
 from .comm_tracker import model_bytes
 
 
@@ -80,7 +81,9 @@ class APFLClient:
         alpha: float = 0.5,
         alpha_lr: float = 0.05,
         local_steps: int = 2,
+        lr: float = 0.05,
         seed: int = 0,
+        model_type: str = "linear",
     ) -> None:
         self.client_id = client_id
         self.n_features = n_features
@@ -89,24 +92,27 @@ class APFLClient:
         self.local_steps = max(1, local_steps)
         self._seed = seed
 
-        self._global_model = TorchLinearClassifier(
-            n_features=n_features,
-            n_classes=n_classes,
-            lr=0.05,
+        self._global_model = create_model(
+            model_type,
+            n_features,
+            n_classes,
+            lr=lr,
             n_epochs=1,
             seed=seed,
         )
-        self._local_model = TorchLinearClassifier(
-            n_features=n_features,
-            n_classes=n_classes,
-            lr=0.05,
+        self._local_model = create_model(
+            model_type,
+            n_features,
+            n_classes,
+            lr=lr,
             n_epochs=1,
             seed=seed + 17,
         )
-        self._personal_model = TorchLinearClassifier(
-            n_features=n_features,
-            n_classes=n_classes,
-            lr=0.05,
+        self._personal_model = create_model(
+            model_type,
+            n_features,
+            n_classes,
+            lr=lr,
             n_epochs=1,
             seed=seed + 29,
         )
@@ -229,6 +235,8 @@ def run_apfl_full(
     alpha: float = 0.5,
     alpha_lr: float = 0.05,
     local_steps: int = 2,
+    lr: float = 0.05,
+    model_type: str = "linear",
 ) -> MethodResult:
     K, T, n_features, n_classes = _extract_dims(dataset)
     clients = [
@@ -239,7 +247,9 @@ def run_apfl_full(
             alpha=alpha,
             alpha_lr=alpha_lr,
             local_steps=local_steps,
+            lr=lr,
             seed=42 + k,
+            model_type=model_type,
         )
         for k in range(K)
     ]

@@ -79,6 +79,7 @@ class CIFAR100RecurrenceConfig:
     n_classes_per_concept: int = 10
     min_group_size: int = 1
     backbone: str = "resnet18"
+    dirichlet_alpha: float | None = None
 
     def __post_init__(self) -> None:
         if self.K < 1:
@@ -126,6 +127,10 @@ class CIFAR100RecurrenceConfig:
             raise ValueError(
                 f"backbone must be one of {_valid_backbones}, "
                 f"got {self.backbone!r}"
+            )
+        if self.dirichlet_alpha is not None and self.dirichlet_alpha <= 0.0:
+            raise ValueError(
+                f"dirichlet_alpha must be > 0 when set, got {self.dirichlet_alpha}"
             )
 
     def to_generator_config(self) -> GeneratorConfig:
@@ -494,6 +499,50 @@ def _draw_balanced_batch(
     return X_pool[batch_idx].astype(np.float32), y_pool[batch_idx].astype(np.int64)
 
 
+def _draw_dirichlet_batch(
+    X_pool: np.ndarray,
+    y_pool: np.ndarray,
+    n_samples: int,
+    dirichlet_alpha: float,
+    rng: np.random.RandomState,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Draw a Dirichlet-distributed non-IID batch from one concept pool.
+
+    Parameters
+    ----------
+    X_pool, y_pool : np.ndarray
+        Feature pool and label pool for a single concept.
+    n_samples : int
+        Total samples to draw.
+    dirichlet_alpha : float
+        Dirichlet concentration.  Lower = more skewed.
+    rng : np.random.RandomState
+        Seeded RNG for reproducibility.
+    """
+    classes = np.unique(y_pool)
+    n_classes = len(classes)
+    proportions = rng.dirichlet(dirichlet_alpha * np.ones(n_classes))
+    # Convert proportions to integer counts summing to n_samples.
+    raw_counts = proportions * n_samples
+    counts = np.floor(raw_counts).astype(int)
+    remainder = n_samples - counts.sum()
+    # Allocate remainder to classes with largest fractional parts.
+    fracs = raw_counts - counts
+    top_indices = np.argsort(-fracs)[:remainder]
+    counts[top_indices] += 1
+
+    chosen: list[np.ndarray] = []
+    for i, cls in enumerate(classes):
+        cls_idx = np.flatnonzero(y_pool == cls)
+        take = max(counts[i], 0)
+        if take > 0:
+            chosen.append(rng.choice(cls_idx, size=take, replace=True))
+
+    batch_idx = np.concatenate(chosen, axis=0) if chosen else np.array([], dtype=int)
+    rng.shuffle(batch_idx)
+    return X_pool[batch_idx].astype(np.float32), y_pool[batch_idx].astype(np.int64)
+
+
 def prepare_cifar100_recurrence_feature_cache(
     config: CIFAR100RecurrenceConfig | None = None,
 ) -> dict[int, tuple[np.ndarray, np.ndarray]]:
@@ -527,11 +576,17 @@ def generate_cifar100_recurrence_dataset(
     for k in range(config.K):
         for t in range(config.T):
             concept_id = int(concept_matrix[k, t])
-            rng = np.random.RandomState(config.seed + 10000 + k * config.T + t)
             X_pool, y_pool = feature_pools[concept_id]
-            data[(k, t)] = _draw_balanced_batch(
-                X_pool, y_pool, config.n_samples, rng
-            )
+            if config.dirichlet_alpha is not None:
+                rng = np.random.RandomState(config.seed + 20000 + k * config.T + t)
+                data[(k, t)] = _draw_dirichlet_batch(
+                    X_pool, y_pool, config.n_samples, config.dirichlet_alpha, rng,
+                )
+            else:
+                rng = np.random.RandomState(config.seed + 10000 + k * config.T + t)
+                data[(k, t)] = _draw_balanced_batch(
+                    X_pool, y_pool, config.n_samples, rng,
+                )
 
     concept_specs = [
         ConceptSpec(

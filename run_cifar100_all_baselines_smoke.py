@@ -96,6 +96,7 @@ def _build_methods(
     fpt_lr: float,
     fpt_epochs: int,
     fpt_mode: str,
+    model_type: str = "linear",
 ) -> dict[str, Callable[[], object]]:
     fpt_kwargs = {
         "auto_scale": fpt_mode == "auto",
@@ -168,7 +169,10 @@ def _build_methods(
             **fpt_kwargs,
         ).run(dataset),
         "LocalOnly": lambda: run_local_only(exp_cfg, dataset=dataset),
-        "FedAvg": lambda: run_fedavg_baseline(exp_cfg, dataset=dataset),
+        "FedAvg": lambda: run_fedavg_baseline(
+            exp_cfg, dataset=dataset, lr=fpt_lr, n_epochs=fpt_epochs,
+            seed=int(dataset.config.seed),
+        ),
         "FedAvg-FPTTrain": lambda: run_fedavg_baseline(
             exp_cfg,
             dataset=dataset,
@@ -176,30 +180,102 @@ def _build_methods(
             n_epochs=fpt_epochs,
             seed=int(dataset.config.seed),
         ),
-        "Oracle": lambda: run_oracle_baseline(exp_cfg, dataset=dataset),
-        "FedProto": lambda: run_fedproto_full(dataset, federation_every=federation_every),
-        "pFedMe": lambda: run_pfedme_full(dataset, federation_every=federation_every),
-        "APFL": lambda: run_apfl_full(dataset, federation_every=federation_every),
-        "FedEM": lambda: run_fedem_full(dataset, federation_every=federation_every),
-        "FedCCFA": lambda: run_fedccfa_full(dataset, federation_every=federation_every),
-        "CFL": lambda: run_cfl_full(dataset, federation_every=federation_every),
-        "FeSEM": lambda: run_fesem_full(dataset, federation_every=federation_every),
-        "FedRC": lambda: run_fedrc_full(dataset, federation_every=federation_every),
-        "TrackedSummary": lambda: run_tracked_summary_full(dataset, federation_every=federation_every),
-        "Flash": lambda: run_flash_full(dataset, federation_every=federation_every),
-        "FedDrift": lambda: run_feddrift_full(dataset, federation_every=federation_every),
-        "IFCA": lambda: run_ifca_full(dataset, federation_every=federation_every, n_clusters=4),
-        "ATP": lambda: run_atp_full(dataset, federation_every=federation_every),
-        "FLUX": lambda: run_flux_full(dataset, federation_every=federation_every),
-        "FLUX-prior": lambda: run_flux_prior_full(dataset, federation_every=federation_every),
-        "CompressedFedAvg": lambda: run_compressed_fedavg_full(dataset, federation_every=federation_every),
-        "FedProx": lambda: run_fedprox_full(dataset, federation_every=federation_every),
-        "FedCCFA-Impl": lambda: run_fedccfa_impl_full(dataset, federation_every=federation_every),
-        "Ditto": lambda: run_ditto_full(dataset, federation_every=federation_every),
-        "SCAFFOLD": lambda: run_scaffold_full(dataset, federation_every=federation_every),
-        "Adaptive-FedAvg": lambda: run_adaptive_fedavg_full(dataset, federation_every=federation_every),
-        "HCFL": lambda: run_hcfl_full(dataset, federation_every=federation_every),
-        "FedGWC": lambda: run_fedgwc_full(dataset, federation_every=federation_every),
+        "Oracle": lambda: run_oracle_baseline(
+            exp_cfg, dataset=dataset, lr=fpt_lr, n_epochs=fpt_epochs,
+            seed=int(dataset.config.seed),
+        ),
+        "FedProto": lambda: run_fedproto_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs, model_type=model_type,
+        ),
+        "pFedMe": lambda: run_pfedme_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs, model_type=model_type,
+        ),
+        "APFL": lambda: run_apfl_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs, model_type=model_type,
+        ),
+        "FedEM": lambda: run_fedem_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs, model_type=model_type,
+        ),
+        "FedCCFA": lambda: run_fedccfa_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs, model_type=model_type,
+        ),
+        "CFL": lambda: run_cfl_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs, model_type=model_type,
+        ),
+        "FeSEM": lambda: run_fesem_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs, model_type=model_type,
+        ),
+        "FedRC": lambda: run_fedrc_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs, model_type=model_type,
+        ),
+        "TrackedSummary": lambda: run_tracked_summary_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs, model_type=model_type,
+        ),
+        "Flash": lambda: run_flash_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs, model_type=model_type,
+        ),
+        "FedDrift": lambda: run_feddrift_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs, model_type=model_type,
+        ),
+        "IFCA": lambda: run_ifca_full(
+            dataset, federation_every=federation_every, n_clusters=4,
+            lr=fpt_lr, n_epochs=fpt_epochs, model_type=model_type,
+        ),
+        "ATP": lambda: run_atp_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs, model_type=model_type,
+        ),
+        "FLUX": lambda: run_flux_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs, model_type=model_type,
+        ),
+        "FLUX-prior": lambda: run_flux_prior_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs, model_type=model_type,
+        ),
+        "CompressedFedAvg": lambda: run_compressed_fedavg_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs, model_type=model_type,
+        ),
+        "FedProx": lambda: run_fedprox_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs,
+        ),
+        "FedCCFA-Impl": lambda: run_fedccfa_impl_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs,
+        ),
+        "Ditto": lambda: run_ditto_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs,
+        ),
+        "SCAFFOLD": lambda: run_scaffold_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs,
+        ),
+        "Adaptive-FedAvg": lambda: run_adaptive_fedavg_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs,
+        ),
+        "HCFL": lambda: run_hcfl_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs,
+        ),
+        "FedGWC": lambda: run_fedgwc_full(
+            dataset, federation_every=federation_every,
+            lr=fpt_lr, n_epochs=fpt_epochs,
+        ),
     }
 
 
@@ -228,7 +304,13 @@ def main() -> None:
     parser.add_argument("--data-root", default=".cifar100_cache")
     parser.add_argument("--feature-cache-dir", default=".feature_cache")
     parser.add_argument("--feature-seed", type=int, default=2718)
+    parser.add_argument("--model-type", choices=["linear", "small_cnn"], default="linear")
     parser.add_argument("--include-aliases", action="store_true")
+    parser.add_argument(
+        "--dirichlet-alpha", type=float, default=None,
+        help="Dirichlet concentration for non-IID label distribution "
+             "(e.g. 0.01, 0.1, 0.5, 1.0). None = balanced (default).",
+    )
     args = parser.parse_args()
 
     results_dir = Path(args.results_dir)
@@ -249,6 +331,7 @@ def main() -> None:
         feature_cache_dir=args.feature_cache_dir,
         feature_seed=args.feature_seed,
         seed=args.seed,
+        dirichlet_alpha=args.dirichlet_alpha,
     )
 
     print("Preparing CIFAR-100 feature cache...", flush=True)
@@ -266,6 +349,7 @@ def main() -> None:
         fpt_lr=args.fpt_lr,
         fpt_epochs=args.fpt_epochs,
         fpt_mode=args.fpt_mode,
+        model_type=args.model_type,
     )
     method_names = list(methods.keys())
     if not args.include_aliases:

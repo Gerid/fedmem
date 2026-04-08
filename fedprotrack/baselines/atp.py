@@ -25,6 +25,7 @@ import numpy as np
 import torch
 
 from ..models import TorchLinearClassifier
+from ..models.factory import create_model
 from .comm_tracker import model_bytes
 
 
@@ -120,6 +121,7 @@ class ATPClient:
         meta_lr: float = 0.15,
         supervised_steps: int = 1,
         seed: int = 0,
+        model_type: str = "linear",
     ) -> None:
         self.client_id = client_id
         self.n_features = n_features
@@ -129,9 +131,10 @@ class ATPClient:
         self.supervised_steps = supervised_steps
         self._seed = seed
 
-        self._model = TorchLinearClassifier(
-            n_features=n_features,
-            n_classes=n_classes,
+        self._model = create_model(
+            model_type,
+            n_features,
+            n_classes,
             lr=0.1,
             n_epochs=1,
             seed=seed,
@@ -248,15 +251,17 @@ class ATPServer:
         base_lr: float = 0.05,
         meta_lr: float = 0.15,
         seed: int = 0,
+        model_type: str = "linear",
     ) -> None:
         self.n_features = n_features
         self.n_classes = n_classes
         self.base_lr = base_lr
         self.meta_lr = meta_lr
         self._seed = seed
-        self._model = TorchLinearClassifier(
-            n_features=n_features,
-            n_classes=n_classes,
+        self._model = create_model(
+            model_type,
+            n_features,
+            n_classes,
             lr=0.1,
             n_epochs=1,
             seed=seed,
@@ -316,6 +321,7 @@ def run_atp_full(
     *,
     base_lr: float = 0.05,
     meta_lr: float = 0.15,
+    model_type: str = "linear",
 ) -> ATPResult:
     """Run a small ATP simulation on a ``DriftDataset``."""
 
@@ -336,6 +342,7 @@ def run_atp_full(
             base_lr=base_lr,
             meta_lr=meta_lr,
             seed=42 + k,
+            model_type=model_type,
         )
         for k in range(K)
     ]
@@ -345,6 +352,7 @@ def run_atp_full(
         base_lr=base_lr,
         meta_lr=meta_lr,
         seed=42,
+        model_type=model_type,
     )
 
     accuracy = np.zeros((K, T), dtype=np.float64)

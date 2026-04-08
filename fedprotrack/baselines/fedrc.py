@@ -15,6 +15,7 @@ import numpy as np
 
 from ..federation.aggregator import FedAvgAggregator
 from ..models import TorchLinearClassifier
+from ..models.factory import create_model
 from .comm_tracker import model_bytes
 
 
@@ -40,12 +41,13 @@ def _label_histogram(y: np.ndarray, n_classes: int) -> np.ndarray:
     return hist / total
 
 
-def _fresh_params(n_features: int, n_classes: int, seed: int) -> dict[str, np.ndarray]:
-    model = TorchLinearClassifier(
-        n_features=n_features,
-        n_classes=n_classes,
-        seed=seed,
-    )
+def _fresh_params(
+    n_features: int,
+    n_classes: int,
+    seed: int,
+    model_type: str = "linear",
+) -> dict[str, np.ndarray]:
+    model = create_model(model_type, n_features, n_classes, seed=seed)
     return model.get_params()
 
 
@@ -75,6 +77,7 @@ class FedRCClient:
         label_prior_strength: float = 0.5,
         prior_strength: float = 0.1,
         seed: int = 0,
+        model_type: str = "linear",
     ) -> None:
         self.client_id = client_id
         self.n_features = n_features
@@ -83,9 +86,11 @@ class FedRCClient:
         self.label_prior_strength = label_prior_strength
         self.prior_strength = prior_strength
         self._seed = seed
-        self._model = TorchLinearClassifier(
-            n_features=n_features,
-            n_classes=n_classes,
+        self._model_type = model_type
+        self._model = create_model(
+            model_type,
+            n_features,
+            n_classes,
             lr=lr,
             n_epochs=n_epochs,
             seed=seed,
@@ -120,9 +125,8 @@ class FedRCClient:
             if not params:
                 losses.append(float("inf"))
                 continue
-            temp = TorchLinearClassifier(
-                n_features=self.n_features,
-                n_classes=self.n_classes,
+            temp = create_model(
+                self._model_type, self.n_features, self.n_classes,
                 seed=self._seed,
             )
             temp.set_params(_copy_params(params))
@@ -212,6 +216,7 @@ class FedRCServer:
         n_classes: int,
         n_clusters: int = 3,
         seed: int = 0,
+        model_type: str = "linear",
     ) -> None:
         self.n_features = n_features
         self.n_classes = n_classes
@@ -219,7 +224,7 @@ class FedRCServer:
         self.seed = seed
         self._aggregator = FedAvgAggregator()
         self.cluster_models: list[dict[str, np.ndarray]] = [
-            _fresh_params(n_features, n_classes, seed + idx)
+            _fresh_params(n_features, n_classes, seed + idx, model_type=model_type)
             for idx in range(n_clusters)
         ]
         self.cluster_label_hists: list[np.ndarray] = [

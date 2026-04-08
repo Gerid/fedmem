@@ -22,6 +22,7 @@ from sklearn.cluster import AgglomerativeClustering
 
 from ..federation.aggregator import FedAvgAggregator
 from ..models import TorchLinearClassifier
+from ..models.factory import create_model
 from .comm_tracker import model_bytes
 
 
@@ -62,12 +63,13 @@ def _weighted_average_params(
     return FedAvgAggregator().aggregate(list(params_list), list(weights) if weights is not None else None)
 
 
-def _fresh_params(n_features: int, n_classes: int, seed: int) -> dict[str, np.ndarray]:
-    model = TorchLinearClassifier(
-        n_features=n_features,
-        n_classes=n_classes,
-        seed=seed,
-    )
+def _fresh_params(
+    n_features: int,
+    n_classes: int,
+    seed: int,
+    model_type: str = "linear",
+) -> dict[str, np.ndarray]:
+    model = create_model(model_type, n_features, n_classes, seed=seed)
     return model.get_params()
 
 
@@ -123,14 +125,16 @@ class CFLClient:
         lr: float = 0.1,
         n_epochs: int = 10,
         seed: int = 0,
+        model_type: str = "linear",
     ) -> None:
         self.client_id = client_id
         self.n_features = n_features
         self.n_classes = n_classes
         self._seed = seed
-        self._model = TorchLinearClassifier(
-            n_features=n_features,
-            n_classes=n_classes,
+        self._model = create_model(
+            model_type,
+            n_features,
+            n_classes,
             lr=lr,
             n_epochs=n_epochs,
             seed=seed,
@@ -187,6 +191,7 @@ class CFLServer:
         eps_2: float = 1.6,
         warmup_rounds: int = 20,
         max_clusters: int = 8,
+        model_type: str = "linear",
     ) -> None:
         self.n_features = n_features
         self.n_classes = n_classes
@@ -197,7 +202,7 @@ class CFLServer:
         self.max_clusters = max_clusters
         self._fedavg = FedAvgAggregator()
         self.cluster_models: list[dict[str, np.ndarray]] = [
-            _fresh_params(n_features, n_classes, seed),
+            _fresh_params(n_features, n_classes, seed, model_type=model_type),
         ]
         self.client_cluster_map: dict[int, int] = {}
 

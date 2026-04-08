@@ -23,6 +23,7 @@ import numpy as np
 
 from ..federation.aggregator import FedAvgAggregator
 from ..models import TorchLinearClassifier
+from ..models.factory import create_model
 from .comm_tracker import model_bytes
 
 
@@ -80,6 +81,9 @@ class CompressedFedAvgClient:
         n_classes: int,
         topk_fraction: float = 0.3,
         seed: int = 0,
+        lr: float = 0.01,
+        n_epochs: int = 5,
+        model_type: str = "linear",
     ) -> None:
         if not 0.0 < topk_fraction <= 1.0:
             raise ValueError(
@@ -91,9 +95,9 @@ class CompressedFedAvgClient:
         self.topk_fraction = topk_fraction
         self._seed = seed
 
-        self._model = TorchLinearClassifier(
-            n_features=n_features, n_classes=n_classes,
-            lr=0.01, n_epochs=5, seed=seed,
+        self._model = create_model(
+            model_type, n_features, n_classes,
+            lr=lr, n_epochs=n_epochs, seed=seed,
         )
         self._model_params: dict[str, np.ndarray] = {}
         # Global model params (received from server)

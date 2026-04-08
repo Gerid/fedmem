@@ -30,7 +30,6 @@ from ..models import (
     TorchFactorizedAdapterClassifier,
     TorchFeatureAdapterClassifier,
     TorchLinearClassifier,
-    TorchMobileNetV2,
     TorchSmallCNN,
 )
 from .predictive_signatures import project_batch_prototype_signatures
@@ -453,25 +452,16 @@ def _make_model(
         )
     if model_type == "small_cnn":
         return TorchSmallCNN(
+            n_features=n_features,
             n_classes=n_classes,
             lr=lr,
             n_epochs=n_epochs,
-            batch_size=batch_size,
-            seed=seed,
-        )
-    if model_type == "mobilenetv2":
-        return TorchMobileNetV2(
-            n_classes=n_classes,
-            pretrained=False,
-            lr=lr,
-            n_epochs=n_epochs,
-            batch_size=batch_size,
             seed=seed,
         )
     raise ValueError(
         "Unknown model_type: "
         f"{model_type}. Choose from ['linear', 'feature_adapter', "
-        f"'factorized_adapter', 'small_cnn', 'mobilenetv2']"
+        f"'factorized_adapter', 'small_cnn']"
     )
 
 

@@ -15,6 +15,7 @@ import numpy as np
 from ..concept_tracker.fingerprint import ConceptFingerprint
 from ..federation.aggregator import FedAvgAggregator
 from ..models import TorchLinearClassifier
+from ..models.factory import create_model
 from .comm_tracker import model_bytes, fingerprint_bytes
 
 
@@ -73,6 +74,9 @@ class TrackedSummaryClient:
         n_features: int,
         n_classes: int,
         seed: int = 0,
+        lr: float = 0.01,
+        n_epochs: int = 5,
+        model_type: str = "linear",
     ) -> None:
         self.client_id = client_id
         self.n_features = n_features
@@ -80,9 +84,9 @@ class TrackedSummaryClient:
         self._seed = seed
 
         self._fingerprint = ConceptFingerprint(n_features=n_features, n_classes=n_classes)
-        self._model = TorchLinearClassifier(
-            n_features=n_features, n_classes=n_classes,
-            lr=0.01, n_epochs=5, seed=seed,
+        self._model = create_model(
+            model_type, n_features, n_classes,
+            lr=lr, n_epochs=n_epochs, seed=seed,
         )
         self._model_params: dict[str, np.ndarray] = {}
         self._n_samples: int = 0

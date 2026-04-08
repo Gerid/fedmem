@@ -22,6 +22,7 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 
 from ..models import TorchLinearClassifier
+from ..models.factory import create_model
 from .comm_tracker import model_bytes, prototype_bytes
 
 
@@ -143,7 +144,10 @@ class FedCCFAClient:
         n_classes: int,
         *,
         prototype_mix: float = 0.20,
+        lr: float = 0.01,
+        n_epochs: int = 5,
         seed: int = 0,
+        model_type: str = "linear",
     ) -> None:
         if prototype_mix < 0.0 or prototype_mix > 1.0:
             raise ValueError(
@@ -155,12 +159,14 @@ class FedCCFAClient:
         self.n_classes = n_classes
         self.prototype_mix = prototype_mix
         self._seed = seed
+        self._model_type = model_type
 
-        self._model = TorchLinearClassifier(
-            n_features=n_features,
-            n_classes=n_classes,
-            lr=0.01,
-            n_epochs=5,
+        self._model = create_model(
+            model_type,
+            n_features,
+            n_classes,
+            lr=lr,
+            n_epochs=n_epochs,
             seed=seed,
         )
         self._model_params: dict[str, np.ndarray] = {}

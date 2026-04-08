@@ -9,6 +9,7 @@ import numpy as np
 from ..drift_generator.generator import DriftDataset
 from ..metrics.experiment_log import ExperimentLog
 from ..models import TorchLinearClassifier
+from ..models.factory import create_model
 from .comm_tracker import model_bytes
 
 
@@ -82,6 +83,7 @@ class FedEMClient:
         lr: float = 0.05,
         local_epochs: int = 2,
         seed: int = 0,
+        model_type: str = "linear",
     ) -> None:
         if n_components <= 0:
             raise ValueError(f"n_components must be > 0, got {n_components}")
@@ -94,9 +96,10 @@ class FedEMClient:
         self._seed = seed
 
         self._experts = [
-            TorchLinearClassifier(
-                n_features=n_features,
-                n_classes=n_classes,
+            create_model(
+                model_type,
+                n_features,
+                n_classes,
                 lr=lr,
                 n_epochs=1,
                 seed=seed + 31 * i,
@@ -260,6 +263,8 @@ def run_fedem_full(
     *,
     n_components: int = 3,
     local_epochs: int = 2,
+    lr: float = 0.05,
+    model_type: str = "linear",
 ) -> MethodResult:
     K, T, n_features, n_classes = _extract_dims(dataset)
     clients = [
@@ -268,8 +273,10 @@ def run_fedem_full(
             n_features,
             n_classes,
             n_components=n_components,
+            lr=lr,
             local_epochs=local_epochs,
             seed=42 + k,
+            model_type=model_type,
         )
         for k in range(K)
     ]

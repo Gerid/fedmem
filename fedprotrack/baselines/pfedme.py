@@ -9,6 +9,7 @@ import numpy as np
 from ..drift_generator.generator import DriftDataset
 from ..metrics.experiment_log import ExperimentLog
 from ..models import TorchLinearClassifier
+from ..models.factory import create_model
 from .comm_tracker import model_bytes
 
 
@@ -71,6 +72,7 @@ class PFedMeClient:
         lamda: float = 0.1,
         personal_learning_rate: float = 0.05,
         seed: int = 0,
+        model_type: str = "linear",
     ) -> None:
         self.client_id = client_id
         self.n_features = n_features
@@ -80,10 +82,12 @@ class PFedMeClient:
         self.lamda = lamda
         self.personal_learning_rate = personal_learning_rate
         self._seed = seed
+        self._model_type = model_type
 
-        self._model = TorchLinearClassifier(
-            n_features=n_features,
-            n_classes=n_classes,
+        self._model = create_model(
+            model_type,
+            n_features,
+            n_classes,
             lr=personal_learning_rate,
             n_epochs=local_epochs,
             seed=seed,
@@ -108,9 +112,10 @@ class PFedMeClient:
             else (_copy_params(self._global_params) if self._global_params else {})
         )
 
-        personalized = TorchLinearClassifier(
-            n_features=self.n_features,
-            n_classes=self.n_classes,
+        personalized = create_model(
+            self._model_type,
+            self.n_features,
+            self.n_classes,
             lr=self.personal_learning_rate,
             n_epochs=self.local_epochs,
             seed=self._seed + self.client_id + self._n_samples,
@@ -203,6 +208,7 @@ def run_pfedme_full(
     K_steps: int = 5,
     lamda: float = 0.1,
     personal_learning_rate: float = 0.05,
+    model_type: str = "linear",
 ) -> MethodResult:
     K, T, n_features, n_classes = _extract_dims(dataset)
     clients = [
@@ -215,6 +221,7 @@ def run_pfedme_full(
             lamda=lamda,
             personal_learning_rate=personal_learning_rate,
             seed=42 + k,
+            model_type=model_type,
         )
         for k in range(K)
     ]

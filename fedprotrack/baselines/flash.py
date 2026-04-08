@@ -23,6 +23,7 @@ import numpy as np
 
 from ..drift_detector import ADWINDetector
 from ..models import TorchLinearClassifier
+from ..models.factory import create_model
 from .comm_tracker import model_bytes
 
 
@@ -78,16 +79,20 @@ class FlashClient:
         n_classes: int,
         distill_alpha: float = 0.3,
         seed: int = 0,
+        lr: float = 0.01,
+        n_epochs: int = 5,
+        model_type: str = "linear",
     ) -> None:
         self.client_id = client_id
         self.n_features = n_features
         self.n_classes = n_classes
         self.distill_alpha = distill_alpha
         self._seed = seed
+        self._model_type = model_type
 
-        self._model = TorchLinearClassifier(
-            n_features=n_features, n_classes=n_classes,
-            lr=0.01, n_epochs=5, seed=seed,
+        self._model = create_model(
+            model_type, n_features, n_classes,
+            lr=lr, n_epochs=n_epochs, seed=seed,
         )
         self._model_params: dict[str, np.ndarray] = {}
         self._old_model_params: dict[str, np.ndarray] = {}
@@ -156,8 +161,8 @@ class FlashClient:
             return y_hard
 
         # Build temporary model from old params for soft predictions
-        old_model = TorchLinearClassifier(
-            n_features=self.n_features, n_classes=self.n_classes,
+        old_model = create_model(
+            self._model_type, self.n_features, self.n_classes,
             seed=self._seed,
         )
         old_model.set_params(self._old_model_params)
