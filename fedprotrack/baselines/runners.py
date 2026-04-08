@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .adaptive_fedavg import run_adaptive_fedavg_full as _run_adaptive_fedavg_impl
 from .apfl import run_apfl_full as _run_apfl_impl
 from .atp import run_atp_full as _run_atp_impl
 from .cfl import CFLClient, CFLServer
@@ -19,18 +20,22 @@ from ..drift_generator.generator import DriftDataset
 from ..metrics.experiment_log import ExperimentLog
 from .comm_tracker import model_bytes, prototype_bytes, fingerprint_bytes
 from .compressed_fedavg import CompressedFedAvgClient, CompressedFedAvgServer
+from .ditto import run_ditto_full as _run_ditto_impl
 from .fedccfa import FedCCFAClient, FedCCFAServer
 from .fedccfa_impl import FedCCFAImplClient, FedCCFAImplServer
 from .feddrift import FedDriftClient, FedDriftServer
 from .fedem import run_fedem_full as _run_fedem_impl
+from .fedgwc import run_fedgwc_full as _run_fedgwc_impl
 from .fedproto import FedProtoClient, FedProtoAggregator
 from .fedrc import FedRCClient, FedRCServer
 from .fesem import FeSEMClient, FeSEMServer
 from .fedprox import run_fedprox_full as _run_fedprox_impl
 from .flash import FlashClient, FlashAggregator
 from .flux import run_flux_full as _run_flux_impl
+from .hcfl import run_hcfl_full as _run_hcfl_impl
 from .ifca import IFCAClient, IFCAServer
 from .pfedme import run_pfedme_full as _run_pfedme_impl
+from .scaffold import run_scaffold_full as _run_scaffold_impl
 from .tracked_summary import TrackedSummaryClient, TrackedSummaryServer
 
 
@@ -990,3 +995,85 @@ def run_fedprox_full(
         n_epochs=n_epochs,
     )
     return _from_external_result(result, method_name="FedProx")
+
+
+def run_ditto_full(
+    dataset: DriftDataset,
+    federation_every: int = 1,
+    *,
+    lamda: float = 0.1,
+    tau: int = 5,
+    lr: float = 0.01,
+    n_epochs: int = 5,
+) -> MethodResult:
+    """Run Ditto and return full results."""
+    result = _run_ditto_impl(
+        dataset, federation_every=federation_every,
+        lamda=lamda, tau=tau, lr=lr, n_epochs=n_epochs,
+    )
+    return _from_external_result(result, method_name="Ditto")
+
+
+def run_scaffold_full(
+    dataset: DriftDataset,
+    federation_every: int = 1,
+    *,
+    lr: float = 0.01,
+    n_epochs: int = 5,
+) -> MethodResult:
+    """Run SCAFFOLD and return full results."""
+    result = _run_scaffold_impl(
+        dataset, federation_every=federation_every, lr=lr, n_epochs=n_epochs,
+    )
+    return _from_external_result(result, method_name="SCAFFOLD")
+
+
+def run_adaptive_fedavg_full(
+    dataset: DriftDataset,
+    federation_every: int = 1,
+    *,
+    lr: float = 0.01,
+    n_epochs: int = 5,
+    boost_factor: float = 2.0,
+    decay_factor: float = 0.95,
+) -> MethodResult:
+    """Run Adaptive-FedAvg and return full results."""
+    result = _run_adaptive_fedavg_impl(
+        dataset, federation_every=federation_every,
+        lr=lr, n_epochs=n_epochs,
+        boost_factor=boost_factor, decay_factor=decay_factor,
+    )
+    return _from_external_result(result, method_name="Adaptive-FedAvg")
+
+
+def run_hcfl_full(
+    dataset: DriftDataset,
+    federation_every: int = 1,
+    *,
+    distance_threshold: float = 0.5,
+    lr: float = 0.01,
+    n_epochs: int = 5,
+) -> MethodResult:
+    """Run HCFL and return full results."""
+    result = _run_hcfl_impl(
+        dataset, federation_every=federation_every,
+        distance_threshold=distance_threshold, lr=lr, n_epochs=n_epochs,
+    )
+    return _from_external_result(result, method_name="HCFL")
+
+
+def run_fedgwc_full(
+    dataset: DriftDataset,
+    federation_every: int = 1,
+    *,
+    sigma: float = 1.0,
+    dbscan_eps: float = 0.5,
+    lr: float = 0.01,
+    n_epochs: int = 5,
+) -> MethodResult:
+    """Run FedGWC and return full results."""
+    result = _run_fedgwc_impl(
+        dataset, federation_every=federation_every,
+        sigma=sigma, dbscan_eps=dbscan_eps, lr=lr, n_epochs=n_epochs,
+    )
+    return _from_external_result(result, method_name="FedGWC")

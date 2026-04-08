@@ -53,13 +53,17 @@ os.environ.setdefault("PYTHONUNBUFFERED", "1")
 
 from fedprotrack.baselines.runners import (
     MethodResult,
+    run_adaptive_fedavg_full,
     run_apfl_full,
     run_atp_full,
     run_cfl_full,
     run_compressed_fedavg_full,
+    run_ditto_full,
     run_fedccfa_full,
+    run_fedccfa_impl_full,
     run_feddrift_full,
     run_fedem_full,
+    run_fedgwc_full,
     run_fedproto_full,
     run_fedprox_full,
     run_fedrc_full,
@@ -67,8 +71,10 @@ from fedprotrack.baselines.runners import (
     run_flash_full,
     run_flux_full,
     run_flux_prior_full,
+    run_hcfl_full,
     run_ifca_full,
     run_pfedme_full,
+    run_scaffold_full,
     run_tracked_summary_full,
 )
 from fedprotrack.experiment.baselines import (
@@ -90,7 +96,47 @@ from fedprotrack.real_data import (
     CIFAR100RecurrenceConfig,
     generate_cifar100_recurrence_dataset,
     prepare_cifar100_recurrence_feature_cache,
+    CIFAR10RecurrenceConfig,
+    generate_cifar10_recurrence_dataset,
+    prepare_cifar10_recurrence_feature_cache,
+    FMNISTRecurrenceConfig,
+    generate_fmnist_recurrence_dataset,
+    prepare_fmnist_recurrence_feature_cache,
+    FMOWConfig,
+    generate_fmow_dataset,
+    prepare_fmow_feature_cache,
 )
+
+# ---------------------------------------------------------------------------
+# Dataset dispatch
+# ---------------------------------------------------------------------------
+
+_DATASET_DISPATCH: dict[str, dict] = {
+    "cifar100": {
+        "config_cls": CIFAR100RecurrenceConfig,
+        "generate": generate_cifar100_recurrence_dataset,
+        "prepare": prepare_cifar100_recurrence_feature_cache,
+        "data_root_default": ".cifar100_cache",
+    },
+    "cifar10": {
+        "config_cls": CIFAR10RecurrenceConfig,
+        "generate": generate_cifar10_recurrence_dataset,
+        "prepare": prepare_cifar10_recurrence_feature_cache,
+        "data_root_default": ".cifar10_cache",
+    },
+    "fmnist": {
+        "config_cls": FMNISTRecurrenceConfig,
+        "generate": generate_fmnist_recurrence_dataset,
+        "prepare": prepare_fmnist_recurrence_feature_cache,
+        "data_root_default": ".fmnist_cache",
+    },
+    "fmow": {
+        "config_cls": FMOWConfig,
+        "generate": generate_fmow_dataset,
+        "prepare": prepare_fmow_feature_cache,
+        "data_root_default": ".fmow_cache",
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -101,6 +147,8 @@ METHOD_GROUPS: dict[str, list[str]] = {
     "drift": ["FedDrift", "Flash", "FedCCFA"],
     "cluster": ["CFL", "FedRC", "FedEM", "FeSEM"],
     "pfl": ["FedProx", "pFedMe", "APFL", "ATP"],
+    "pfl2": ["Ditto", "SCAFFOLD", "Adaptive-FedAvg"],
+    "cluster2": ["HCFL", "FedGWC", "FedCCFA-Impl"],
     "extra": ["TrackedSummary", "FLUX", "FLUX-prior", "CompressedFedAvg", "LocalOnly"],
     "quick": ["FedProTrack", "FedAvg", "Oracle", "IFCA", "FedRC"],
 }
@@ -109,6 +157,8 @@ METHOD_GROUPS["all"] = (
     + METHOD_GROUPS["drift"]
     + METHOD_GROUPS["cluster"]
     + METHOD_GROUPS["pfl"]
+    + METHOD_GROUPS["pfl2"]
+    + METHOD_GROUPS["cluster2"]
     + METHOD_GROUPS["extra"]
 )
 
@@ -411,6 +461,24 @@ def _build_methods(
         "FedProx": lambda: run_fedprox_full(
             dataset, federation_every=federation_every,
         ),
+        "FedCCFA-Impl": lambda: run_fedccfa_impl_full(
+            dataset, federation_every=federation_every,
+        ),
+        "Ditto": lambda: run_ditto_full(
+            dataset, federation_every=federation_every,
+        ),
+        "SCAFFOLD": lambda: run_scaffold_full(
+            dataset, federation_every=federation_every,
+        ),
+        "Adaptive-FedAvg": lambda: run_adaptive_fedavg_full(
+            dataset, federation_every=federation_every,
+        ),
+        "HCFL": lambda: run_hcfl_full(
+            dataset, federation_every=federation_every,
+        ),
+        "FedGWC": lambda: run_fedgwc_full(
+            dataset, federation_every=federation_every,
+        ),
     }
 
     # Map canonical "FedProTrack" to the labelled variant
@@ -449,6 +517,7 @@ def _run_single_seed(
     fpt_mode: str,
     fpt_name: str,
     participation: float,
+    dataset_name: str = "cifar100",
 ) -> list[dict]:
     """Run all methods for one seed and return result rows.
 
@@ -468,24 +537,23 @@ def _run_single_seed(
     """
     os.environ.setdefault("FEDPROTRACK_GPU_THRESHOLD", "0")
 
-    dataset_cfg = CIFAR100RecurrenceConfig(
-        K=K,
-        T=T,
-        n_samples=n_samples,
-        rho=rho,
-        alpha=alpha,
-        delta=delta,
-        n_features=n_features,
-        samples_per_coarse_class=samples_per_coarse_class,
-        batch_size=batch_size,
-        n_workers=n_workers,
-        data_root=data_root,
-        feature_cache_dir=feature_cache_dir,
-        feature_seed=feature_seed,
-        seed=seed,
-    )
+    dispatch = _DATASET_DISPATCH[dataset_name]
+    ConfigCls = dispatch["config_cls"]
 
-    dataset = generate_cifar100_recurrence_dataset(dataset_cfg)
+    # Build config kwargs — shared params first, then dataset-specific
+    cfg_kwargs: dict = dict(
+        K=K, T=T, n_samples=n_samples, rho=rho, alpha=alpha, delta=delta,
+        n_features=n_features, batch_size=batch_size, n_workers=n_workers,
+        data_root=data_root, feature_cache_dir=feature_cache_dir,
+        feature_seed=feature_seed, seed=seed,
+    )
+    # Only recurrence datasets accept samples_per_coarse_class
+    if dataset_name != "fmow":
+        cfg_kwargs["samples_per_coarse_class"] = samples_per_coarse_class
+
+    dataset_cfg = ConfigCls(**cfg_kwargs)
+
+    dataset = dispatch["generate"](dataset_cfg)
     ground_truth = dataset.concept_matrix
     n_concepts = int(ground_truth.max()) + 1
 
@@ -891,7 +959,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--federation-every", type=int, default=1, help="Federation cadence (default: 1)")
 
     # -- Infra --
-    parser.add_argument("--data-root", default=".cifar100_cache", help="CIFAR-100 download cache")
+    parser.add_argument(
+        "--dataset", default="cifar100",
+        choices=["cifar100", "cifar10", "fmnist", "fmow"],
+        help="Dataset to use (default: cifar100)",
+    )
+    parser.add_argument("--data-root", default=None, help="Dataset download cache (auto-set per dataset if omitted)")
     parser.add_argument("--feature-cache-dir", default=".feature_cache", help="Feature cache directory")
     parser.add_argument("--feature-seed", type=int, default=2718, help="Feature extraction seed")
     parser.add_argument("--n-workers", type=int, default=0, help="DataLoader workers (default: 0)")
@@ -966,25 +1039,25 @@ def _run_preset(preset_name: str, args: argparse.Namespace) -> list[dict]:
         flush=True,
     )
 
+    # Resolve data_root default per dataset
+    ds_dispatch = _DATASET_DISPATCH[args.dataset]
+    if args.data_root is None:
+        args.data_root = ds_dispatch["data_root_default"]
+
     # Warm feature cache once
-    warm_cfg = CIFAR100RecurrenceConfig(
-        K=K,
-        T=T,
-        n_samples=args.n_samples,
-        rho=args.rho,
-        alpha=args.alpha,
-        delta=args.delta,
-        n_features=args.n_features,
-        samples_per_coarse_class=args.samples_per_coarse_class,
-        batch_size=args.batch_size,
-        n_workers=args.n_workers,
-        data_root=args.data_root,
-        feature_cache_dir=args.feature_cache_dir,
-        feature_seed=args.feature_seed,
+    WarmConfigCls = ds_dispatch["config_cls"]
+    warm_kwargs: dict = dict(
+        K=K, T=T, n_samples=args.n_samples, rho=args.rho, alpha=args.alpha,
+        delta=args.delta, n_features=args.n_features, batch_size=args.batch_size,
+        n_workers=args.n_workers, data_root=args.data_root,
+        feature_cache_dir=args.feature_cache_dir, feature_seed=args.feature_seed,
         seed=seeds[0],
     )
-    print("Warming feature cache...", flush=True)
-    prepare_cifar100_recurrence_feature_cache(warm_cfg)
+    if args.dataset != "fmow":
+        warm_kwargs["samples_per_coarse_class"] = args.samples_per_coarse_class
+    warm_cfg = WarmConfigCls(**warm_kwargs)
+    print(f"Warming feature cache ({args.dataset})...", flush=True)
+    ds_dispatch["prepare"](warm_cfg)
 
     all_rows: list[dict] = []
     for seed in seeds:
@@ -1013,6 +1086,7 @@ def _run_preset(preset_name: str, args: argparse.Namespace) -> list[dict]:
             fpt_mode=args.fpt_mode,
             fpt_name=fpt_name,
             participation=participation,
+            dataset_name=args.dataset,
         )
         all_rows.extend(seed_rows)
 
@@ -1145,6 +1219,7 @@ def main() -> None:
                 fpt_mode=args.fpt_mode,
                 fpt_name=fpt_name,
                 participation=args.participation,
+                dataset_name=args.dataset,
             )
             all_rows.extend(seed_rows)
 

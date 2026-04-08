@@ -18,13 +18,17 @@ from typing import Callable
 import numpy as np
 
 from fedprotrack.baselines.runners import (
+    run_adaptive_fedavg_full,
     run_apfl_full,
     run_atp_full,
     run_cfl_full,
     run_compressed_fedavg_full,
+    run_ditto_full,
     run_fedccfa_full,
+    run_fedccfa_impl_full,
     run_feddrift_full,
     run_fedem_full,
+    run_fedgwc_full,
     run_fedproto_full,
     run_fedprox_full,
     run_fedrc_full,
@@ -32,8 +36,10 @@ from fedprotrack.baselines.runners import (
     run_flash_full,
     run_flux_full,
     run_flux_prior_full,
+    run_hcfl_full,
     run_ifca_full,
     run_pfedme_full,
+    run_scaffold_full,
     run_tracked_summary_full,
 )
 from fedprotrack.experiment.baselines import (
@@ -188,6 +194,12 @@ def _build_methods(
         "FLUX-prior": lambda: run_flux_prior_full(dataset, federation_every=federation_every),
         "CompressedFedAvg": lambda: run_compressed_fedavg_full(dataset, federation_every=federation_every),
         "FedProx": lambda: run_fedprox_full(dataset, federation_every=federation_every),
+        "FedCCFA-Impl": lambda: run_fedccfa_impl_full(dataset, federation_every=federation_every),
+        "Ditto": lambda: run_ditto_full(dataset, federation_every=federation_every),
+        "SCAFFOLD": lambda: run_scaffold_full(dataset, federation_every=federation_every),
+        "Adaptive-FedAvg": lambda: run_adaptive_fedavg_full(dataset, federation_every=federation_every),
+        "HCFL": lambda: run_hcfl_full(dataset, federation_every=federation_every),
+        "FedGWC": lambda: run_fedgwc_full(dataset, federation_every=federation_every),
     }
 
 

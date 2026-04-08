@@ -28,6 +28,8 @@ IDENTITY_CAPABLE_METHODS: frozenset[str] = frozenset({
     "IFCA",
     "FeSEM",
     "FedRC",
+    "HCFL",
+    "FedGWC",
 })
 
 # Methods whose ``predicted_concept_matrix`` is always all-zeros (or
@@ -45,6 +47,9 @@ NON_IDENTITY_METHODS: frozenset[str] = frozenset({
     "CFL",
     "FLUX",
     "FLUX-prior",
+    "Ditto",
+    "SCAFFOLD",
+    "Adaptive-FedAvg",
 })
 
 # Methods that are currently aliases of another implementation in this repo.
