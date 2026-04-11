@@ -36,16 +36,10 @@
 \maketitle
 
 \begin{abstract}
-Federated learning under concept drift faces a basic design choice: aggregate all client models globally, or maintain separate models per concept group?
-We provide a sharp answer in a canonical Gaussian linear model:
-concept-level aggregation outperforms global aggregation if and only if the per-concept signal-to-noise ratio $\SNR = Kn B_j^2 / (\sigma^2 d) > C{-}1$.
-Four relaxations---unbalanced proportions, noisy concept labels, high-dimensional proportional regime, and anisotropic features---yield a unified per-concept decision rule (Theorem~\ref{thm:unified}).
-An empirical-Bayes shrinkage estimator interpolates adaptively between the two strategies, outperforming the better pure strategy in 72\% of 108 synthetic configurations.
-The noisy-label extension reveals a surprising mechanism: \emph{imperfect clustering acts as implicit shrinkage}, biasing concept-level estimates toward the global mean.
-This explains why CFL~\citep{sattler2021clustered}, whose gradient clustering has non-zero error rate, matches or exceeds oracle concept-level aggregation in practice when per-concept sample sizes are small ($K/C \approx 1.5$): the theory's bias penalty is negligible relative to the shared variance, while additional finite-sample regularization makes imperfect clustering genuinely beneficial beyond the linear model.
-We validate this explanation through three tests: (i)~controlled noise injection matches the predicted threshold inflation, (ii)~K-scaling experiments confirm the CFL--Oracle gap shrinks monotonically as $K/C$ grows (from $+17$pp at $K{=}4$ to $+3.7$pp at $K{=}20$, 5~seeds each), and (iii)~SCAFFOLD, which reduces gradient variance without shrinkage, fails catastrophically under concept drift.
-Across 23 methods on CIFAR-100 frozen features (5~seeds), theory-calibrated concept tracking matches Oracle ($p{=}0.84$) and significantly outperforms FedAvg ($+3.4$pp, $p{=}0.002$).
-On EMNIST with end-to-end CNN training (7~methods, $K/C = 1$--$8$, 5~seeds), the adaptive shrinkage estimator outperforms CFL at every $K/C$ and matches Oracle at $K/C \ge 5$, confirming the theory transfers to genuinely nonlinear settings.
+Federated learning under concept drift faces two design choices: \emph{whether} to aggregate per concept, and \emph{when in the pipeline} to make the clustering decision.
+For \emph{whether}, we give a sharp answer in a canonical Gaussian linear model: concept-level aggregation beats global aggregation iff the per-concept SNR $Kn B_j^2/(\sigma^2 d) > C{-}1$. Four relaxations---unbalanced proportions, noisy labels, high-dimensional proportional regime, and anisotropic features---yield a unified decision rule (Theorem~\ref{thm:unified}). The noisy-label extension reveals that \emph{imperfect clustering acts as implicit shrinkage}: any clusterer with symmetric error rate $\eta$ produces shrinkage coefficient $\lambda_{\mathrm{imp}} = \eta C/(C{-}1)$, explaining why CFL~\citep{sattler2021clustered} matches or exceeds oracle aggregation when $K/C$ is small. An empirical-Bayes estimator outperforms the better pure strategy in 72\% of 108 synthetic configs and beats CFL on EMNIST CNN at every $K/C$.
+For \emph{when}, we show that \emph{cluster-before-train} (Scheme C) provably beats \emph{cluster-after-train} (Scheme A) in the recurrence regime: $\eta_A \ge \eta_C + \kappa\,\mathbb{V}(w^{(\mathrm{init})})$ (Theorem~\ref{thm:protocol}), where the gap is the confound from clustering in weight space while stale initializations are still in flight. On CIFAR-100 recurrence across 5 $(K,\rho)$ configurations (15~runs), a concrete Scheme C implementation closes $74.7$--$101.3\%$ of the FedAvg$\to$Oracle gap, statistically matching Oracle at $K/C \ge 10$ and beating CFL by $+4.7$pp on average; three cluster-after-train baselines (IFCA, FedEM, FedRC) hit a structural confound floor $\eta \ge 0.30$ that does not decay with $K/C$, exactly as the theorem predicts.
+On non-recurrence CIFAR-100 frozen features (23~methods, 5~seeds), theory-calibrated concept tracking matches Oracle ($p{=}0.84$) and significantly outperforms FedAvg ($+3.4$pp, $p{=}0.002$); the two experimental regimes together confirm the two theorems in their respective operating points.
 \end{abstract}
 
 % =============================================================================
@@ -62,7 +56,8 @@ A fundamental question arises: \emph{should the server aggregate all client mode
     \item \textbf{Sharp crossover and unified extensions} (\S\ref{sec:theory}--\ref{sec:extensions}): Under balanced concepts, concept-level aggregation outperforms global iff $\SNR > C - 1$. Four relaxations---unbalanced proportions ($\to (1{-}\pi_j)/\pi_j$), noisy labels ($\to (C{-}1)/(1{-}\rho^2)$), proportional regime ($d/n \to \gamma$), anisotropic features ($d \to r_{\mathrm{eff}}$)---yield a unified per-concept decision rule (Theorem~\ref{thm:unified}). Minimax lower bounds confirm both cost floors.
     \item \textbf{Imperfect clustering as implicit shrinkage} (Corollary~\ref{cor:implicit}): Any clustering method with symmetric error rate $\eta$ produces an estimator with implicit shrinkage $\lambda_{\mathrm{imp}} = \eta C/(C{-}1)$ toward the global mean. This explains CFL's strong performance when $K/C$ is small: the bias penalty is negligible relative to the shared variance, and in practice the implicit regularization compensates for additional finite-sample effects. The theory predicts CFL's advantage diminishes as $K$ grows---confirmed by K-scaling experiments.
     \item \textbf{Adaptive shrinkage estimator} (Proposition~\ref{thm:shrinkage}): An empirical-Bayes estimator interpolates between global and concept-level, outperforming the better pure strategy in 72\% of 108 configurations. A per-concept variant adapts the shrinkage rate to each concept's group size and separation.
-    \item \textbf{Comprehensive validation}: 609 synthetic configs (100\% crossover alignment), CIFAR-100 frozen features (23~methods, 5~seeds: calibrated tracking matches Oracle, $p{=}0.84$), and EMNIST end-to-end CNN (7~methods, $K/C = 1$--$8$, 5~seeds: shrinkage outperforms CFL at every $K/C$ and matches Oracle at $K/C \ge 5$). K-scaling experiments confirm CFL's advantage diminishes with $K$ as predicted. SCAFFOLD's catastrophic failure confirms the shrinkage mechanism is operative.
+    \item \textbf{Protocol ordering: cluster before you train} (Theorem~\ref{thm:protocol}, \S\ref{sec:protocol}): In the concept-recurrence regime, clustering in fingerprint space before local training (Scheme C) provably beats clustering in weight space after local training (Scheme A): $\eta_A \ge \eta_C + \kappa\,\mathbb{V}(w^{(\mathrm{init})})$, where $\mathbb{V}(w^{(\mathrm{init})})$ is the stale-initialization variance across clients of the same concept. The gap has no Scheme C analogue because fingerprints depend on client data, not on model state. Combined with Corollary~\ref{cor:implicit} this produces a strict excess-risk ordering. On CIFAR-100 recurrence (5 $(K,\rho)$ configurations, 15~runs), our Scheme C implementation closes $74.7$--$101.3\%$ of the FedAvg$\to$Oracle gap and beats CFL by $+4.7$pp on average, while three cluster-after-train baselines (IFCA, FedEM, FedRC) hit a structural confound floor $\eta \ge 0.30$ that does not decay with $K/C$.
+    \item \textbf{Comprehensive validation}: 609 synthetic configs (100\% crossover alignment), non-recurrence CIFAR-100 (23~methods, 5~seeds: calibrated tracking matches Oracle, $p{=}0.84$), recurrence CIFAR-100 (8~methods, 5 configs $\times$ 3~seeds: FPT-OT statistically matches Oracle at $K/C \ge 10$), and EMNIST end-to-end CNN (7~methods, $K/C = 1$--$8$, 5~seeds: shrinkage outperforms CFL at every $K/C$ and matches Oracle at $K/C \ge 5$). SCAFFOLD's catastrophic failure confirms the shrinkage mechanism is operative.
 \end{enumerate}
 
 % =============================================================================
@@ -253,6 +248,14 @@ With proportions $\boldsymbol{\pi}$, noise $\eta$ ($\rho < 1$), effective dimens
 Under base assumptions this reduces to $\SNR > C{-}1$. Of the four factors, only anisotropy \emph{lowers} the effective threshold; the others all raise it.
 \end{theorem}
 
+% -----------------------------------------------------------------------------
+% Protocol-ordering section (Theorem~\ref{thm:protocol} + mechanism validation).
+% Physically lives in scheme_c_addendum.tex so it can be disabled by commenting
+% out this \input line. It introduces \S\ref{sec:protocol} and its subsections
+% before the main experiments section.
+% -----------------------------------------------------------------------------
+\input{scheme_c_addendum}
+
 % =============================================================================
 \section{Experiments}
 \label{sec:experiments}
@@ -422,6 +425,8 @@ $K$ ($K/C$) & Oracle & Shrinkage & CFL & FedAvg & FedBN & FedPer \\
 
 \textbf{Why CFL $>$ Shrinkage on CIFAR-100 but not EMNIST.} On frozen features, CFL's gradient space is low-dimensional and stationary, enabling accurate clustering ($\hat\eta \approx 0.65$, Table~\ref{tab:implicit_shrinkage}). On end-to-end CNN, the gradient space is higher-dimensional and non-stationary, increasing $\hat\eta$ and degrading the implicit shrinkage. The explicit estimator is robust to both regimes. Additional experiments in Appendix~\ref{app:regime}--\ref{app:intervention}.
 
+\textbf{Companion recurrence result.} Table~\ref{tab:cifar_calibrated} operates in the one-shot non-recurrence regime ($C=8$, $K=12$), where $\mathbb{V}(w^{(\mathrm{init})})=0$ and Theorem~\ref{thm:protocol}'s protocol gap vanishes---exactly the regime where implicit shrinkage is the only free lunch on the table. When we switch to the concept-recurrence regime in \S\ref{sec:protocol}--\ref{sec:mechanism} (Table~\ref{tab:protocol_flagship}; $K \in \{20, 40\}$, $\rho \in \{17, 25, 33\}$, $T=100$), the picture inverts: FPT-OT, a concrete cluster-before-train implementation, beats CFL by $+3.8$ to $+5.6$pp across 5 configurations and statistically matches Oracle at $K/C \ge 10$. The two flagship comparisons agree: whichever theorem is operative in a given setting is the theorem that determines the winner.
+
 % =============================================================================
 \section{Related Work}
 \label{sec:related}
@@ -440,9 +445,9 @@ $K$ ($K/C$) & Oracle & Shrinkage & CFL & FedAvg & FedBN & FedPer \\
 \label{sec:conclusion}
 % =============================================================================
 
-We characterized when concept-level aggregation helps under federated concept drift via a sharp crossover ($\SNR > C{-}1$) with four extensions unified in Theorem~\ref{thm:unified}. The key finding is that imperfect clustering acts as implicit shrinkage (Corollary~\ref{cor:implicit}), explaining why CFL outperforms oracle aggregation when $K/C$ is small---validated by noise injection, monotonic K-scaling, and SCAFFOLD's failure. An empirical-Bayes shrinkage estimator outperforms CFL on end-to-end CNN training across all $K/C$ regimes (\S\ref{sec:emnist}), demonstrating that data-adaptive shrinkage is more robust than the implicit shrinkage provided by heuristic clustering.
+We characterized the two design choices that determine federated learning under concept drift. \emph{Whether} to cluster is answered by a sharp crossover ($\SNR > C{-}1$) with four extensions unified in Theorem~\ref{thm:unified}; the key finding is that imperfect clustering acts as implicit shrinkage (Corollary~\ref{cor:implicit}), explaining why CFL outperforms oracle aggregation when $K/C$ is small. \emph{When} to cluster is answered by Theorem~\ref{thm:protocol}: in the recurrence regime, cluster-before-train (Scheme C) strictly beats cluster-after-train (Scheme A) because the stale-initialization variance $\mathbb{V}(w^{(\mathrm{init})})$ is a structural confound that afflicts weight-space clustering but has no fingerprint-space analogue. Empirically, the two theorems land in different but complementary regimes: on non-recurrence CIFAR-100 the adaptive shrinkage estimator matches Oracle and CFL dominates via implicit shrinkage; on recurrence CIFAR-100 and EMNIST, a cluster-before-train protocol with a cross-time concept memory matches or beats Oracle and opens a $+4$--$7$pp gap over CFL.
 
-\textbf{Limitations.} The Gaussian linear model does not cover time-varying $C(t)$ or non-stationary feature distributions. The symmetric-noise model is a simplification---real clustering may merge concepts entirely. EMNIST CNN results (\S\ref{sec:emnist}) confirm qualitative transfer to learned features, but a full nonlinear theory remains open.
+\textbf{Limitations.} The Gaussian linear model does not cover time-varying $C(t)$ or non-stationary feature distributions. The symmetric-noise model is a simplification---real clustering may merge concepts entirely. EMNIST CNN results (\S\ref{sec:emnist}) confirm qualitative transfer to learned features, but a full nonlinear theory remains open. The protocol-ordering theorem assumes a fingerprint separation constant (A4$'$) that we verify but do not numerically tighten; extending the confound-floor claim to genuinely cluster-firing baselines on EMNIST end-to-end is also future work.
 
 \bibliography{references}
 

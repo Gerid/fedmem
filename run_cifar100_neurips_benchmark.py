@@ -190,6 +190,9 @@ FPT_MODE_NAMES: dict[str, str] = {
     "base": "FedProTrack-base",
     "auto": "FedProTrack-auto",
     "calibrated": "FedProTrack-calibrated",
+    "drct": "FedProTrack-DRCT",
+    "drct-hw": "FedProTrack-DRCT-HW",
+    "ot": "FedProTrack-OT",
     "hybrid": "FedProTrack-hybrid",
     "hybrid-proto": "FedProTrack-hybrid-proto",
 }
@@ -321,6 +324,8 @@ def _build_methods(
     lr: float,
     seed: int,
     model_type: str = "linear",
+    ot_affinity_scale: str = "local",
+    ot_eigengap_method: str = "last_significant",
 ):
     """Build a dict of method-name -> callable returning a result.
 
@@ -350,9 +355,10 @@ def _build_methods(
     dict[str, callable]
     """
     fpt_kwargs: dict[str, object] = {
+        "concept_discovery": "ot" if fpt_mode == "ot" else "gibbs",
         "auto_scale": fpt_mode == "auto",
         "similarity_calibration": fpt_mode in {
-            "calibrated", "hybrid", "hybrid-proto",
+            "calibrated", "drct", "drct-hw", "hybrid", "hybrid-proto",
         },
         "model_signature_weight": (
             0.55 if fpt_mode in {"hybrid", "hybrid-proto"} else 0.0
@@ -392,13 +398,19 @@ def _build_methods(
                 max_concepts=max(6, n_concepts + 3),
                 merge_every=2,
                 shrink_every=6,
+                drct_shrinkage=(fpt_mode in {"drct", "drct-hw", "ot"}),
+                drct_d_eff_ratio=0.9,
+                drct_min_concepts=2,
+                ot_affinity_scale=ot_affinity_scale,
+                ot_eigengap_method=ot_eigengap_method,
             ),
             federation_every=federation_every,
             detector_name="ADWIN",
             seed=seed,
             lr=fpt_lr,
             n_epochs=fpt_epochs,
-            soft_aggregation=True,
+            soft_aggregation=(fpt_mode not in {"drct-hw", "ot"}),
+            soft_read=(fpt_mode == "drct-hw"),
             blend_alpha=0.0,
             **fpt_kwargs,
         ).run(dataset),
@@ -549,6 +561,8 @@ def _run_single_seed(
     dataset_name: str = "cifar100",
     model_type: str = "linear",
     dirichlet_alpha: float | None = None,
+    ot_affinity_scale: str = "local",
+    ot_eigengap_method: str = "last_significant",
 ) -> list[dict]:
     """Run all methods for one seed and return result rows.
 
@@ -578,9 +592,11 @@ def _run_single_seed(
         data_root=data_root, feature_cache_dir=feature_cache_dir,
         feature_seed=feature_seed, seed=seed,
     )
-    # Only recurrence datasets accept samples_per_coarse_class
-    if dataset_name != "fmow":
+    # Dataset-specific sampling param name
+    if dataset_name == "cifar100":
         cfg_kwargs["samples_per_coarse_class"] = samples_per_coarse_class
+    elif dataset_name in ("cifar10", "fmnist"):
+        cfg_kwargs["samples_per_class"] = samples_per_coarse_class
     # Dirichlet non-IID control (only CIFAR-100 currently supports it)
     if dirichlet_alpha is not None and dataset_name == "cifar100":
         cfg_kwargs["dirichlet_alpha"] = dirichlet_alpha
@@ -607,6 +623,8 @@ def _run_single_seed(
         lr=lr,
         seed=seed,
         model_type=model_type,
+        ot_affinity_scale=ot_affinity_scale,
+        ot_eigengap_method=ot_eigengap_method,
     )
 
     rows: list[dict] = []
@@ -984,7 +1002,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--fpt-mode", default="calibrated",
-        choices=["base", "auto", "calibrated", "hybrid", "hybrid-proto"],
+        choices=["base", "auto", "calibrated", "drct", "drct-hw", "ot", "hybrid", "hybrid-proto"],
         help="FedProTrack routing mode (default: calibrated)",
     )
     parser.add_argument("--fpt-lr", type=float, default=None, help="FedProTrack lr (default: same as --lr)")
@@ -1021,6 +1039,32 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--quick", action="store_true",
         help="Quick development mode: K=10, T=40, 1 seed, core methods only",
+    )
+
+    # -- RunPod handler compatibility --
+    parser.add_argument(
+        "--seed", type=int, default=None,
+        help="Single seed (overrides --seeds for RunPod handler compatibility)",
+    )
+    parser.add_argument(
+        "--results-dir", default=None,
+        help="Alias for --out-dir (RunPod handler compatibility)",
+    )
+
+    # -- Three-fix ablation knobs (FedProTrack OT path only) --
+    parser.add_argument(
+        "--ot-affinity-scale", default="local",
+        choices=["local", "median", "p25"],
+        help="RBF bandwidth method for OT spectral clustering. 'local' (default) "
+             "uses k-NN local bandwidth (fix 1b); 'median' recovers the pre-fix "
+             "behaviour (ablation)."
+    )
+    parser.add_argument(
+        "--ot-eigengap-method", default="last_significant",
+        choices=["last_significant", "argmax"],
+        help="Eigengap heuristic for OT cluster count. 'last_significant' (default) "
+             "is the plateau-noise-adjusted last-significant-gap heuristic (fix 1a); "
+             "'argmax' recovers the classical pre-fix heuristic (ablation)."
     )
 
     return parser.parse_args()
@@ -1095,8 +1139,10 @@ def _run_preset(preset_name: str, args: argparse.Namespace) -> list[dict]:
         feature_cache_dir=args.feature_cache_dir, feature_seed=args.feature_seed,
         seed=seeds[0],
     )
-    if args.dataset != "fmow":
+    if args.dataset == "cifar100":
         warm_kwargs["samples_per_coarse_class"] = args.samples_per_coarse_class
+    elif args.dataset in ("cifar10", "fmnist"):
+        warm_kwargs["samples_per_class"] = args.samples_per_coarse_class
     warm_cfg = WarmConfigCls(**warm_kwargs)
     print(f"Warming feature cache ({args.dataset})...", flush=True)
     ds_dispatch["prepare"](warm_cfg)
@@ -1131,6 +1177,8 @@ def _run_preset(preset_name: str, args: argparse.Namespace) -> list[dict]:
             dataset_name=args.dataset,
             model_type=args.model_type,
             dirichlet_alpha=args.dirichlet_alpha,
+            ot_affinity_scale=args.ot_affinity_scale,
+            ot_eigengap_method=args.ot_eigengap_method,
         )
         all_rows.extend(seed_rows)
 
@@ -1140,6 +1188,13 @@ def _run_preset(preset_name: str, args: argparse.Namespace) -> list[dict]:
 def main() -> None:
     """Entry point for the NeurIPS benchmark script."""
     args = _parse_args()
+
+    # RunPod handler compatibility: --seed (singular) overrides --seeds
+    if args.seed is not None:
+        args.seeds = str(args.seed)
+        args.n_seeds = 1
+    if args.results_dir is not None:
+        args.out_dir = args.results_dir
 
     # Apply drift type adjustments
     _apply_drift_type(args)
@@ -1216,8 +1271,14 @@ def main() -> None:
             flush=True,
         )
 
+        # Resolve data_root default per dataset
+        ds_dispatch = _DATASET_DISPATCH[args.dataset]
+        if args.data_root is None:
+            args.data_root = ds_dispatch["data_root_default"]
+
         # Warm feature cache
-        warm_cfg = CIFAR100RecurrenceConfig(
+        WarmConfigCls = ds_dispatch["config_cls"]
+        _ff_warm_kwargs: dict = dict(
             K=args.K,
             T=args.T,
             n_samples=args.n_samples,
@@ -1225,7 +1286,6 @@ def main() -> None:
             alpha=args.alpha,
             delta=args.delta,
             n_features=args.n_features,
-            samples_per_coarse_class=args.samples_per_coarse_class,
             batch_size=args.batch_size,
             n_workers=args.n_workers,
             data_root=args.data_root,
@@ -1233,8 +1293,13 @@ def main() -> None:
             feature_seed=args.feature_seed,
             seed=seeds[0],
         )
-        print("Warming feature cache...", flush=True)
-        prepare_cifar100_recurrence_feature_cache(warm_cfg)
+        if args.dataset == "cifar100":
+            _ff_warm_kwargs["samples_per_coarse_class"] = args.samples_per_coarse_class
+        elif args.dataset in ("cifar10", "fmnist"):
+            _ff_warm_kwargs["samples_per_class"] = args.samples_per_coarse_class
+        warm_cfg = WarmConfigCls(**_ff_warm_kwargs)
+        print(f"Warming feature cache ({args.dataset})...", flush=True)
+        ds_dispatch["prepare"](warm_cfg)
 
         all_rows = []
         for seed in seeds:
@@ -1266,6 +1331,8 @@ def main() -> None:
                 dataset_name=args.dataset,
                 model_type=args.model_type,
                 dirichlet_alpha=args.dirichlet_alpha,
+                ot_affinity_scale=args.ot_affinity_scale,
+                ot_eigengap_method=args.ot_eigengap_method,
             )
             all_rows.extend(seed_rows)
 

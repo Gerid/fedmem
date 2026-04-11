@@ -211,6 +211,19 @@ class TwoPhaseConfig:
     trust_buffer_size: int = 5
     trust_decay: float = 0.7
     trust_promotion_threshold: int = 2
+    # DRCT (Dual-Rank Concept Tracking) Stein shrinkage
+    drct_shrinkage: bool = False
+    drct_d_eff_ratio: float = 0.9
+    drct_min_concepts: int = 2
+    # Ablation knobs for OT concept discovery. Setting to the ablation value
+    # recovers the pre-fix behaviour; defaults preserve the current path.
+    # The drct_force_ambient_d_eff knob was removed in the v2 submission: the
+    # ablation confirmed it produces bit-identical results in the Scheme C
+    # recurrence regime, so keeping it as a configurable knob added code
+    # complexity without any behavioural degree of freedom. See the paper's
+    # three-fix ablation table for the empirical basis of this removal.
+    ot_affinity_scale: str = "local"  # ablation: "median" (fix 1b off)
+    ot_eigengap_method: str = "last_significant"  # ablation: "argmax" (fix 1a off)
 
 
 @dataclass
@@ -1024,6 +1037,144 @@ class TwoPhaseFedProTrack:
             sum(weight * sim for weight, sim in weighted_terms) / max(total_weight, 1e-12)
         )
 
+    # ------------------------------------------------------------------
+    # DRCT Stein shrinkage helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _flatten_params(params: dict[str, np.ndarray]) -> np.ndarray:
+        """Flatten a param dict into a single 1-D vector."""
+        return np.concatenate([v.ravel() for v in params.values()])
+
+    def _apply_drct_shrinkage(
+        self,
+        aggregated: dict[int, dict[str, np.ndarray]],
+        global_fedavg: dict[str, np.ndarray],
+        concept_groups: dict[int, list[int]],
+        client_params: dict[int, dict[str, np.ndarray]],
+    ) -> dict[int, dict[str, np.ndarray]]:
+        """Apply DRCT Stein shrinkage: blend each concept toward global.
+
+        λ_k = σ² · d_eff / n_k / (σ² · d_eff / n_k + σ_B²)
+
+        Parameters
+        ----------
+        aggregated : dict[int, dict[str, np.ndarray]]
+            Concept ID -> aggregated model parameters.
+        global_fedavg : dict[str, np.ndarray]
+            Global FedAvg parameters (shrinkage target).
+        concept_groups : dict[int, list[int]]
+            Concept ID -> list of client IDs.
+        client_params : dict[int, dict[str, np.ndarray]]
+            Client ID -> model parameters.
+
+        Returns
+        -------
+        dict[int, dict[str, np.ndarray]]
+            Shrunk concept parameters.
+        """
+        # Build per-concept upload lists
+        concept_uploads: dict[int, list[dict[str, np.ndarray]]] = {}
+        for cid, cids in concept_groups.items():
+            uploads = [client_params[k] for k in cids if k in client_params]
+            if uploads:
+                concept_uploads[cid] = uploads
+
+        if len(concept_uploads) < self.config.drct_min_concepts:
+            return aggregated
+
+        # Estimate d_eff: effective dimensionality of between-concept structure.
+        # Using participation ratio of concept mean SVD singular values:
+        #   d_eff = (Σ s_i)² / Σ s_i²
+        # This measures how many dimensions the concept means actually differ
+        # in, rather than using the (vastly overestimated) ambient dimension.
+        flatten = TwoPhaseFedProTrack._flatten_params
+        flat_concepts = np.stack([flatten(w) for w in aggregated.values()])
+        d = flat_concepts.shape[1]
+
+        if flat_concepts.shape[0] >= 2:
+            centered = flat_concepts - flat_concepts.mean(axis=0)
+            svs = np.linalg.svd(centered, compute_uv=False)
+            svs = svs[svs > 1e-10]
+            if len(svs) > 0:
+                sum_s = float(np.sum(svs))
+                sum_s2 = float(np.sum(svs ** 2))
+                d_eff = max(1.0, sum_s ** 2 / sum_s2) if sum_s2 > 0 else 1.0
+            else:
+                d_eff = 1.0
+        else:
+            d_eff = d * self.config.drct_d_eff_ratio
+
+        # σ² — within-concept noise variance
+        sigma2 = self._estimate_sigma2(concept_uploads, aggregated)
+
+        # σ_B² — between-concept variance (bias-corrected)
+        sigma_B2 = self._estimate_sigma_B2(aggregated, sigma2, concept_uploads)
+
+        # Per-concept shrinkage
+        result: dict[int, dict[str, np.ndarray]] = {}
+        for cid, agg in aggregated.items():
+            n_k = float(len(concept_groups.get(cid, [])))
+            if n_k <= 0:
+                result[cid] = agg
+                continue
+            # λ = σ²·d_eff / n_k / (σ²·d_eff / n_k + σ_B²)
+            variance_term = sigma2 * d_eff / n_k
+            denom = variance_term + sigma_B2
+            lam = float(np.clip(variance_term / denom, 0.0, 1.0)) if denom > 1e-30 else 0.5
+            result[cid] = {
+                key: (1.0 - lam) * agg[key] + lam * global_fedavg[key]
+                for key in agg
+            }
+        return result
+
+    @staticmethod
+    def _estimate_sigma2(
+        concept_uploads: dict[int, list[dict[str, np.ndarray]]],
+        concept_means: dict[int, dict[str, np.ndarray]],
+    ) -> float:
+        """Estimate within-concept noise variance from client model dispersion."""
+        total_var = 0.0
+        total_dim = 0
+        total_count = 0
+        flatten = TwoPhaseFedProTrack._flatten_params
+        for cid, uploads in concept_uploads.items():
+            if len(uploads) < 2 or cid not in concept_means:
+                continue
+            mean_w = flatten(concept_means[cid])
+            for w in uploads:
+                diff = flatten(w) - mean_w
+                total_var += np.sum(diff ** 2)
+                total_dim += diff.size
+            total_count += len(uploads) - 1
+        if total_count == 0 or total_dim == 0:
+            return 1e-4
+        return float(total_var / total_dim)
+
+    @staticmethod
+    def _estimate_sigma_B2(
+        concept_weights: dict[int, dict[str, np.ndarray]],
+        sigma2: float,
+        concept_uploads: dict[int, list[dict[str, np.ndarray]]],
+    ) -> float:
+        """Estimate between-concept variance from concept-level weight means."""
+        if len(concept_weights) < 2:
+            return 0.0
+        flatten = TwoPhaseFedProTrack._flatten_params
+        flat = [flatten(w) for w in concept_weights.values()]
+        stacked = np.stack(flat)
+        global_mean = stacked.mean(axis=0)
+        d = stacked.shape[1]
+        C = len(concept_weights)
+        spread = np.sum((stacked - global_mean) ** 2) / ((C - 1) * d)
+        # Bias correction: subtract estimation noise
+        n_concept_avg = np.mean([
+            float(len(concept_uploads.get(cid, [])))
+            for cid in concept_weights
+        ])
+        correction = sigma2 / n_concept_avg if n_concept_avg > 0 else 0.0
+        return float(max(spread - correction, 0.0))
+
     def _store_aggregated_models(
         self,
         aggregated: dict[int, dict[str, np.ndarray]],
@@ -1418,12 +1569,13 @@ class TwoPhaseFedProTrack:
                 global_shared = self._aggregator.aggregate(shared_payloads)
 
         # Pre-compute global FedAvg for min-group-size fallback blend,
-        # concept-global interpolation, and concept-delta mode
+        # concept-global interpolation, concept-delta mode, and DRCT shrinkage
         min_gs = self.config.min_agg_group_size
         needs_global = (
             (min_gs > 1)
             or (self.config.concept_global_mix > 0.0)
             or self.config.concept_delta_mode
+            or self.config.drct_shrinkage
         )
         global_fedavg: dict[str, np.ndarray] | None = None
         if needs_global and not uses_namespaces:
@@ -1516,6 +1668,17 @@ class TwoPhaseFedProTrack:
             # Download cost: each client in this cluster gets the aggregated model
             agg_bytes = model_bytes(agg)
             bytes_down += len(client_ids) * agg_bytes
+
+        # DRCT Stein shrinkage: blend each concept toward global FedAvg
+        # λ = σ²·d_eff / n_k / (σ²·d_eff / n_k + σ_B²)
+        if (
+            self.config.drct_shrinkage
+            and global_fedavg is not None
+            and len(aggregated) >= self.config.drct_min_concepts
+        ):
+            aggregated = self._apply_drct_shrinkage(
+                aggregated, global_fedavg, concept_groups, client_params,
+            )
 
         # Store aggregated models in memory bank for concept-model warm-start
         # with cross-time EMA blending, concept-global interpolation, and
@@ -1696,6 +1859,7 @@ class TwoPhaseFedProTrack:
                 (min_gs > 1)
                 or (self.config.concept_global_mix > 0.0)
                 or self.config.concept_delta_mode
+                or self.config.drct_shrinkage
             )
             global_fedavg_soft: dict[str, np.ndarray] | None = None
             if needs_global_soft:
@@ -1785,6 +1949,20 @@ class TwoPhaseFedProTrack:
                     if c == concept_id
                 )
                 bytes_down += n_recipients * model_bytes(agg)
+
+        # DRCT Stein shrinkage for soft aggregation path
+        if (
+            self.config.drct_shrinkage
+            and global_fedavg_soft is not None
+            and len(aggregated) >= self.config.drct_min_concepts
+        ):
+            # Build concept groups from MAP assignments for DRCT
+            soft_concept_groups: dict[int, list[int]] = {}
+            for cid, concept_id in concept_assignments.items():
+                soft_concept_groups.setdefault(concept_id, []).append(cid)
+            aggregated = self._apply_drct_shrinkage(
+                aggregated, global_fedavg_soft, soft_concept_groups, client_params,
+            )
 
         # Store aggregated models in memory bank with cross-time EMA blending,
         # concept-global interpolation, and concept-delta mode
