@@ -52,7 +52,7 @@ Federated learning~(FL) enables collaborative model training without sharing raw
 In many deployments---autonomous vehicles, mobile health, IoT---the data distribution shifts over time due to \emph{concept drift}: each client experiences one of $C$ latent \emph{concepts} that change across rounds~\citep{jothimurugesan2023federated, panchal2023flash}.
 A fundamental question is whether the server should aggregate all clients into a single global model (\emph{global aggregation}, FedAvg) or maintain separate models per concept group (\emph{concept-level aggregation}).
 Global aggregation pools more data but introduces interference bias; concept-level aggregation eliminates bias but raises variance.
-A standard bias-variance analysis (Figure~\ref{fig:tradeoff}) shows that concept-level aggregation is preferable if and only if the per-concept signal-to-noise ratio exceeds a threshold that scales with $C-1$~\citep{chen2023minimax}.
+A standard bias-variance analysis shows that concept-level aggregation is preferable if and only if the per-concept signal-to-noise ratio exceeds a threshold that scales with $C-1$~\citep{chen2023minimax}.
 
 Existing clustered FL methods---IFCA~\citep{ghosh2020efficient}, CFL~\citep{sattler2021clustered}, FedEM~\citep{marfoq2021federated}, FedRC~\citep{guo2024fedrc}---address \emph{how} to cluster.
 All make the clustering decision \emph{after} local training, using client weight updates or gradient directions as the clustering signal.
@@ -68,9 +68,9 @@ Scheme~C sidesteps this confound entirely: fingerprints depend on the client's \
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\textwidth]{figures/paperbanana/research_question_candidate_0.png}
-\caption{The fundamental question in federated concept drift: when does concept-level aggregation outperform global aggregation? \emph{Left}: the bias-variance tradeoff between global (low variance, high bias) and concept-level (zero bias, high variance) strategies. \emph{Center}: the sharp crossover condition $\mathrm{SNR} > C{-}1$ separating the two regimes, validated on 609 synthetic configurations. \emph{Right}: the implicit shrinkage mechanism---imperfect clustering regularizes toward the global mean, explaining why it outperforms Oracle when $K/C$ is small.}
-\label{fig:tradeoff}
+\includegraphics[width=\textwidth]{figures/paperbanana/method_overview_candidate_0.png}
+\caption{Overview of FedProTrack. \emph{Left}: the two design questions---whether concept-level aggregation helps (crossover condition) and when to cluster (protocol ordering theorem). \emph{Center}: the three-phase pipeline---Phase~A discovers concepts via class-conditional fingerprints and OT spectral clustering; Phase~B aggregates per concept; Phase~C applies empirical-Bayes shrinkage. \emph{Right}: FPT matches Oracle accuracy across three datasets while cluster-after-train baselines hit a confound floor ($\eta \ge 0.30$). Validated across 4~datasets and 26~baselines.}
+\label{fig:overview}
 \end{figure}
 
 \textbf{Contributions.}
@@ -184,13 +184,6 @@ Since $\eta_A - \eta_C \ge \kappa \cdot \V(w^{(\mathrm{init})}) > 0$, Scheme~C a
 
 FedProTrack (FPT) is a concrete Scheme~C implementation.
 Each federation round consists of three phases (Figure~\ref{fig:overview}, center).
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\textwidth]{figures/paperbanana/method_overview_candidate_0.png}
-\caption{Overview of the FedProTrack pipeline. \emph{Left}: the two design questions---whether concept-level aggregation helps (crossover condition) and when to cluster (protocol ordering theorem). \emph{Center}: the three-phase pipeline---Phase~A discovers concepts via class-conditional fingerprints and OT spectral clustering; Phase~B loads concept-matched models and aggregates per concept; Phase~C applies empirical-Bayes shrinkage. \emph{Right}: FPT matches Oracle accuracy across three datasets while cluster-after-train baselines hit a confound floor ($\eta \ge 0.30$). Validated across 4~datasets and 26~baselines.}
-\label{fig:overview}
-\end{figure}
 
 \subsection{Phase A: Fingerprint-Based Concept Discovery}
 
