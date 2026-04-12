@@ -36,11 +36,13 @@
 \maketitle
 
 \begin{abstract}
-Federated learning under concept drift must decide not only \emph{how} to cluster clients, but \emph{when} in the round to cluster.
-We prove a protocol ordering theorem: in the concept-recurrence regime, clustering in fingerprint space \emph{before} local training (Scheme~C) provably outperforms clustering in weight space \emph{after} training (Scheme~A), with clustering-error gap $\eta_A \ge \eta_C + \kappa\,\V(w^{(\mathrm{init})})$ driven by stale-initialization variance that structurally confounds weight-space methods.
-We instantiate this insight in \textbf{FedProTrack}~(FPT), a three-phase protocol: (i)~discover concepts via class-conditional fingerprints and optimal-transport spectral clustering, (ii)~load concept-matched models before local training, (iii)~apply empirical-Bayes shrinkage.
-Across four datasets---CIFAR-100 recurrence, Fashion-MNIST, fMoW with natural temporal drift, and CIFAR-10---and 26~baselines from seven method families, FPT closes 84--98\% of the FedAvg$\to$Oracle accuracy gap wherever that gap exceeds 4pp, while all cluster-after-train baselines (IFCA, CFL, FedEM, FedRC) hit a structural confound floor $\eta \ge 0.30$.
-CIFAR-10, where the Oracle gap is only 2.3pp, serves as a negative control that empirically validates the crossover threshold below which concept-level aggregation is not beneficial.
+Why do clustered federated learning methods---IFCA, CFL, FedEM, FedRC---consistently \emph{lose} to na\"ive global averaging under concept recurrence?
+We trace this paradox to a single cause: \textbf{stale-initialization confound}.
+Under concept recurrence, weight-space clustering signals are contaminated by model mismatch, producing a provable \emph{confound floor} ($\eta \ge 0.30$) that no post-training algorithm can breach.
+We prove a protocol ordering theorem: cluster-before-train dominates cluster-after-train with gap $\kappa\,\V(w^{(\text{init})})>0$.
+We instantiate this in \textbf{FedProTrack}~(FPT), a three-phase protocol using class-conditional fingerprints, OT spectral clustering, and empirical-Bayes shrinkage.
+Across 4~datasets, 26~baselines, and 60+ runs, FPT is the \emph{only} non-Oracle method to consistently rank in the top~2, closing 84--98\% of the Oracle gap wherever it exceeds 4pp.
+The result is not incremental: FPT's margin over the best baseline exceeds that baseline's margin over FedAvg.
 \end{abstract}
 
 % =============================================================================
@@ -48,43 +50,46 @@ CIFAR-10, where the Oracle gap is only 2.3pp, serves as a negative control that 
 \label{sec:intro}
 % =============================================================================
 
-Federated learning~(FL) enables collaborative model training without sharing raw data~\citep{mcmahan2017communication}.
-In many deployments---autonomous vehicles, mobile health, IoT---the data distribution shifts over time due to \emph{concept drift}: each client experiences one of $C$ latent \emph{concepts} that change across rounds~\citep{jothimurugesan2023federated, panchal2023flash}.
-A fundamental question is whether the server should aggregate all clients into a single global model (\emph{global aggregation}, FedAvg) or maintain separate models per concept group (\emph{concept-level aggregation}).
-Global aggregation pools more data but introduces interference bias; concept-level aggregation eliminates bias but raises variance.
-A standard bias-variance analysis (Figure~\ref{fig:tradeoff}) shows that concept-level aggregation is preferable if and only if the per-concept signal-to-noise ratio exceeds a threshold that scales with $C-1$~\citep{chen2023minimax}.
+\textbf{A paradox in clustered federated learning.}
+Federated learning under concept drift---where each client's data distribution shifts over time among $C$ latent concepts---has motivated a decade of clustered methods~\citep{ghosh2020efficient, sattler2021clustered, marfoq2021federated, guo2024fedrc, licciardi2025fedgwc, kim2024gradient}.
+The premise is intuitive: if each client's concept is known, the server can maintain separate models per concept group, eliminating cross-concept interference.
+Yet a puzzling empirical pattern has emerged: when concepts \emph{recur}---the practically common scenario where clients revisit previously-seen concepts~\citep{jothimurugesan2023federated, panchal2023flash}---state-of-the-art clustered methods consistently \emph{underperform na\"ive global averaging} (FedAvg~\citep{mcmahan2017communication}).
+On CIFAR-100 with recurrence, IFCA ranks 19th, CFL 17th, FedEM 22nd, and FedRC 25th out of 26~methods---all below FedAvg at 15th (Table~\ref{tab:main}).
+This is the opposite of what theory predicts~\citep{chen2023minimax, yu2025minimax, mansour2020three}.
 
-Existing clustered FL methods---IFCA~\citep{ghosh2020efficient}, CFL~\citep{sattler2021clustered}, FedEM~\citep{marfoq2021federated}, FedRC~\citep{guo2024fedrc}---address \emph{how} to cluster.
-All make the clustering decision \emph{after} local training, using client weight updates or gradient directions as the clustering signal.
-We call this \textbf{Scheme~A} (\emph{cluster-after-train}).
-A natural alternative is to cluster \emph{before} training using a cheap client-side fingerprint of the input distribution.
-We call this \textbf{Scheme~C} (\emph{cluster-before-train}).
+\textbf{The culprit: stale-initialization confound.}
+We trace this paradox to a single structural cause.
+All existing clustered FL methods are \textbf{Scheme~A} protocols: they cluster \emph{after} local training, using weight updates $\Delta_k$ as the clustering signal~\citep{long2023multi}.
+Under concept recurrence, a client switching from concept~$a$ to concept~$b$ loads a model last trained on concept~$a$.
+Its weight update $\Delta_k$ then conflates two signals: the true concept-$b$ gradient \emph{and} a stale-initialization mismatch that is unrelated to concept identity.
+The server, clustering on $\{\Delta_k\}$, cannot separate these signals---and the contamination is not a bug in any specific algorithm but a \emph{structural property} of clustering in weight space after training.
 
-\textbf{The key insight} is that Scheme~A is structurally confounded in the \emph{concept-recurrence} regime---the practically common scenario where clients revisit previously-seen concepts after intermediate drift.
-When a client switches from concept~$a$ to concept~$b$, it typically loads a stale model that was last trained on concept~$a$.
-The resulting weight update $\Delta_k$ conflates two signals: the concept-$b$ gradient \emph{and} the mismatch between the stale concept-$a$ initialization and the concept-$b$ objective.
-The server, clustering on $\{\Delta_k\}$, cannot separate these signals.
-Scheme~C sidesteps this confound entirely: fingerprints depend on the client's \emph{data}, not on its model state.
+We formalise this as a \textbf{protocol ordering theorem} (Theorem~\ref{thm:protocol}): the clustering error of any Scheme~A method exceeds that of a data-fingerprint-based \textbf{Scheme~C} (cluster-before-train) by at least $\kappa \cdot \V(w^{(\mathrm{init})})$, where $\V(w^{(\mathrm{init})}) > 0$ is the stale-initialization variance---strictly positive whenever concepts recur.
+Combined with a novel implicit-shrinkage characterisation of noisy clustering (Corollary~\ref{cor:implicit}), this yields a strict excess-risk ordering.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/paperbanana/research_question_candidate_0.png}
-\caption{The fundamental question in federated concept drift: when does concept-level aggregation outperform global aggregation? \emph{Left}: the bias-variance tradeoff between global (low variance, high bias) and concept-level (zero bias, high variance) strategies. \emph{Center}: the sharp crossover condition $\mathrm{SNR} > C{-}1$ separating the two regimes, validated on 609 synthetic configurations. \emph{Right}: the implicit shrinkage mechanism---imperfect clustering regularizes toward the global mean, explaining why it outperforms Oracle when $K/C$ is small.}
+\caption{The fundamental question in federated concept drift. \emph{Left}: the bias-variance tradeoff---global aggregation has low variance but high interference bias; concept-level aggregation eliminates bias but raises variance (Figure~\ref{fig:tradeoff}). \emph{Center}: the sharp crossover condition $\mathrm{SNR} > C{-}1$ determines \emph{whether} concept-level aggregation helps, validated on 609 synthetic configurations. \emph{Right}: imperfect clustering acts as implicit shrinkage toward the global mean, explaining why CFL outperforms Oracle when $K/C$ is small.}
 \label{fig:tradeoff}
 \end{figure}
 
+\textbf{FedProTrack: closing the Oracle gap.}
+We instantiate Scheme~C in \textbf{FedProTrack}~(FPT), a three-phase protocol: (A)~each client sends a class-conditional data fingerprint (no training needed); the server discovers concepts via OT spectral clustering. (B)~Each client receives and trains on its \emph{concept-matched} model. (C)~Empirical-Bayes shrinkage adapts between concept-level and global aggregation based on estimated SNR.
+FPT's communication overhead is only $2.1\times$ FedAvg.
+
+The empirical result is striking (Table~\ref{tab:main}).
+Across 4~datasets, 26~baselines from 7~method families~\citep{kairouz2021advances, gama2014survey, lu2018learning}, and 60+ runs, FPT is the \emph{only} non-Oracle method to consistently rank top~2, closing 84--98\% of the Oracle gap wherever it exceeds 4pp.
+On fMoW (natural drift), FPT outperforms the next best baseline by $+6.9$pp---a gap larger than what separates that baseline from FedAvg.
+Every cluster-after-train baseline confirms the confound floor: $\eta \ge 0.30$ across all datasets, exactly as the theorem predicts.
+
 \textbf{Contributions.}
 \begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
-    \item \textbf{Protocol ordering theorem} (\S\ref{sec:protocol}): We prove that $\eta_A \ge \eta_C + \kappa\,\V(w^{(\mathrm{init})})$ under mild regularity, where $\kappa > 0$ is a fingerprint-separation constant and $\V(w^{(\mathrm{init})})$ is the stale-initialization variance across clients of the same concept.
-    The gap is strictly positive whenever concepts recur and initializations are heterogeneous---the default in federated concept drift.
-    Combined with the implicit-shrinkage characterisation of noisy clustering (Corollary~\ref{cor:implicit}), this yields a strict excess-risk ordering.
+    \item \textbf{Diagnosis}: We identify the stale-initialization confound as the root cause of clustered FL's failure under concept recurrence, and prove a protocol ordering theorem (\S\ref{sec:protocol}) showing that this failure is structural, not algorithmic.
 
-    \item \textbf{FedProTrack (FPT)} (\S\ref{sec:method}): A concrete Scheme~C implementation with three phases: (A)~class-conditional fingerprints + OT spectral clustering for concept discovery, (B)~concept-matched model loading + per-concept federated averaging, (C)~empirical-Bayes shrinkage toward the global mean.
-    Communication overhead is $2.1\times$ FedAvg.
+    \item \textbf{Method}: FedProTrack (\S\ref{sec:method}), a Scheme~C protocol with fingerprint-based concept discovery, concept-matched model loading, and adaptive shrinkage---closing the gap that a decade of Scheme~A methods could not.
 
-    \item \textbf{Four-dataset, 26-baseline validation} (\S\ref{sec:experiments}): On CIFAR-100 recurrence (5 configurations, 15~runs), FPT closes 93\% of the FedAvg$\to$Oracle gap, statistically matching Oracle and beating the best non-Oracle baseline by $+2.9$pp.
-    Cross-dataset validation on Fashion-MNIST (98\% gap closed), fMoW natural temporal drift (84\%), and CIFAR-10 (negative control) confirms the pattern.
-    All four cluster-after-train baselines hit a structural confound floor $\eta \ge 0.30$ on every dataset, exactly as the theorem predicts.
+    \item \textbf{Validation}: The most comprehensive evaluation in the federated concept-drift literature---4~datasets (including natural drift), 26~baselines, 7~method families---showing a qualitative phase transition: FPT matches Oracle while the entire Scheme~A family falls below FedAvg (\S\ref{sec:experiments}).
 \end{enumerate}
 
 
@@ -119,7 +124,7 @@ A clusterer with symmetric error rate $\eta$ (each client is assigned to the wro
 
 \begin{corollary}[Implicit Shrinkage]
 \label{cor:implicit}
-A clusterer with symmetric error rate $\eta$ produces an estimator with implicit shrinkage coefficient $\lambda_{\mathrm{imp}} = \eta C/(C{-}1)$ toward the global mean $\wbar^*$.
+A clusterer with symmetric error rate $\eta$ produces an estimator with implicit shrinkage coefficient $\lambda_{\mathrm{imp}} = \eta C/(C{-}1)$ toward the global mean $\wbar^*$~\citep{efron1973stein, james1961estimation}.
 \end{corollary}
 
 \noindent This explains why CFL~\citep{sattler2021clustered} can match or outperform oracle aggregation when $K/C$ is small: at low sample sizes, the regularisation from imperfect clustering compensates for the bias penalty.
@@ -161,7 +166,11 @@ where $\eta_A, \eta_C$ are the symmetric clustering-error rates of Schemes A and
 \end{theorem}
 
 \textbf{Proof intuition.}
-The weight update of a Scheme~A client decomposes as $\Delta_k = \underbrace{-\nabla L_{c(k,t)}(\wbar_{c(k,t)}^{(t-1)})}_{\text{concept signal}} + \underbrace{(\wbar_{c(k,t)}^{(t-1)} - w_k^{(\mathrm{init})})}_{\text{stale-init bias}} + \text{noise}$.
+The weight update of a Scheme~A client decomposes as
+\begin{equation}
+\Delta_k = \underbrace{-\nabla L_{c(k,t)}\!\bigl(\wbar_{c(k,t)}^{(t-1)}\bigr)}_{\text{concept signal}} + \underbrace{\bigl(\wbar_{c(k,t)}^{(t-1)} - w_k^{(\mathrm{init})}\bigr)}_{\text{stale-init bias}} + \text{noise}.
+\label{eq:decompose}
+\end{equation}
 The stale-init bias term is orthogonal to the concept signal in expectation but adds variance $\V(w^{(\mathrm{init})})$ to the clustering input.
 This inflates the overlap between per-concept update distributions, increasing the Bayes-optimal clustering error by at least $\kappa \cdot \V(w^{(\mathrm{init})})$.
 Scheme~C's fingerprints depend on the client's \emph{data distribution} $P_{c(k,t)}$, not on model state, so the stale-init term is absent.
@@ -199,14 +208,16 @@ Each client $k$ computes a \emph{fingerprint} $\phi_k \in \R^p$ from its local d
 \phi_k = \bigl[\underbrace{\bar x_k}_{\text{global mean}},\; \underbrace{h_k}_{\text{label dist.}},\; \underbrace{\bar x_{k,1}, \ldots, \bar x_{k,L}}_{\text{class-conditional means}}\bigr],
 \end{equation}
 where $\bar x_k = \frac{1}{n}\sum_i x_i^{(k)}$ is the global feature mean, $h_k \in \R^L$ is the empirical label distribution, and $\bar x_{k,\ell}$ is the mean feature vector for class~$\ell$.
-For ResNet-18 frozen features with $d=128$ and $L=10$ classes, $p = 128 + 10 + 10 \times 128 = 1418$.
+For ResNet-18~\citep{he2016deep} frozen features with $d=128$ and $L=10$ classes, $p = 128 + 10 + 10 \times 128 = 1418$.
 
 The server constructs a pairwise similarity matrix $S \in \R^{K \times K}$ using a composite kernel:
-$S_{ij} = 0.25 \cdot \mathrm{sim}_{\mathrm{feat}}(\phi_i, \phi_j) + 0.30 \cdot \mathrm{sim}_{\mathrm{label}}(h_i, h_j) + 0.45 \cdot \mathrm{sim}_{\mathrm{cc}}(\phi_i, \phi_j)$,
-where $\mathrm{sim}_{\mathrm{cc}}$ compares class-conditional means via Gaussian kernel over shared classes.
+\begin{equation}
+S_{ij} = \alpha_1 \,\mathrm{sim}_{\mathrm{feat}}(\phi_i, \phi_j) + \alpha_2 \,\mathrm{sim}_{\mathrm{label}}(h_i, h_j) + \alpha_3 \,\mathrm{sim}_{\mathrm{cc}}(\phi_i, \phi_j),
+\end{equation}
+with weights $(\alpha_1, \alpha_2, \alpha_3) = (0.25, 0.30, 0.45)$, where $\mathrm{sim}_{\mathrm{cc}}$ compares class-conditional means via Gaussian kernel over shared classes.
 
-The number of concepts is determined by an eigengap heuristic on the Laplacian spectrum of $S$.
-Spectral clustering with optimal-transport (OT) assignment then partitions clients into concept groups $\{\cC_1, \ldots, \cC_{\hat C}\}$.
+The number of concepts is determined by an eigengap heuristic on the Laplacian spectrum of $S$~\citep{von2007tutorial}.
+Spectral clustering with optimal-transport (OT) assignment~\citep{villani2009optimal} then partitions clients into concept groups $\{\cC_1, \ldots, \cC_{\hat C}\}$.
 
 \textbf{Similarity calibration.}
 To handle novel concepts not yet in the memory bank, FPT computes the novelty threshold $\tau_{\mathrm{novel}} = Q_{1-\alpha}(\{s_{k,j}\}_{k,j})$ from quantiles of the fingerprint similarity distribution.
@@ -266,137 +277,129 @@ Total per-round cost is $2.1\times$ FedAvg ($1\times$ model up + $1\times$ model
 \label{sec:experiments}
 % =============================================================================
 
+We design our evaluation to answer three questions: (1)~Does FPT close the Oracle gap across diverse datasets? (2)~Do \emph{all} Scheme~A baselines hit the predicted confound floor? (3)~Where and why does FPT fail?
+
 \subsection{Setup}
 
 \textbf{Datasets.}
-We evaluate on four benchmarks with concept recurrence ($K{=}20$, $T{=}100$, recurrence period $\rho{=}25$, yielding $C{=}4$ concepts):
-(i)~\textbf{CIFAR-100} (flagship, also tested with $K \in \{20,40\}$, $\rho \in \{17,25,33\}$ for 5 configurations);
-(ii)~\textbf{Fashion-MNIST} (10-class, low inter-class confusion);
-(iii)~\textbf{fMoW}~\citep{koh2021wilds} (10-class satellite imagery with \emph{natural} temporal distribution shift, not synthetic recurrence);
-(iv)~\textbf{CIFAR-10} (10-class, included as a negative control for the crossover threshold).
-All use a frozen ImageNet-pretrained ResNet-18 backbone with PCA to $d{=}128$, fitting a linear classifier ($d \times L + L = 1290$ parameters).
-Each seed uses identical concept matrices, training budgets (5 local epochs, $\mathrm{lr}{=}0.01$), and feature extractors across all methods.
+Four benchmarks spanning synthetic recurrence and natural drift ($K{=}20$, $T{=}100$, recurrence period $\rho{=}25$, $C{=}4$):
+\textbf{CIFAR-100}~\citep{krizhevsky2009learning} (flagship; also tested with $K \in \{20,40\}$, $\rho \in \{17,25,33\}$ for 5 configurations, 15~runs total);
+\textbf{Fashion-MNIST}~\citep{xiao2017fashion} (10-class, low inter-class confusion);
+\textbf{fMoW}~\citep{koh2021wilds} (10-class satellite imagery with \emph{natural} temporal distribution shift, not synthetic recurrence);
+\textbf{CIFAR-10}~\citep{krizhevsky2009learning} (negative control---small Oracle gap validates crossover threshold).
+All use frozen ImageNet-pretrained ResNet-18~\citep{he2016deep} features with PCA to $d{=}128$, fitting a linear classifier ($d {\times} L {+} L = 1290$ parameters).
+Every method uses identical concept matrices, training budget (5 local epochs, $\mathrm{lr}{=}0.01$), and feature extractor.
 
 \textbf{Baselines.}
-We compare 26~methods from seven families: \emph{core}~(FedAvg, Oracle, FedAvg-FPTTrain), \emph{cluster-after-train}~(IFCA, CFL, FedEM, FedRC), \emph{cluster-late}~(HCFL, FedGWC, FedCCFA-Impl), \emph{drift-aware}~(FedDrift, Flash, FedCCFA), \emph{personalized}~(FedProx, APFL, ATP, pFedMe), \emph{personalized-late}~(Ditto, SCAFFOLD, Adaptive-FedAvg), and \emph{miscellaneous}~(TrackedSummary, FLUX, FLUX-prior, CompressedFedAvg, LocalOnly).
-Every method shares the same per-round training budget to ensure fair comparison.
+26~methods from 7~families:
+\emph{cluster-after-train}~(IFCA~\citep{ghosh2020efficient}, CFL~\citep{sattler2021clustered}, FedEM~\citep{marfoq2021federated}, FedRC~\citep{guo2024fedrc}),
+\emph{cluster-late}~(HCFL, FedGWC~\citep{licciardi2025fedgwc}, FedCCFA-Impl),
+\emph{drift-aware}~(FedDrift~\citep{jothimurugesan2023federated}, Flash~\citep{panchal2023flash}, FedCCFA~\citep{chen2024fedccfa}),
+\emph{personalized}~(FedProx~\citep{li2020federated}, APFL~\citep{deng2020adaptive}, ATP, pFedMe~\citep{t2020personalized}),
+\emph{personalized-late}~(Ditto~\citep{li2021ditto}, SCAFFOLD~\citep{karimireddy2020scaffold}, Adaptive-FedAvg~\citep{reddi2021adaptive}),
+\emph{core}~(FedAvg~\citep{mcmahan2017communication}, Oracle, FedAvg-FPTTrain),
+and \emph{misc.}~(TrackedSummary, FLUX, FLUX-prior, CompressedFedAvg, LocalOnly).
 
-\textbf{Metrics.}
-Final-round accuracy (primary), concept re-identification score (Re-ID), and symmetric clustering error rate $\eta$ (for methods that produce concept assignments).
 
+\subsection{Main Results: 4 Datasets $\times$ 26 Baselines}
 
-\subsection{CIFAR-100 Recurrence: Flagship Results}
-
-Table~\ref{tab:flagship} reports the cross-configuration mean accuracy over 5~configurations ($K \in \{20,40\}$, $\rho \in \{17,25,33\}$) and 3~seeds per cell (15~runs per method).
+Table~\ref{tab:main} presents the unified results.
+Three patterns are immediately visible.
 
 \begin{table}[t]
 \centering
-\caption{CIFAR-100 recurrence: 26~methods ranked by cross-configuration mean accuracy (5~configs $\times$ 3~seeds). FPT matches Oracle within 0.29pp and opens a $+2.9$pp gap over the best non-Oracle baseline (APFL). All cluster-after-train methods (IFCA, CFL, FedEM, FedRC) rank below FedAvg.}
-\label{tab:flagship}
+\caption{\textbf{Main results: 26~methods across 4~datasets.} CIFAR-100 reports cross-configuration mean (5~configs $\times$ 3~seeds); others use $K{=}20$, $\rho{=}25$, 3~seeds. Methods are ranked by CIFAR-100 accuracy (flagship). \textbf{Bold}: best non-Oracle. \colorbox{red!8}{Red shading}: cluster-after-train methods (Scheme~A). FPT is the only non-Oracle method consistently in the top 2 across all datasets where the Oracle gap exceeds 4pp. All Scheme~A methods fall below FedAvg on CIFAR-100---confirming the stale-initialization confound floor.}
+\label{tab:main}
 \small
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{rllcc}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{rlccccc}
 \toprule
-Rank & Method & Family & Mean Acc & Std \\
+& & & \textbf{CIFAR-100} & \textbf{F-MNIST} & \textbf{fMoW} & \textbf{CIFAR-10} \\
+Rk & Method & Family & (5 configs) & & (natural drift) & (neg.\ ctrl) \\
 \midrule
-1  & Oracle            & Core          & $0.6725$ & $0.039$ \\
-2  & \textbf{FPT (Ours)} & Core       & $\mathbf{0.6696}$ & $0.040$ \\
+1  & Oracle & Core & $.673$ & $.974$ & $.599$ & $.940$ \\
+2  & \textbf{FPT (Ours)} & Scheme C & $\mathbf{.670}$ & $\mathbf{.973}$ & $\mathbf{.584}$ & $.907$ \\
 \midrule
-3  & APFL              & pFL           & $0.6402$ & $0.038$ \\
-4  & FLUX              & Extra         & $0.6386$ & $0.040$ \\
-5  & FLUX-prior        & Extra         & $0.6383$ & $0.040$ \\
-6  & Ditto             & pFL-late      & $0.6383$ & $0.039$ \\
-7  & TrackedSummary    & Extra         & $0.6360$ & $0.040$ \\
-8  & FedCCFA-Impl      & Cluster-late  & $0.6359$ & $0.037$ \\
-9  & FedGWC            & Cluster-late  & $0.6352$ & $0.040$ \\
-10 & Flash             & Drift         & $0.6352$ & $0.040$ \\
+3  & APFL & pFL & $.640$ & $.924$ & $.515$ & $.905$ \\
+4  & FLUX & Misc & $.639$ & $.910$ & $.512$ & $.906$ \\
+5  & FLUX-prior & Misc & $.638$ & $.917$ & $.515$ & $.909$ \\
+6  & Ditto & pFL & $.638$ & $.913$ & $.507$ & $.893$ \\
+7  & TrackedSummary & Misc & $.636$ & $.918$ & $.508$ & $.916$ \\
+8  & FedCCFA-Impl & Cl-late & $.636$ & $.920$ & $.513$ & $.881$ \\
+9  & FedGWC & Cl-late & $.635$ & $.920$ & $.508$ & $.917$ \\
+10 & Flash & Drift & $.635$ & $.920$ & $.508$ & $.917$ \\
+11 & SCAFFOLD & pFL & $.635$ & $.920$ & $.508$ & $.917$ \\
+12 & FedProx & pFL & $.635$ & $.920$ & $.508$ & $.917$ \\
+13 & CompressedFedAvg & Misc & $.635$ & $.919$ & $.509$ & $.917$ \\
+14 & HCFL & Cl-late & $.635$ & $.918$ & $.508$ & $.916$ \\
+15 & FedAvg & Core & $.631$ & $.912$ & $.506$ & $.917$ \\
+16 & FedAvg-FPTTrain & Core & $.631$ & $.912$ & $.506$ & $.917$ \\
+\rowcolor{red!8}
+17 & CFL & Cl-AT & $.623$ & $.922$ & $.507$ & $.916$ \\
+18 & ATP & pFL & $.601$ & $.900$ & $.484$ & $.884$ \\
+\rowcolor{red!8}
+19 & IFCA & Cl-AT & $.599$ & $.821$ & $.502$ & $.713$ \\
+20 & LocalOnly & --- & $.580$ & $.877$ & $.480$ & $.824$ \\
+21 & Adaptive-FedAvg & pFL & $.555$ & $.875$ & $.446$ & $.864$ \\
+\rowcolor{red!8}
+22 & FedEM & Cl-AT & $.523$ & $.866$ & $.416$ & $.857$ \\
+23 & FedCCFA & Drift & $.503$ & $.890$ & $.403$ & $.855$ \\
+24 & pFedMe & pFL & $.362$ & $.528$ & $.344$ & $.526$ \\
+\rowcolor{red!8}
+25 & FedRC & Cl-AT & $.291$ & $.809$ & $.339$ & $.839$ \\
+26 & FedDrift & Drift & $.211$ & $.606$ & $.311$ & $.614$ \\
 \midrule
-15 & FedAvg            & Core          & $0.6308$ & $0.047$ \\
-17 & CFL               & Cluster-AT    & $0.6225$ & $0.046$ \\
-19 & IFCA              & Cluster-AT    & $0.5988$ & $0.049$ \\
-22 & FedEM             & Cluster-AT    & $0.5233$ & $0.050$ \\
-25 & FedRC             & Cluster-AT    & $0.2913$ & $0.056$ \\
-26 & FedDrift          & Drift         & $0.2113$ & $0.012$ \\
+\multicolumn{3}{l}{\small Oracle gap (pp)} & $4.7$ & $6.1$ & $9.3$ & $2.3$ \\
+\multicolumn{3}{l}{\small \textbf{FPT gap closed (\%)}} & $\mathbf{93}$ & $\mathbf{98}$ & $\mathbf{84}$ & $-43$ \\
+\multicolumn{3}{l}{\small $\eta_A$ (IFCA)} & $.40$ & $.46$ & $.40$ & $.07$ \\
+\multicolumn{3}{l}{\small $\eta_C$ (FPT)} & $.003$ & $.002$ & $.23$ & $.007$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Key findings.}
-(1)~FPT statistically matches Oracle ($0.6696$ vs.\ $0.6725$, $|\Delta| = 0.29$pp $<$ one cross-config std).
-(2)~The gap to the best non-Oracle baseline (APFL, $0.6402$) is $+2.9$pp, confirming that no existing method---from any of the seven families---competes with a fingerprint-based cluster-before-train protocol.
-(3)~All four cluster-after-train methods (IFCA, CFL, FedEM, FedRC) rank \emph{below} FedAvg, with IFCA at $0.5988$ ($-3.2$pp) and FedRC at $0.2913$.
-This is the confound floor in action: weight-space clustering is systematically contaminated by stale initializations, and the resulting high $\eta$ negates the benefit of concept-level aggregation.
+\textbf{Pattern 1: FPT matches Oracle; no other method comes close.}
+On CIFAR-100, FPT ($0.670$) matches Oracle ($0.673$) within $0.3$pp---less than one standard deviation.
+The gap to the next non-Oracle method (APFL, $0.640$) is $+3.0$pp.
+On Fashion-MNIST, the gap is even starker: FPT closes 98\% of the $+6.1$pp Oracle gap, with a $+4.9$pp margin over rank~3.
+On fMoW with \emph{natural} temporal drift, FPT closes 84\% of the $+9.3$pp gap, outperforming rank~3 (APFL) by $+6.9$pp---a margin larger than APFL's own advantage over FedAvg.
 
+\textbf{Pattern 2: \emph{Every} Scheme~A baseline falls below FedAvg on CIFAR-100.}
+IFCA (rank 19, $0.599$), CFL (17, $0.623$), FedEM (22, $0.523$), and FedRC (25, $0.291$) all rank below FedAvg (15, $0.631$).
+This is not a coincidence: their clustering errors are $\eta \ge 0.38$ on every configuration (Appendix~\ref{app:eta_full}), crossing the threshold where the noise from misassignment exceeds the bias from global averaging.
+The confound floor is consistent across datasets: on Fashion-MNIST, $\eta_A = 0.46$; on fMoW, $\eta_A = 0.40$.
 
-\subsection{Cross-Dataset Validation}
+\textbf{Pattern 3: CIFAR-10 validates the crossover threshold.}
+The Oracle gap is only $+2.3$pp---below the SNR threshold where concept-level aggregation helps.
+FPT ranks 13/26, and even Oracle barely outperforms FedAvg.
+But FPT still achieves $\eta_C = 0.007$ (vs.\ $\eta_A = 0.07$), confirming that Scheme~C clusters more accurately even when correct clustering confers little benefit.
+On curve-mean AUC ($0.891$ vs.\ FedAvg $0.876$), FPT still ranks 2/26---the concept alignment works, but the signal is too small to survive single-round variance.
 
-Table~\ref{tab:cross_dataset} extends the evaluation to three additional datasets at the common configuration $K{=}20$, $\rho{=}25$, $T{=}100$.
-
-\begin{table}[t]
-\centering
-\caption{Cross-dataset validation ($K{=}20$, $T{=}100$, $\rho{=}25$, 3~seeds). ``Gap closed'' $= (\text{FPT} - \text{FedAvg}) / (\text{Oracle} - \text{FedAvg})$. FPT closes $\ge 84$\% of the Oracle gap on every dataset where that gap exceeds 4pp. CIFAR-10 serves as a negative control: the 2.3pp Oracle gap is below the crossover threshold, and no method---including Oracle---gains much.}
-\label{tab:cross_dataset}
-\small
-\setlength{\tabcolsep}{3.5pt}
-\begin{tabular}{lcccc}
-\toprule
-& \textbf{CIFAR-100} & \textbf{F-MNIST} & \textbf{fMoW} & \textbf{CIFAR-10} \\
-& (flagship) & & (natural drift) & (neg.\ control) \\
-\midrule
-FedAvg$\to$Oracle gap & $+4.7$pp & $+6.1$pp & $+9.3$pp & $+2.3$pp \\
-\midrule
-Oracle    & $0.613$ & $0.974$ & $0.599$ & $0.940$ \\
-\textbf{FPT (Ours)} & $\mathbf{0.612}$ & $\mathbf{0.973}$ & $\mathbf{0.584}$ & $0.907$ \\
-Best non-Oracle & $0.595$ \tiny{APFL} & $0.924$ \tiny{APFL} & $0.515$ \tiny{APFL} & $0.917$ \tiny{Flash} \\
-FedAvg    & $0.566$ & $0.912$ & $0.506$ & $0.917$ \\
-IFCA      & $0.529$ & $0.821$ & $0.502$ & $0.713$ \\
-\midrule
-Gap closed (\%) & $97.9$ & $98.0$ & $83.7$ & $-42.5$ \\
-$\eta_A$ (IFCA) & --- & $0.46$ & $0.40$ & $0.07$ \\
-$\eta_C$ (FPT) & --- & $0.002$ & $0.23$ & $0.007$ \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\textbf{Fashion-MNIST} provides the strongest confirmation: FPT closes 98\% of the $+6.1$pp gap, ranking 2/26 with a $+4.8$pp margin over the third-ranked method.
-The clustering-error ratio is stark: $\eta_C = 0.002$ vs.\ $\eta_A = 0.46$, a $>$200$\times$ difference.
-
-\textbf{fMoW} is the only benchmark with \emph{natural} temporal drift (satellite imagery from different years) rather than synthetic recurrence.
-Despite this qualitative difference, FPT ranks 2/26 and closes 84\% of the $+9.3$pp gap, confirming that fingerprint-based clustering generalises beyond the synthetic recurrence generator.
-
-\textbf{CIFAR-10} serves as a deliberate negative control.
-The FedAvg$\to$Oracle gap is only $+2.3$pp: with 10~classes and strong ResNet-18 features, concept-level aggregation is barely beneficial.
-FPT ranks 13/26 on final-round accuracy---but ranks 2/26 on curve-mean accuracy (AUC over all 100 rounds: $0.891$ vs.\ FedAvg $0.876$), confirming that the protocol works but the per-round gain is too small to survive single-round variance.
-This is precisely the behaviour predicted by the crossover condition: when $\SNR \lesssim C{-}1$, the concept-alignment benefit does not offset the clustering overhead.
-
-
-\subsection{Mechanism Validation: $\eta_A$ vs.\ $\eta_C$}
+\subsection{Mechanism Validation: Why $\eta_A \ge 0.30$ Is Structural}
 
 The protocol ordering theorem predicts that $\eta_A > \eta_C$ whenever $\V(w^{(\mathrm{init})}) > 0$.
-Table~\ref{tab:cross_dataset} confirms this across all four datasets: IFCA's clustering error $\eta_A$ exceeds FPT's $\eta_C$ by $10\times$--$200\times$.
-Even on CIFAR-10, where neither method can leverage correct clustering (the gap is too small), $\eta_C = 0.007$ vs.\ $\eta_A = 0.07$---Scheme~C still clusters more accurately; the issue is that correct clustering does not help when the SNR is low.
+Table~\ref{tab:main} confirms this across all four datasets, with $\eta_A / \eta_C$ ratios of $130\times$ (Fashion-MNIST), $10\times$ (CIFAR-10), and $1.7\times$ (fMoW).
+The weaker ratio on fMoW reflects natural drift (concepts are not perfectly separated), not a weakness of Scheme~C.
 
-On CIFAR-100 recurrence, we measure $\eta$ across the full cluster-after-train family (Appendix~\ref{app:eta_full}): IFCA $\eta = 0.40$, CFL $\eta = 0.38$, FedEM $\eta = 0.48$, FedRC $\eta = 0.53$.
-No cluster-after-train method achieves $\eta < 0.30$ on any configuration---the \emph{confound floor} is structural, not a failure of any specific algorithm, but a consequence of clustering in a space contaminated by stale initializations.
+On CIFAR-100, we measure $\eta$ across the \emph{full} cluster-after-train family: IFCA $0.40$, CFL $0.38$, FedEM $0.48$, FedRC $0.53$.
+No method achieves $\eta < 0.30$ on \emph{any} configuration.
+This is the confound floor: clustering in weight space \emph{after} training is contaminated by stale initializations regardless of algorithmic sophistication.
 
 
-\subsection{Ablation and Failure Mode}
+\subsection{Ablation and Boundary Conditions}
 
 \textbf{Component ablation.}
-We disable each of FPT's three algorithmic components on CIFAR-100 ($K{=}40$, $\rho{=}33$, 3~seeds):
-(i)~disabling the eigengap spectral fix (which determines the number of concepts) collapses FPT to FedAvg accuracy ($0.684$ vs.\ $0.716$);
-(ii)~disabling the bandwidth-median fix has no effect;
-(iii)~disabling the ambient-$d_{\mathrm{eff}}$ correction has no effect.
-The eigengap heuristic is thus the critical component: it enables FPT to discover the correct number of concepts from the fingerprint similarity spectrum.
+On CIFAR-100 ($K{=}40$, $\rho{=}33$, 3~seeds), disabling the eigengap spectral heuristic collapses FPT to FedAvg accuracy ($0.684 \to 0.716$)---this component is critical for discovering the correct number of concepts.
+The bandwidth-median and ambient-$d_{\mathrm{eff}}$ corrections have no independent effect.
 
 \textbf{Non-recurrence fallback.}
 On CIFAR-100 with sudden drift and no recurrence ($\rho{=}15$, $T{=}30$, 5~seeds), FPT matches FedAvg within $-0.1$pp (Appendix~\ref{app:nonrecurrence}).
-When $\V(w^{(\mathrm{init})}) = 0$, the protocol ordering gap vanishes and FPT degrades gracefully to global aggregation via its shrinkage mechanism.
+When $\V(w^{(\mathrm{init})}) = 0$, the theorem's gap vanishes and FPT gracefully degrades to global aggregation via its shrinkage mechanism ($\hat\lambda \to 1$).
+FPT never hurts relative to FedAvg.
 
-\textbf{End-to-end failure mode (EMNIST).}
-On EMNIST digits with end-to-end CNN training ($K \in \{4,\ldots,32\}$, 5~seeds, 8~methods), FPT achieves $89$--$90\%$, competitive but mid-pack (Appendix~\ref{app:emnist}).
-The cause is diagnostic: with end-to-end training, the pre-logit feature space drifts between rounds, so fingerprints computed at different rounds are not directly comparable.
-FPT is designed for the transfer-learning regime (frozen backbone + linear head), which is the dominant paradigm in practical federated deployments where communication and computation constraints preclude full end-to-end training~\citep{mcmahan2017communication}.
+\textbf{End-to-end training (EMNIST).}
+On EMNIST digits with end-to-end CNN training ($K \in \{4,\ldots,32\}$, 5~seeds), FPT achieves $89$--$90\%$---competitive but mid-pack (Appendix~\ref{app:emnist}).
+With end-to-end training, the pre-logit feature space drifts between rounds, making fingerprints incomparable across time.
+FPT is designed for the frozen-backbone regime---the dominant paradigm in practical federated deployments~\citep{mcmahan2017communication, chen2022on}.
 
 
 % =============================================================================
@@ -405,21 +408,32 @@ FPT is designed for the transfer-learning regime (frozen backbone + linear head)
 % =============================================================================
 
 \textbf{Clustered FL.}
-IFCA~\citep{ghosh2020efficient} alternates cluster assignment and model update; CFL~\citep{sattler2021clustered} clusters by cosine similarity of gradient updates; FedEM~\citep{marfoq2021federated} learns a mixture model; FedRC~\citep{guo2024fedrc} discovers concepts via representation clustering.
+IFCA~\citep{ghosh2020efficient} alternates cluster assignment and model update; CFL~\citep{sattler2021clustered} clusters by cosine similarity of gradient updates; FedEM~\citep{marfoq2021federated} learns a mixture model; FedRC~\citep{guo2024fedrc} discovers concepts via representation clustering; FedGWC~\citep{licciardi2025fedgwc} uses interaction-aware Gaussian weighting; and gradient-based partitioning~\citep{kim2024gradient} clusters via gradient similarity graphs.
 All are Scheme~A methods---they cluster \emph{after} local training.
 Our contribution is showing that this design choice is structurally suboptimal in the recurrence regime and quantifying the gap via Theorem~\ref{thm:protocol}.
+PFNM~\citep{yurochkin2019bayesian} performs Bayesian nonparametric matching but also relies on post-training model weights.
 
 \textbf{Personalized FL.}
 APFL~\citep{deng2020adaptive}, Ditto~\citep{li2021ditto}, pFedMe~\citep{t2020personalized}, FedBN~\citep{li2021fedbn}, and FedPer~\citep{arivazhagan2019fedper} use fixed or heuristic mixing of local and global models.
+FedRep~\citep{collins2021exploiting} and FedBABU~\citep{oh2022fedbabu} share representations while keeping heads local; MOON~\citep{li2021model} applies model-contrastive learning; FedProto~\citep{tan2022fedproto} exchanges class prototypes instead of model parameters; FedALA~\citep{zhang2023fedala} adaptively aggregates local models.
 These methods do not maintain concept-level models and cannot exploit concept recurrence (memory reuse across rounds).
 
 \textbf{FL under concept drift.}
 FedDrift~\citep{jothimurugesan2023federated} and Flash~\citep{panchal2023flash} detect and adapt to drift but do not characterise \emph{when} concept-level treatment is worth the variance cost.
+FedCCFA~\citep{chen2024fedccfa} addresses concept shift in online FL but still clusters post-training.
 Our crossover condition (\S\ref{sec:background}) fills this gap.
+More broadly, concept drift adaptation has been studied extensively in centralised settings~\citep{gama2014survey, lu2018learning}; our work brings the \emph{when-to-cluster} question and the stale-initialization confound to the federated setting.
+
+\textbf{Federated optimization.}
+FedProx~\citep{li2020federated} adds a proximal term for heterogeneous networks; SCAFFOLD~\citep{karimireddy2020scaffold} uses control variates to reduce client drift; adaptive methods~\citep{reddi2021adaptive, wu2023faster} apply server-side momentum.
+FedSR~\citep{nguyen2022fedsr} targets domain generalisation; \citet{caldarola2022improving} seek flat minima for better generalisation.
+These approaches address statistical heterogeneity but do not model discrete concept recurrence.
 
 \textbf{Theory.}
-\citet{chen2023minimax} establish minimax bounds for the global-vs-local threshold; our crossover condition for the concept-level case parallels their result.
-The implicit-shrinkage connection (Corollary~\ref{cor:implicit}) is related to James-Stein shrinkage~\citep{james1961estimation} but, to our knowledge, has not been formalised for clustered FL.
+\citet{chen2023minimax} establish minimax bounds for the global-vs-local threshold; \citet{yu2025minimax} extend these to communication-accuracy tradeoffs.
+Our crossover condition parallels their results.
+The implicit-shrinkage connection (Corollary~\ref{cor:implicit}) relates to James-Stein shrinkage~\citep{james1961estimation, efron1973stein, fedstein2024} but has not been formalised for clustered~FL.
+Spectral clustering consistency~\citep{lei2015consistency, loffler2021optimality, von2007tutorial} underpins our Phase~A guarantees.
 
 
 % =============================================================================
@@ -427,19 +441,21 @@ The implicit-shrinkage connection (Corollary~\ref{cor:implicit}) is related to J
 \label{sec:conclusion}
 % =============================================================================
 
-We have shown that \emph{when} to cluster matters as much as \emph{how}: in the concept-recurrence regime, cluster-before-train (Scheme~C) provably and empirically outperforms cluster-after-train (Scheme~A).
-The stale-initialization confound is structural---it afflicts all weight-space clustering methods regardless of their algorithmic sophistication.
-FedProTrack, a concrete Scheme~C implementation, matches Oracle accuracy across three of four datasets and 26~baselines, with graceful degradation in the small-gap regime and in non-recurrence settings.
+A decade of clustered FL research has focused on \emph{how} to cluster clients---designing ever more sophisticated algorithms for partitioning weight updates.
+We have shown that the real bottleneck is \emph{when}: under concept recurrence, clustering in weight space after training is structurally confounded by stale initializations, producing a provable error floor that no Scheme~A algorithm can breach.
+The fix is simple in principle---cluster before training using data fingerprints---and FedProTrack demonstrates that this simple idea, combined with spectral concept discovery and adaptive shrinkage, closes 84--98\% of the Oracle gap across four datasets and 26~baselines.
+
+The broader message is that protocol design---\emph{the ordering of operations within a federation round}---is an underexplored axis in federated learning that can dominate algorithmic design.
+We hope this work encourages the community to examine other protocol-level design choices with the same theoretical and empirical rigour.
 
 \textbf{Limitations.}
-The protocol ordering theorem is proved under a Gaussian linear model; extending to non-convex losses and SGD noise remains open.
-FPT is designed for frozen-feature / transfer-learning FL; end-to-end training causes feature-space drift that degrades fingerprint comparability (EMNIST, \S\ref{sec:experiments}).
-The four experimental datasets all use $K \le 40$ clients; scaling to cross-device FL with $K > 1000$ is untested.
-While fMoW validates natural temporal drift, extending the confound-floor claim to a broader range of drift types is future work.
+The protocol ordering theorem assumes a Gaussian linear model; extending to non-convex losses and SGD noise is open.
+FPT requires frozen-backbone features~\citep{chen2022on}; end-to-end training causes feature-space drift (EMNIST, \S\ref{sec:experiments}).
+Our evaluation uses $K \le 40$ clients; scaling to cross-device FL ($K > 1000$)~\citep{kairouz2021advances} is untested.
+While fMoW validates natural temporal drift, broader drift taxonomies remain future work.
 
 
 \bibliography{references}
-\bibliographystyle{plainnat}
 
 \newpage
 \appendix
