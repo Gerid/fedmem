@@ -94,6 +94,7 @@ class FedEMClient:
         self.lr = lr
         self.local_epochs = local_epochs
         self._seed = seed
+        self._model_type = model_type
 
         self._experts = [
             create_model(
@@ -125,6 +126,21 @@ class FedEMClient:
     def _current_params(self) -> list[dict[str, np.ndarray]]:
         return [expert.get_params() for expert in self._experts]
 
+    def _expert_loss(self, expert, X: np.ndarray, y: np.ndarray) -> float:
+        if expert._fitted:
+            return expert.predict_loss(X, y)
+
+        temp = create_model(
+            self._model_type,
+            self.n_features,
+            self.n_classes,
+            lr=self.lr,
+            n_epochs=1,
+            seed=self._seed,
+        )
+        temp.set_params(expert.get_params())
+        return temp.predict_loss(X, y)
+
     def predict(self, X: np.ndarray) -> np.ndarray:
         if not self._experts:
             return np.zeros(len(X), dtype=np.int64)
@@ -142,38 +158,22 @@ class FedEMClient:
                 if params:
                     expert.set_params(params)
 
-        old_params = self._current_params()
-        if not any(expert._fitted for expert in self._experts):
-            for expert in self._experts:
-                expert.fit(X, y)
-            old_params = self._current_params()
-
         losses = np.array(
-            [
-                expert.predict_loss(X, y) if expert._fitted else float("inf")
-                for expert in self._experts
-            ],
+            [self._expert_loss(expert, X, y) for expert in self._experts],
             dtype=np.float64,
         )
         if not np.isfinite(losses).any():
-            losses = np.zeros(self.n_components, dtype=np.float64)
-        priors = np.clip(self._responsibilities, 1e-8, 1.0)
-        responsibilities = _softmax(np.log(priors) - losses)
+            responsibilities = np.ones(self.n_components, dtype=np.float64) / self.n_components
+        else:
+            responsibilities = _softmax(-losses)
 
-        for idx, expert in enumerate(self._experts):
-            expert.partial_fit(X, y)
-            trained = expert.get_params()
-            if old_params[idx]:
-                blended = {
-                    key: responsibilities[idx] * trained[key]
-                    + (1.0 - responsibilities[idx]) * old_params[idx][key]
-                    for key in old_params[idx]
-                }
-                expert.set_params(blended)
+        n_local_steps = max(1, int(self.local_epochs))
+        for expert in self._experts:
+            for _ in range(n_local_steps):
+                expert.partial_fit(X, y)
 
         self._expert_params = self._current_params()
-        self._responsibilities = 0.5 * self._responsibilities + 0.5 * responsibilities
-        self._responsibilities /= self._responsibilities.sum()
+        self._responsibilities = responsibilities / responsibilities.sum()
         self._selected_expert = int(np.argmax(self._responsibilities))
 
     def get_upload(self) -> FedEMUpload:

@@ -1,18 +1,21 @@
 from __future__ import annotations
 
-"""FedDrift baseline: multi-model per-client with drift-triggered branching.
+"""FedDrift baseline: multi-model per-client with loss-based concept selection.
 
-Each client maintains a *set* of models, one per detected concept. When
-drift is detected the client spawns a new model. The server clusters
+Each client maintains a *set* of models, one per detected concept. Every
+round, the client evaluates all stored models on its current local data,
+selects the lowest-loss concept, and only spawns a fresh model when no
+stored concept achieves sufficiently low loss. The server clusters
 clients by their active model similarity and performs FedAvg within each
-cluster. This mirrors the FedDrift framework (Canonical et al., 2021):
-each concept gets its own model trajectory, and the server groups
-clients that share the same current concept.
+cluster.
 
 Simplifications vs. the full FedDrift paper:
 - Uses a PyTorch linear classifier instead of neural networks.
-- Clustering is based on cosine similarity of model parameter vectors.
-- Concept re-identification uses a simple nearest-model heuristic.
+- Server-side clustering is based on cosine similarity of model parameter
+  vectors.
+- Client-side concept selection evaluates all stored models on the
+  current local data and branches when none achieves sufficiently low
+  loss.
 """
 
 from dataclasses import dataclass
@@ -54,9 +57,10 @@ class FedDriftUpload:
 class FedDriftClient:
     """Client for the FedDrift multi-model baseline.
 
-    Maintains multiple models (one per detected concept). Drift detection
-    triggers spawning of a new model or re-identification of a previously
-    seen concept via parameter similarity.
+    Maintains multiple models (one per detected concept). Each round the
+    client evaluates all stored concept models by local loss, reuses the
+    best-fitting stored model when possible, and otherwise spawns a fresh
+    concept model.
 
     Parameters
     ----------
@@ -67,9 +71,10 @@ class FedDriftClient:
     n_classes : int
         Number of possible class labels.
     similarity_threshold : float
-        Cosine similarity threshold for concept re-identification.
-        If a new model's parameters are sufficiently similar to a stored
-        concept's model, re-use that concept. Default 0.5.
+        Public interface kept for compatibility. On the client this is
+        used as the loss threshold for spawning a new concept model; on
+        the server the same value is still used as the cosine-similarity
+        threshold for clustering. Default 0.5.
     seed : int
         Random seed. Default 0.
     """
@@ -89,6 +94,7 @@ class FedDriftClient:
         self.n_features = n_features
         self.n_classes = n_classes
         self.similarity_threshold = similarity_threshold
+        self._loss_threshold = float(similarity_threshold)
         self._seed = seed
         self._lr = lr
         self._n_epochs = n_epochs
@@ -111,39 +117,62 @@ class FedDriftClient:
     # Helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
-        """Cosine similarity between two vectors."""
-        na = np.linalg.norm(a)
-        nb = np.linalg.norm(b)
-        if na < 1e-12 or nb < 1e-12:
-            return 0.0
-        return float(np.dot(a, b) / (na * nb))
-
     def _params_to_vector(self, params: dict[str, np.ndarray]) -> np.ndarray:
         """Flatten model params into a single vector."""
         if not params:
             return np.zeros(1)
         return np.concatenate([v.flatten() for v in params.values()])
 
-    def _fit_model(
-        self, X: np.ndarray, y: np.ndarray,
-    ) -> dict[str, np.ndarray]:
-        """Fit a fresh model on GPU and return params."""
-        fresh = create_model(
+    def _make_model(self, concept_id: int):
+        """Create a model instance for a given concept ID."""
+        return create_model(
             self._model_type, self.n_features, self.n_classes,
             lr=self._lr, n_epochs=self._n_epochs,
-            seed=self._seed + self._active_concept,
+            seed=self._seed + concept_id,
         )
-        fresh.fit(X, y)
-        return fresh.get_params()
+
+    def _copy_params(self, params: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+        return {k: v.copy() for k, v in params.items()}
+
+    def _evaluate_model(
+        self,
+        params: dict[str, np.ndarray],
+        X: np.ndarray,
+        y: np.ndarray,
+    ) -> float:
+        """Evaluate a stored model on the current local data."""
+        if not params:
+            return float("inf")
+        temp = create_model(
+            self._model_type,
+            self.n_features,
+            self.n_classes,
+            lr=self._lr,
+            n_epochs=self._n_epochs,
+            seed=self._seed,
+        )
+        temp.set_params(params)
+        try:
+            return temp.predict_loss(X, y)
+        except (IndexError, RuntimeError):
+            # Model output dim may not match current label set
+            # (e.g. disjoint label splits across concepts).
+            return float("inf")
 
     # ------------------------------------------------------------------
     # Training
     # ------------------------------------------------------------------
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
-        """Fit the active model on a new batch, detecting drift.
+        """FedDrift client training with pool-based model selection.
+
+        Algorithm (Jothimurugesan et al., AISTATS 2023):
+        1. Detect drift on current active model.
+        2. If drift detected: evaluate ALL pool models on new data,
+           pick the best; spawn new only if pool is empty or best
+           model has error rate > 50% (random-guess level).
+        3. If no drift: continue with current active model.
+        4. Fine-tune the selected model on new data.
 
         Parameters
         ----------
@@ -151,9 +180,9 @@ class FedDriftClient:
         y : np.ndarray of shape (n_samples,)
         """
         self._n_samples += len(X)
-        drift_detected = False
 
-        # Detect drift
+        # --- Step 1: drift detection on current model ---
+        drift_detected = False
         if self._model._fitted:
             preds = self._model.predict(X)
             errors = (preds != y).astype(float)
@@ -163,46 +192,54 @@ class FedDriftClient:
                     drift_detected = True
                     break
 
-        if drift_detected:
-            # Save current model under its concept
+        # --- Step 2: on drift (or first round), select from pool ---
+        need_selection = drift_detected or not self._model._fitted
+
+        if need_selection:
+            # Save current model before switching
             if self._model._fitted:
-                self._model_params_store[self._active_concept] = self._current_params.copy()
+                self._model_params_store[self._active_concept] = (
+                    self._copy_params(self._model.get_params())
+                )
 
-            # Train a fresh model on new data
-            new_params = self._fit_model(X, y)
-            new_vec = self._params_to_vector(new_params)
-
-            # Try to re-identify an existing concept
-            best_concept = -1
-            best_sim = -1.0
-            for cid, cparams in self._model_params_store.items():
-                cvec = self._params_to_vector(cparams)
-                sim = self._cosine_sim(new_vec, cvec)
-                if sim > best_sim:
-                    best_sim = sim
+            # Evaluate all stored models on current data
+            best_concept: int | None = None
+            best_loss = float("inf")
+            for cid, params in self._model_params_store.items():
+                loss = self._evaluate_model(params, X, y)
+                if loss < best_loss:
+                    best_loss = loss
                     best_concept = cid
 
-            if best_concept >= 0 and best_sim >= self.similarity_threshold:
-                # Re-use existing concept
+            # Compute random-guess loss as spawn threshold:
+            # cross-entropy of uniform prediction = log(n_classes)
+            n_unique = max(len(np.unique(y)), 2)
+            random_loss = float(np.log(n_unique))
+
+            if best_concept is not None and best_loss < random_loss:
+                # Re-use existing concept: load its parameters
                 self._active_concept = best_concept
-                new_params = self._fit_model(X, y)
+                stored = self._model_params_store[self._active_concept]
+                self._model = self._make_model(self._active_concept)
+                self._model.set_params(stored)
+                self._current_params = self._copy_params(stored)
             else:
                 # Spawn new concept
-                self._active_concept = self._next_concept_id
-                self._next_concept_id += 1
+                concept_id = (0 if not self._model_params_store
+                              else self._next_concept_id)
+                if concept_id == self._next_concept_id:
+                    self._next_concept_id += 1
+                self._active_concept = concept_id
+                self._model = self._make_model(concept_id)
 
-            self._current_params = new_params
-            self._model.set_params(new_params)
             self._drift_detector.reset()
-        else:
-            # No drift — train current model
-            self._model.fit(X, y)
-            self._current_params = self._model.get_params()
 
-        # Update stored model
-        self._model_params_store[self._active_concept] = {
-            k: v.copy() for k, v in self._current_params.items()
-        }
+        # --- Step 3: fine-tune the selected model ---
+        self._model.fit(X, y)
+        self._current_params = self._copy_params(self._model.get_params())
+        self._model_params_store[self._active_concept] = (
+            self._copy_params(self._current_params)
+        )
 
     # ------------------------------------------------------------------
     # Prediction
