@@ -60,6 +60,7 @@ class FedRCUpload:
     cluster_probs: np.ndarray
     label_hist: np.ndarray
     n_samples: int
+    batch_size: int
     selected_cluster: int
 
 
@@ -166,6 +167,7 @@ class FedRCClient:
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
         self._n_samples += int(len(X))
+        self._batch_size = int(len(X))
         label_hist = _label_histogram(y, self.n_classes)
         self._label_hist = label_hist
 
@@ -200,6 +202,7 @@ class FedRCClient:
             cluster_probs=self._cluster_probs.copy(),
             label_hist=self._label_hist.copy(),
             n_samples=self._n_samples,
+            batch_size=getattr(self, "_batch_size", self._n_samples),
             selected_cluster=self._selected_cluster,
         )
 
@@ -255,7 +258,7 @@ class FedRCServer:
             if not valid:
                 continue
 
-            weights = [float(max(m.n_samples, 1)) * float(max(m.cluster_probs[cluster_id], 1e-6)) for m in valid]
+            weights = [float(max(m.batch_size, 1)) * float(max(m.cluster_probs[cluster_id], 1e-6)) for m in valid]
             self.cluster_models[cluster_id] = self._aggregator.aggregate(
                 [m.model_params for m in valid],
                 weights,

@@ -307,7 +307,7 @@ class FedCCFAServer:
         n_classes: int,
         *,
         eps: float = 0.35,
-        reid_similarity_threshold: float = 0.85,
+        reid_similarity_threshold: float = 0.65,
         memory_momentum: float = 0.5,
     ) -> None:
         if eps <= 0.0:
@@ -476,15 +476,22 @@ class FedCCFAServer:
                 best_id = cluster_id
 
         if best_id >= 0 and best_sim >= self.reid_similarity_threshold:
-            memory[best_id] = (
+            updated = (
                 self.memory_momentum * memory[best_id]
                 + (1.0 - self.memory_momentum) * representation
             )
+            # Normalize to prevent magnitude drift that degrades cosine
+            # similarity reliability over many rounds.
+            norm = np.linalg.norm(updated)
+            if norm > 1e-12:
+                updated = updated / norm
+            memory[best_id] = updated
             return best_id
 
         cluster_id = self._next_label_cluster_id[label]
         self._next_label_cluster_id[label] += 1
-        memory[cluster_id] = representation.copy()
+        norm = np.linalg.norm(representation)
+        memory[cluster_id] = (representation / norm).copy() if norm > 1e-12 else representation.copy()
         return cluster_id
 
     def aggregate(
