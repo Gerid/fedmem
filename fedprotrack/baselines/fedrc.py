@@ -183,11 +183,14 @@ class FedRCClient:
         self._cluster_probs = probs
         self._selected_cluster = int(np.argmax(probs))
 
-        blended = self._blend_cluster_models(probs)
-        if blended:
-            self._model.set_params(blended)
-        elif self._selected_cluster < len(self._cluster_models):
-            self._model.set_params(_copy_params(self._cluster_models[self._selected_cluster]))
+        # Hard assignment: load the best cluster model as initialization.
+        # Soft blending (weighted average of all cluster models) destroys
+        # cluster differentiation—all clients get nearly identical init
+        # when probs are close to uniform, preventing specialization.
+        if self._selected_cluster < len(self._cluster_models):
+            best_params = self._cluster_models[self._selected_cluster]
+            if best_params:
+                self._model.set_params(_copy_params(best_params))
 
         self._model.fit(X, y)
         self._model_params = self._model.get_params()
@@ -258,7 +261,7 @@ class FedRCServer:
             if not valid:
                 continue
 
-            weights = [float(max(m.batch_size, 1)) * float(max(m.cluster_probs[cluster_id], 1e-6)) for m in valid]
+            weights = [float(max(m.batch_size, 1)) for m in valid]
             self.cluster_models[cluster_id] = self._aggregator.aggregate(
                 [m.model_params for m in valid],
                 weights,

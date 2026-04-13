@@ -154,6 +154,7 @@ class TestFedRC:
             cluster_probs=np.array([0.9, 0.1], dtype=np.float64),
             label_hist=np.array([0.8, 0.2], dtype=np.float64),
             n_samples=20,
+            batch_size=20,
             selected_cluster=0,
         )
         upload_b = FedRCUpload(
@@ -162,6 +163,7 @@ class TestFedRC:
             cluster_probs=np.array([0.1, 0.9], dtype=np.float64),
             label_hist=np.array([0.2, 0.8], dtype=np.float64),
             n_samples=20,
+            batch_size=20,
             selected_cluster=1,
         )
 
