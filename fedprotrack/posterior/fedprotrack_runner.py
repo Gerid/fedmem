@@ -15,6 +15,7 @@ import numpy as np
 
 from ..baselines.comm_tracker import model_bytes
 from ..concept_tracker.fingerprint import ConceptFingerprint
+from .ot_concept_discovery import spectral_concept_discovery, ConceptMemory
 from ..drift_detector import BaseDriftDetector
 from ..drift_generator import DriftDataset
 from ..federation import merge_param_namespaces, split_param_namespaces
@@ -1130,6 +1131,7 @@ class FedProTrackResult:
     expert_update_coverage: float | None = None
     multi_route_rate: float | None = None
     phase_a_round_diagnostics: list[dict[str, object]] = field(default_factory=list)
+    drct_lambda_log: list[dict[str, object]] = field(default_factory=list)
     method_name: str = "FedProTrack"
 
     def to_experiment_log(self) -> ExperimentLog:
@@ -1250,6 +1252,19 @@ class FedProTrackRunner:
         evaluation step. This keeps communication accounting aligned with
         matched-budget baselines because there is no future prediction to
         benefit from the final sync. Default False.
+    soft_read : bool
+        If True and soft_aggregation is False, each client receives a
+        posterior-weighted blend of all concept models at delivery time
+        instead of only its MAP concept model.  Designed for the
+        "Hard Write + DRCT + Soft Read" architecture where hard
+        aggregation preserves concept distinctiveness for meaningful
+        Stein shrinkage while soft read personalises delivery.
+    concept_discovery : str
+        Concept discovery method for Phase A.
+        ``"gibbs"`` (default): Gibbs posterior + novelty gating.
+        ``"ot"``: OT-inspired spectral clustering on client fingerprints.
+        The OT mode requires no threshold tuning — concept count emerges
+        from the eigengap of the normalised graph Laplacian.
     """
 
     def __init__(
@@ -1260,6 +1275,8 @@ class FedProTrackRunner:
         seed: int = 42,
         event_triggered: bool = False,
         soft_aggregation: bool = False,
+        soft_read: bool = False,
+        concept_discovery: str = "gibbs",
         blend_alpha: float = 0.5,
         auto_scale: bool = False,
         similarity_calibration: bool = False,
@@ -1321,6 +1338,8 @@ class FedProTrackRunner:
         self.seed = seed
         self.event_triggered = event_triggered
         self.soft_aggregation = soft_aggregation
+        self.soft_read = soft_read
+        self.concept_discovery = concept_discovery
         self.blend_alpha = blend_alpha
         self.auto_scale = auto_scale
         self.similarity_calibration = similarity_calibration
@@ -1564,6 +1583,9 @@ class FedProTrackRunner:
             prototype_subgroup_early_mix=self.prototype_subgroup_early_mix,
             prototype_subgroup_min_clients=self.prototype_subgroup_min_clients,
             prototype_subgroup_similarity_gate=self.prototype_subgroup_similarity_gate,
+            drct_shrinkage=self.config.drct_shrinkage,
+            drct_d_eff_ratio=self.config.drct_d_eff_ratio,
+            drct_min_concepts=self.config.drct_min_concepts,
         )
 
         protocol = TwoPhaseFedProTrack(cfg)
@@ -1608,6 +1630,9 @@ class FedProTrackRunner:
         prev_assignments: dict[int, int] | None = None
         old_assignments: dict[int, int] | None = None
         last_a_result: PhaseAResult | None = None
+        ot_concept_memory: ConceptMemory | None = (
+            ConceptMemory() if self.concept_discovery == "ot" else None
+        )
         predictive_group_cache: dict[int, list[_PredictiveSubgroupCacheEntry]] = {}
         local_update_events = 0
         multi_route_events = 0
@@ -1618,11 +1643,13 @@ class FedProTrackRunner:
         for t in range(T):
             # Per-step fingerprints: built fresh each step from current
             # data only, avoiding cross-concept contamination.
+            _fp_sim_w = self.config.fingerprint_sim_weights
             step_fingerprints = [
                 ConceptFingerprint(
                     fingerprint_features,
                     fingerprint_n_classes,
                     feature_groups=fingerprint_feature_groups,
+                    sim_weights=_fp_sim_w,
                 )
                 for _ in range(K)
             ]
@@ -1639,6 +1666,74 @@ class FedProTrackRunner:
                 for _ in range(K)
             ]
 
+            # --- Early OT concept discovery ---
+            # For OT mode, discover concepts from raw training data BEFORE
+            # the per-client predict/train loop.  This lets drifting
+            # clients load the correct concept model before training,
+            # matching Oracle's "load → predict → train → upload" flow.
+            # Raw fingerprints don't require a trained model, so they can
+            # be computed up front without disturbing the prediction path.
+            early_ot_cache: dict | None = None
+            _early_is_fed_step = (t + 1) % self.federation_every == 0
+            if self.skip_last_federation_round and t == T - 1:
+                _early_is_fed_step = False
+            if (
+                self.concept_discovery == "ot"
+                and ot_concept_memory is not None
+                and _early_is_fed_step
+                and self.fingerprint_source == "raw_input"
+            ):
+                early_fps: dict[int, ConceptFingerprint] = {}
+                for k in range(K):
+                    X_k, y_k = dataset.data[(k, t)]
+                    mid_k = len(X_k) // 2
+                    X_train_k = X_k[mid_k:]
+                    y_train_k = y_k[mid_k:]
+                    fp_early = ConceptFingerprint(
+                        fingerprint_features,
+                        fingerprint_n_classes,
+                        feature_groups=fingerprint_feature_groups,
+                        sim_weights=_fp_sim_w,
+                    )
+                    fp_early.update(X_train_k, y_train_k)
+                    early_fps[k] = fp_early
+
+                n_discovered_early, local_assign_early = spectral_concept_discovery(
+                    early_fps,
+                    max_concepts=self.config.max_concepts,
+                    affinity_scale=self.config.ot_affinity_scale,
+                    eigengap_method=self.config.ot_eigengap_method,
+                )
+                cluster_centroids_early: dict[int, np.ndarray] = {}
+                for local_cid in set(local_assign_early.values()):
+                    members = [
+                        k for k, c in local_assign_early.items()
+                        if c == local_cid
+                    ]
+                    vecs = np.stack([
+                        early_fps[k].to_vector() for k in members
+                    ])
+                    cluster_centroids_early[local_cid] = vecs.mean(axis=0)
+                id_mapping_early = ot_concept_memory.match_and_update(
+                    cluster_centroids_early,
+                )
+                early_assignments = {
+                    k: id_mapping_early[c]
+                    for k, c in local_assign_early.items()
+                }
+
+                # Update prev_assignments so the load-before-predict path
+                # uses the freshly-discovered concept IDs.  old_assignments
+                # is preserved for downstream switch detection.
+                old_assignments = prev_assignments
+                prev_assignments = early_assignments
+
+                early_ot_cache = {
+                    "assignments": early_assignments,
+                    "fingerprints": early_fps,
+                    "n_discovered": n_discovered_early,
+                }
+
             # --- Per-client: predict, detect, fingerprint, train ---
             any_drift = False
             for k in range(K):
@@ -1649,6 +1744,27 @@ class FedProTrackRunner:
                 current_slot_id = (
                     prev_assignments.get(k, 0) if prev_assignments is not None else 0
                 )
+
+                # Load stored concept model before prediction (Oracle-style).
+                # Without this, FedProTrack only benefits from concept
+                # aggregation when a client switches concepts, and the
+                # switch-load path discards the client's training for that
+                # round.  Loading here matches Oracle's "load → predict →
+                # train → upload" flow and ensures every round benefits
+                # from prior aggregation.
+                if (
+                    prev_assignments is not None
+                    and not _is_namespaced_routed_model(models[k])
+                    and not _is_factorized_adapter_model(models[k])
+                ):
+                    stored_concept = protocol.memory_bank.get_model_params(
+                        current_slot_id
+                    )
+                    if stored_concept is not None:
+                        _model_set_params(models[k], stored_concept)
+                        model_params[k] = {
+                            key: arr.copy() for key, arr in stored_concept.items()
+                        }
 
                 # 1. Prequential prediction (on GPU via TorchLinearClassifier)
                 y_pred = _model_predict(
@@ -1866,29 +1982,82 @@ class FedProTrackRunner:
                         k: 1.0 - accuracy_matrix[k, t] for k in range(K)
                     }
                     client_fps = {k: step_fingerprints[k] for k in range(K)}
-                    client_signatures = None
-                    if self.model_signature_weight > 0.0:
-                        client_signatures = {
-                            k: step_model_signatures[k] for k in range(K)
-                        }
-                    client_update_signatures = None
-                    if self.update_ot_weight > 0.0:
-                        client_update_signatures = {
-                            k: step_update_signatures[k] for k in range(K)
-                        }
-                    client_batch_prototype_signatures = None
-                    if self.labelwise_proto_weight > 0.0:
-                        client_batch_prototype_signatures = {
-                            k: step_batch_prototype_signatures[k] for k in range(K)
-                        }
-                    last_a_result = protocol.phase_a(
-                        client_fps,
-                        prev_assignments,
-                        client_model_losses,
-                        client_signatures,
-                        client_update_signatures,
-                        client_batch_prototype_signatures,
-                    )
+
+                    if self.concept_discovery == "ot" and ot_concept_memory is not None:
+                        # --- OT spectral concept discovery ---
+                        if early_ot_cache is not None:
+                            # Reuse the early-pass result.  Do NOT re-run
+                            # clustering or re-register concepts — that
+                            # would double-count spawn events and may
+                            # return inconsistent assignments.
+                            persistent_assignments = early_ot_cache["assignments"]
+                            n_discovered = early_ot_cache["n_discovered"]
+                        else:
+                            n_discovered, local_assignments = spectral_concept_discovery(
+                                client_fps,
+                                max_concepts=self.config.max_concepts,
+                                affinity_scale=self.config.ot_affinity_scale,
+                                eigengap_method=self.config.ot_eigengap_method,
+                            )
+                            cluster_centroids: dict[int, np.ndarray] = {}
+                            for local_cid in set(local_assignments.values()):
+                                members = [
+                                    k for k, c in local_assignments.items()
+                                    if c == local_cid
+                                ]
+                                vecs = np.stack([
+                                    client_fps[k].to_vector() for k in members
+                                ])
+                                cluster_centroids[local_cid] = vecs.mean(axis=0)
+                            id_mapping = ot_concept_memory.match_and_update(
+                                cluster_centroids,
+                            )
+                            persistent_assignments = {
+                                k: id_mapping[c]
+                                for k, c in local_assignments.items()
+                            }
+                        ot_posteriors: dict[int, PosteriorAssignment] = {}
+                        for k, cid in persistent_assignments.items():
+                            ot_posteriors[k] = PosteriorAssignment(
+                                probabilities={cid: 1.0},
+                                map_concept_id=cid,
+                                is_novel=False,
+                                entropy=0.0,
+                            )
+                        fp_vec_size = client_fps[0].to_vector().nbytes
+                        last_a_result = PhaseAResult(
+                            assignments=persistent_assignments,
+                            posteriors=ot_posteriors,
+                            bytes_up=float(K * fp_vec_size),
+                            bytes_down=float(K * 8),
+                            spawned=max(0, ot_concept_memory.n_concepts - n_discovered),
+                            addressing_performed=True,
+                        )
+                    else:
+                        # --- Gibbs posterior (original Phase A) ---
+                        client_signatures = None
+                        if self.model_signature_weight > 0.0:
+                            client_signatures = {
+                                k: step_model_signatures[k] for k in range(K)
+                            }
+                        client_update_signatures = None
+                        if self.update_ot_weight > 0.0:
+                            client_update_signatures = {
+                                k: step_update_signatures[k] for k in range(K)
+                            }
+                        client_batch_prototype_signatures = None
+                        if self.labelwise_proto_weight > 0.0:
+                            client_batch_prototype_signatures = {
+                                k: step_batch_prototype_signatures[k] for k in range(K)
+                            }
+                        last_a_result = protocol.phase_a(
+                            client_fps,
+                            prev_assignments,
+                            client_model_losses,
+                            client_signatures,
+                            client_update_signatures,
+                            client_batch_prototype_signatures,
+                        )
                     phase_a_bytes += last_a_result.total_bytes
                     total_spawned += last_a_result.spawned
                     total_merged += last_a_result.merged
@@ -2077,14 +2246,25 @@ class FedProTrackRunner:
                         ):
                             stored = protocol.memory_bank.get_model_params(new_cid)
                             if stored is not None:
-                                _model_set_params(models[k], stored)
-                                model_params[k] = {
-                                    key: arr.copy()
-                                    for key, arr in stored.items()
-                                }
-                                if _is_namespaced_routed_model(models[k]):
-                                    client_slot_weights[k] = {int(new_cid): 1.0}
-                                    client_read_slot_weights[k] = {int(new_cid): 1.0}
+                                # For feature-adapter/factorized models, the
+                                # switch-load prevents the previous slot's
+                                # expert from contaminating the new concept.
+                                # For standard models, we keep the client's
+                                # trained upload (which was trained on the
+                                # new concept's data anyway) — this lets
+                                # switchers contribute to Phase B.
+                                if (
+                                    _is_namespaced_routed_model(models[k])
+                                    or _is_factorized_adapter_model(models[k])
+                                ):
+                                    _model_set_params(models[k], stored)
+                                    model_params[k] = {
+                                        key: arr.copy()
+                                        for key, arr in stored.items()
+                                    }
+                                    if _is_namespaced_routed_model(models[k]):
+                                        client_slot_weights[k] = {int(new_cid): 1.0}
+                                        client_read_slot_weights[k] = {int(new_cid): 1.0}
 
                 # Phase B: model aggregation (always runs on federation steps
                 # when assignments exist, even if Phase A was skipped)
@@ -2105,6 +2285,31 @@ class FedProTrackRunner:
                                 client_fingerprints=step_fingerprints,
                             )
                         phase_b_bytes += b_result.total_bytes
+
+                        # Correct bytes_down for soft read: each client
+                        # downloads concepts with nonzero posterior, not
+                        # just its MAP concept.
+                        if (
+                            self.soft_read
+                            and not self.soft_aggregation
+                            and last_a_result is not None
+                        ):
+                            per_model = {
+                                c: model_bytes(p)
+                                for c, p in b_result.aggregated_params.items()
+                            }
+                            corrected_down = 0.0
+                            for k_sr in client_p:
+                                if k_sr in last_a_result.posteriors:
+                                    post = last_a_result.posteriors[k_sr].probabilities
+                                    for c_sr, w_sr in post.items():
+                                        if float(w_sr) > 0.01 and c_sr in per_model:
+                                            corrected_down += per_model[c_sr]
+                                else:
+                                    cid_sr = prev_assignments.get(k_sr)
+                                    if cid_sr is not None and cid_sr in per_model:
+                                        corrected_down += per_model[cid_sr]
+                            phase_b_bytes += corrected_down - b_result.bytes_down
 
                         if predictive_group_cache:
                             predictive_group_cache = {
@@ -2233,10 +2438,54 @@ class FedProTrackRunner:
                                     )
                                     client_read_slot_weights[k] = filtered_weights
                                 else:
-                                    model_params[k] = {
-                                        key: arr.copy()
-                                        for key, arr in b_result.aggregated_params[cid].items()
-                                    }
+                                    if (
+                                        self.soft_read
+                                        and not self.soft_aggregation
+                                        and last_a_result is not None
+                                        and k in last_a_result.posteriors
+                                    ):
+                                        # Soft read: posterior-weighted blend
+                                        # of all concept models
+                                        post_k = last_a_result.posteriors[k].probabilities
+                                        blend_payloads: dict[int, dict[str, np.ndarray]] = {}
+                                        for c_sr in post_k:
+                                            p_sr = b_result.aggregated_params.get(c_sr)
+                                            if p_sr is None:
+                                                p_sr = protocol.memory_bank.get_model_params(c_sr)
+                                            if p_sr is not None:
+                                                blend_payloads[int(c_sr)] = p_sr
+                                        if blend_payloads:
+                                            filt_w = {
+                                                c: float(post_k[c])
+                                                for c in blend_payloads
+                                                if float(post_k[c]) > 0.0
+                                            }
+                                            tot_w = sum(filt_w.values())
+                                            if tot_w > 0.0:
+                                                nw = {c: w / tot_w for c, w in filt_w.items()}
+                                                blended: dict[str, np.ndarray] = {}
+                                                for c_id, c_w in nw.items():
+                                                    for key, arr in blend_payloads[c_id].items():
+                                                        if key in blended:
+                                                            blended[key] = blended[key] + c_w * arr
+                                                        else:
+                                                            blended[key] = c_w * arr.copy()
+                                                model_params[k] = blended
+                                            else:
+                                                model_params[k] = {
+                                                    key: arr.copy()
+                                                    for key, arr in b_result.aggregated_params[cid].items()
+                                                }
+                                        else:
+                                            model_params[k] = {
+                                                key: arr.copy()
+                                                for key, arr in b_result.aggregated_params[cid].items()
+                                            }
+                                    else:
+                                        model_params[k] = {
+                                            key: arr.copy()
+                                            for key, arr in b_result.aggregated_params[cid].items()
+                                        }
                                     client_slot_weights[k] = None
                                     client_read_slot_weights[k] = None
                                     if (
@@ -2333,7 +2582,11 @@ class FedProTrackRunner:
             spawned_concepts=total_spawned,
             merged_concepts=total_merged,
             pruned_concepts=total_pruned,
-            active_concepts=protocol.memory_bank.n_concepts,
+            active_concepts=(
+                ot_concept_memory.n_concepts
+                if ot_concept_memory is not None
+                else protocol.memory_bank.n_concepts
+            ),
             soft_assignments=soft_assignments,
             assignment_switch_rate=result_assignment_switch_rate,
             avg_clients_per_concept=result_avg_clients_per_concept,
@@ -2344,4 +2597,5 @@ class FedProTrackRunner:
             expert_update_coverage=result_expert_update_coverage,
             multi_route_rate=result_multi_route_rate,
             phase_a_round_diagnostics=phase_a_round_diagnostics,
+            drct_lambda_log=protocol.drct_lambda_log,
         )
