@@ -154,7 +154,7 @@ def run_fedproto_full(
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_matrix[k, t] = _accuracy(y, preds)
 
@@ -382,7 +382,7 @@ def run_fedccfa_full(
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_matrix[k, t] = _accuracy(y, preds)
 
@@ -454,7 +454,7 @@ def run_cfl_full(
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_matrix[k, t] = _accuracy(y, preds)
 
@@ -517,7 +517,7 @@ def run_fesem_full(
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_matrix[k, t] = _accuracy(y, preds)
 
@@ -578,7 +578,7 @@ def run_fedrc_full(
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_matrix[k, t] = _accuracy(y, preds)
 
@@ -646,7 +646,7 @@ def run_tracked_summary_full(
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_matrix[k, t] = _accuracy(y, preds)
 
@@ -724,7 +724,7 @@ def run_flash_full(
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_matrix[k, t] = _accuracy(y, preds)
 
@@ -792,7 +792,7 @@ def run_feddrift_full(
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_matrix[k, t] = _accuracy(y, preds)
 
@@ -830,6 +830,7 @@ def run_ifca_full(
     lr: float = 0.01,
     n_epochs: int = 5,
     model_type: str = "linear",
+    oracle_init: bool = False,
 ) -> MethodResult:
     """Run IFCA (iterative federated clustering) and return full results.
 
@@ -842,6 +843,11 @@ def run_ifca_full(
         Local SGD learning rate. Default 0.01.
     n_epochs : int
         Number of local training epochs per round. Default 5.
+    oracle_init : bool
+        If True, initialize cluster models from Oracle per-concept models
+        trained on round-0 data with ground-truth assignments.  This
+        eliminates the stale-initialization variance V(w^init) for the
+        clean Scheme A experiment (rebuttal W1).
 
     Returns
     -------
@@ -857,6 +863,33 @@ def run_ifca_full(
         n_classes=n_classes, seed=42,
     )
 
+    # Oracle initialization: train per-concept models on round-0 data
+    # using ground-truth assignments, then use them as cluster centers.
+    if oracle_init and hasattr(dataset, "concept_matrix"):
+        gt = dataset.concept_matrix  # (K, T)
+        concept_ids = sorted(set(gt[:, 0].ravel()))
+        from ..models.torch_linear import TorchLinearClassifier
+        for ci, cid in enumerate(concept_ids[:n_clusters]):
+            members = [k for k in range(K) if gt[k, 0] == cid]
+            if not members:
+                continue
+            # Train a temporary model on pooled round-0 data
+            Xs, ys = [], []
+            for k in members:
+                X, y = dataset.data[(k, 0)]
+                Xs.append(X)
+                ys.append(y)
+            X_pool = np.concatenate(Xs)
+            y_pool = np.concatenate(ys)
+            tmp = TorchLinearClassifier(
+                n_features=n_features, n_classes=n_classes,
+                lr=lr, n_epochs=1, seed=42 + ci,
+            )
+            for _ in range(n_epochs):
+                tmp.fit(X_pool, y_pool)
+            params = tmp.get_params()
+            server.cluster_models[ci] = params
+
     accuracy_matrix = np.zeros((K, T), dtype=np.float64)
     predicted_matrix = np.zeros((K, T), dtype=np.int32)
     total_bytes = 0.0
@@ -867,7 +900,7 @@ def run_ifca_full(
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_matrix[k, t] = _accuracy(y, preds)
 
@@ -1023,7 +1056,7 @@ def run_compressed_fedavg_full(
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_matrix[k, t] = _accuracy(y, preds)
 
@@ -1113,7 +1146,7 @@ def run_fedccfa_impl_full(
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_matrix[k, t] = _accuracy(y, preds)
 

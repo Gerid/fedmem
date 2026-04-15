@@ -1689,10 +1689,13 @@ class FedProTrackRunner:
             ):
                 early_fps: dict[int, ConceptFingerprint] = {}
                 for k in range(K):
-                    X_k, y_k = dataset.data[(k, t)]
-                    mid_k = len(X_k) // 2
-                    X_train_k = X_k[mid_k:]
-                    y_train_k = y_k[mid_k:]
+                    if dataset.test_data is not None:
+                        X_train_k, y_train_k = dataset.data[(k, t)]
+                    else:
+                        X_k, y_k = dataset.data[(k, t)]
+                        mid_k = len(X_k) // 2
+                        X_train_k = X_k[mid_k:]
+                        y_train_k = y_k[mid_k:]
                     fp_early = ConceptFingerprint(
                         fingerprint_features,
                         fingerprint_n_classes,
@@ -1741,10 +1744,14 @@ class FedProTrackRunner:
             # --- Per-client: predict, detect, fingerprint, train ---
             any_drift = False
             for k in range(K):
-                X, y = dataset.data[(k, t)]
-                mid = len(X) // 2
-                X_test, y_test = X[:mid], y[:mid]
-                X_train, y_train = X[mid:], y[mid:]
+                if dataset.test_data is not None:
+                    X_test, y_test = dataset.eval_batch(k, t)
+                    X_train, y_train = dataset.data[(k, t)]
+                else:
+                    X, y = dataset.data[(k, t)]
+                    mid = len(X) // 2
+                    X_test, y_test = X[:mid], y[:mid]
+                    X_train, y_train = X[mid:], y[mid:]
                 current_slot_id = (
                     prev_assignments.get(k, 0) if prev_assignments is not None else 0
                 )
@@ -2106,9 +2113,12 @@ class FedProTrackRunner:
                         if len(candidate_models) >= 2:
                             val_bytes_down = 0.0
                             for k in range(K):
-                                X_k, y_k = dataset.data[(k, t)]
-                                mid = len(X_k) // 2
-                                X_val, y_val = X_k[:mid], y_k[:mid]
+                                if dataset.test_data is not None:
+                                    X_val, y_val = dataset.eval_batch(k, t)
+                                else:
+                                    X_k, y_k = dataset.data[(k, t)]
+                                    mid = len(X_k) // 2
+                                    X_val, y_val = X_k[:mid], y_k[:mid]
 
                                 # Pick top-K candidates by posterior
                                 post = last_a_result.posteriors.get(k)
@@ -2198,10 +2208,15 @@ class FedProTrackRunner:
                                 adapter_dim=self.adapter_dim,
                             )
                             for k in range(K):
-                                X_k, y_k = dataset.data[(k, t)]
-                                mid = len(X_k) // 2
-                                X_val = X_k[:min(n_probe, mid)]
-                                y_val = y_k[:min(n_probe, mid)]
+                                if dataset.test_data is not None:
+                                    X_val, y_val = dataset.eval_batch(k, t)
+                                    X_val = X_val[:n_probe]
+                                    y_val = y_val[:n_probe]
+                                else:
+                                    X_k, y_k = dataset.data[(k, t)]
+                                    mid = len(X_k) // 2
+                                    X_val = X_k[:min(n_probe, mid)]
+                                    y_val = y_k[:min(n_probe, mid)]
 
                                 # Server evaluates all stored models
                                 best_cid = prev_assignments[k]

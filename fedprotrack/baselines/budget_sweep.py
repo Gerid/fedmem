@@ -133,7 +133,7 @@ def _run_fedavg_full(dataset: DriftDataset, federation_every: int) -> BudgetPoin
     for t in range(T):
         # --- 1. Predict (use current model) ---
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = models[k].predict(X)
             accuracy_curve[k, t] = _accuracy(y, preds)
 
@@ -197,7 +197,7 @@ def _run_fedproto(dataset: DriftDataset, federation_every: int) -> BudgetPoint:
     for t in range(T):
         # --- 1. Predict ---
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_curve[k, t] = _accuracy(y, preds)
 
@@ -401,7 +401,7 @@ def _run_tracked_summary(
     for t in range(T):
         # --- 1. Predict ---
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_curve[k, t] = _accuracy(y, preds)
 
@@ -460,7 +460,7 @@ def _run_flash(dataset: DriftDataset, federation_every: int) -> BudgetPoint:
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_curve[k, t] = _accuracy(y, preds)
 
@@ -521,7 +521,7 @@ def _run_feddrift(
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_curve[k, t] = _accuracy(y, preds)
 
@@ -585,7 +585,7 @@ def _run_ifca(
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_curve[k, t] = _accuracy(y, preds)
 
@@ -645,7 +645,7 @@ def _run_compressed_fedavg(
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy_curve[k, t] = _accuracy(y, preds)
 

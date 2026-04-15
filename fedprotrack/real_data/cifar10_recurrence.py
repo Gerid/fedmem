@@ -120,6 +120,9 @@ class CIFAR10RecurrenceConfig:
     feature_seed: int = 2718
     seed: int = 42
     dirichlet_alpha: float | None = None
+    eval_on_test_pool: bool = True
+    test_split_ratio: float = 0.2
+    n_eval_samples: int | None = None
 
     def __post_init__(self) -> None:
         if self.K < 1:
@@ -155,6 +158,10 @@ class CIFAR10RecurrenceConfig:
         if self.dirichlet_alpha is not None and self.dirichlet_alpha <= 0.0:
             raise ValueError(
                 f"dirichlet_alpha must be > 0 when set, got {self.dirichlet_alpha}"
+            )
+        if not (0.0 < self.test_split_ratio < 0.9):
+            raise ValueError(
+                f"test_split_ratio must be in (0, 0.9), got {self.test_split_ratio}"
             )
 
     def to_generator_config(self) -> GeneratorConfig:
@@ -683,16 +690,31 @@ def generate_cifar10_recurrence_dataset(
     )
     n_concepts = int(concept_matrix.max()) + 1
 
-    feature_pools = _extract_feature_pools(config, n_concepts)
+    raw_pools = _extract_feature_pools(config, n_concepts)
+
+    from .cifar100_recurrence import _split_train_test_pools
+    if config.eval_on_test_pool:
+        train_pools, test_pools = _split_train_test_pools(
+            raw_pools, config.test_split_ratio, config.feature_seed,
+        )
+    else:
+        train_pools = raw_pools
+        test_pools = None
+
+    n_eval = config.n_eval_samples if config.n_eval_samples is not None else config.n_samples
+
     data: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
+    test_data: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] | None = (
+        {} if test_pools is not None else None
+    )
     for k in range(config.K):
         for t in range(config.T):
             concept_id = int(concept_matrix[k, t])
+            X_pool, y_pool = train_pools[concept_id]
             if config.dirichlet_alpha is not None:
                 rng = np.random.RandomState(
                     config.seed + 20000 + k * config.T + t
                 )
-                X_pool, y_pool = feature_pools[concept_id]
                 data[(k, t)] = _draw_dirichlet_batch(
                     X_pool, y_pool, config.n_samples,
                     config.dirichlet_alpha, rng,
@@ -701,9 +723,16 @@ def generate_cifar10_recurrence_dataset(
                 rng = np.random.RandomState(
                     config.seed + 10000 + k * config.T + t
                 )
-                X_pool, y_pool = feature_pools[concept_id]
                 data[(k, t)] = _draw_balanced_batch(
                     X_pool, y_pool, config.n_samples, rng,
+                )
+            if test_data is not None:
+                Xt_pool, yt_pool = test_pools[concept_id]
+                rng_test = np.random.RandomState(
+                    config.seed + 30000 + k * config.T + t
+                )
+                test_data[(k, t)] = _draw_balanced_batch(
+                    Xt_pool, yt_pool, n_eval, rng_test,
                 )
 
     concept_specs = [
@@ -721,4 +750,5 @@ def generate_cifar10_recurrence_dataset(
         data=data,
         config=gen_config,
         concept_specs=concept_specs,
+        test_data=test_data,
     )

@@ -464,7 +464,7 @@ def run_scaffold_full(
     for t in range(T):
         # Evaluate before training at this step.
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             accuracy_matrix[k, t] = _accuracy(y, clients[k].predict(X))
 
         # Local training.

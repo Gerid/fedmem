@@ -68,7 +68,7 @@ class CIFAR100RecurrenceConfig:
     alpha: float = 0.75
     delta: float = 0.85
     n_features: int = 128
-    samples_per_coarse_class: int = 120
+    samples_per_coarse_class: int = 500
     batch_size: int = 256
     n_workers: int = 2
     data_root: str = ".cifar100_cache"
@@ -80,6 +80,11 @@ class CIFAR100RecurrenceConfig:
     min_group_size: int = 1
     backbone: str = "resnet18"
     dirichlet_alpha: float | None = None
+    label_permutation: bool = False
+    label_permutation_type: str = "pairwise_swap"
+    eval_on_test_pool: bool = True
+    test_split_ratio: float = 0.2
+    n_eval_samples: int | None = None
 
     def __post_init__(self) -> None:
         if self.K < 1:
@@ -131,6 +136,21 @@ class CIFAR100RecurrenceConfig:
         if self.dirichlet_alpha is not None and self.dirichlet_alpha <= 0.0:
             raise ValueError(
                 f"dirichlet_alpha must be > 0 when set, got {self.dirichlet_alpha}"
+            )
+        if self.label_permutation_type not in ("pairwise_swap", "full_permutation"):
+            raise ValueError(
+                "label_permutation_type must be 'pairwise_swap' or 'full_permutation', "
+                f"got {self.label_permutation_type!r}"
+            )
+        if self.label_permutation and self.label_split != "none":
+            raise ValueError(
+                "label_permutation=True requires label_split='none' "
+                "(shared label space); got label_split="
+                f"{self.label_split!r}"
+            )
+        if not (0.0 < self.test_split_ratio < 0.9):
+            raise ValueError(
+                f"test_split_ratio must be in (0, 0.9), got {self.test_split_ratio}"
             )
 
     def to_generator_config(self) -> GeneratorConfig:
@@ -553,6 +573,64 @@ def prepare_cifar100_recurrence_feature_cache(
     return _extract_feature_pools(config, gen_config.n_concepts)
 
 
+def _split_train_test_pools(
+    feature_pools: dict[int, tuple[np.ndarray, np.ndarray]],
+    test_ratio: float,
+    seed: int,
+) -> tuple[dict[int, tuple[np.ndarray, np.ndarray]], dict[int, tuple[np.ndarray, np.ndarray]]]:
+    """Split each concept's feature pool into train/test, stratified by class.
+
+    Ensures train and test pools are disjoint at the source-sample level
+    so prequential evaluation does not leak training samples back as
+    "unseen" test points.
+    """
+    train_pools: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    test_pools: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    rng = np.random.RandomState(seed + 12345)
+    for cid, (X_pool, y_pool) in feature_pools.items():
+        classes = np.unique(y_pool)
+        train_idx: list[np.ndarray] = []
+        test_idx: list[np.ndarray] = []
+        for cls in classes:
+            cls_idx = np.flatnonzero(y_pool == cls)
+            perm = rng.permutation(len(cls_idx))
+            cls_idx = cls_idx[perm]
+            n_test = max(1, int(round(len(cls_idx) * test_ratio)))
+            test_idx.append(cls_idx[:n_test])
+            train_idx.append(cls_idx[n_test:])
+        train_arr = np.concatenate(train_idx)
+        test_arr = np.concatenate(test_idx)
+        train_pools[cid] = (X_pool[train_arr], y_pool[train_arr])
+        test_pools[cid] = (X_pool[test_arr], y_pool[test_arr])
+    return train_pools, test_pools
+
+
+def _build_label_permutation(
+    concept_id: int,
+    n_classes: int,
+    permutation_type: str,
+    seed: int,
+) -> np.ndarray:
+    """Build a label permutation for a given concept (FedDrift-style).
+
+    Concept 0 is always identity. For ``pairwise_swap``, concept c>=1
+    swaps labels (2(c-1)) <-> (2(c-1)+1), mirroring FedDrift's MNIST-4
+    setup (1<->2, 3<->4, 5<->6). For ``full_permutation``, each concept
+    gets a seeded random permutation.
+    """
+    perm = np.arange(n_classes, dtype=np.int64)
+    if concept_id == 0:
+        return perm
+    if permutation_type == "pairwise_swap":
+        a = (2 * (concept_id - 1)) % n_classes
+        b = (a + 1) % n_classes
+        perm[a], perm[b] = perm[b].copy(), perm[a].copy()
+    elif permutation_type == "full_permutation":
+        rng = np.random.RandomState(seed + concept_id * 997)
+        perm = rng.permutation(n_classes).astype(np.int64)
+    return perm
+
+
 def generate_cifar100_recurrence_dataset(
     config: CIFAR100RecurrenceConfig | None = None,
 ) -> DriftDataset:
@@ -571,22 +649,62 @@ def generate_cifar100_recurrence_dataset(
     )
     n_concepts = int(concept_matrix.max()) + 1
 
-    feature_pools = _extract_feature_pools(config, n_concepts)
+    raw_pools = _extract_feature_pools(config, n_concepts)
+
+    # Optional train/test split to support held-out prequential evaluation.
+    if config.eval_on_test_pool:
+        train_pools, test_pools = _split_train_test_pools(
+            raw_pools, config.test_split_ratio, config.feature_seed,
+        )
+    else:
+        train_pools = raw_pools
+        test_pools = None
+
+    # Precompute label permutations if requested (FedDrift-style drift).
+    label_perms: dict[int, np.ndarray] | None = None
+    if config.label_permutation:
+        label_perms = {
+            cid: _build_label_permutation(
+                cid, _N_COARSE_CLASSES,
+                config.label_permutation_type,
+                config.seed,
+            )
+            for cid in range(n_concepts)
+        }
+
+    n_eval = config.n_eval_samples if config.n_eval_samples is not None else config.n_samples
+
     data: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
+    test_data: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] | None = (
+        {} if test_pools is not None else None
+    )
     for k in range(config.K):
         for t in range(config.T):
             concept_id = int(concept_matrix[k, t])
-            X_pool, y_pool = feature_pools[concept_id]
+            X_pool, y_pool = train_pools[concept_id]
             if config.dirichlet_alpha is not None:
                 rng = np.random.RandomState(config.seed + 20000 + k * config.T + t)
-                data[(k, t)] = _draw_dirichlet_batch(
+                X_batch, y_batch = _draw_dirichlet_batch(
                     X_pool, y_pool, config.n_samples, config.dirichlet_alpha, rng,
                 )
             else:
                 rng = np.random.RandomState(config.seed + 10000 + k * config.T + t)
-                data[(k, t)] = _draw_balanced_batch(
+                X_batch, y_batch = _draw_balanced_batch(
                     X_pool, y_pool, config.n_samples, rng,
                 )
+            if label_perms is not None:
+                y_batch = label_perms[concept_id][y_batch]
+            data[(k, t)] = (X_batch, y_batch)
+
+            if test_data is not None:
+                Xt_pool, yt_pool = test_pools[concept_id]
+                rng_test = np.random.RandomState(
+                    config.seed + 30000 + k * config.T + t
+                )
+                Xt, yt = _draw_balanced_batch(Xt_pool, yt_pool, n_eval, rng_test)
+                if label_perms is not None:
+                    yt = label_perms[concept_id][yt]
+                test_data[(k, t)] = (Xt, yt)
 
     concept_specs = [
         ConceptSpec(
@@ -603,4 +721,5 @@ def generate_cifar100_recurrence_dataset(
         data=data,
         config=gen_config,
         concept_specs=concept_specs,
+        test_data=test_data,
     )

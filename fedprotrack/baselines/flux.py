@@ -371,7 +371,7 @@ def run_flux_full(
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy[k, t] = _accuracy(y, preds)
             predicted_clusters[k, t] = clients[k].cluster_id if clients[k].cluster_id is not None else 0

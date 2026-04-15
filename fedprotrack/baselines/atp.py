@@ -360,7 +360,7 @@ def run_atp_full(
 
     for t in range(T):
         for k in range(K):
-            X, y = dataset.data[(k, t)]
+            X, y = dataset.eval_batch(k, t)
             preds = clients[k].predict(X)
             accuracy[k, t] = float(np.mean(preds == y)) if len(y) else 0.0
 

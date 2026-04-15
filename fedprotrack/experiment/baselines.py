@@ -79,10 +79,14 @@ def run_local_only(
         )
 
         for t in range(T):
-            X, y = dataset.data[(k, t)]
-            mid = len(X) // 2
-            X_test, y_test = X[:mid], y[:mid]
-            X_train, y_train = X[mid:], y[mid:]
+            if dataset.test_data is not None:
+                X_test, y_test = dataset.eval_batch(k, t)
+                X_train, y_train = dataset.data[(k, t)]
+            else:
+                X, y = dataset.data[(k, t)]
+                mid = len(X) // 2
+                X_test, y_test = X[:mid], y[:mid]
+                X_train, y_train = X[mid:], y[mid:]
 
             y_pred = model.predict(X_test)
 
@@ -163,10 +167,14 @@ def run_fedavg_baseline(
         client_params_list: list[dict[str, np.ndarray]] = []
 
         for k in range(K):
-            X, y = dataset.data[(k, t)]
-            mid = len(X) // 2
-            X_test, y_test = X[:mid], y[:mid]
-            X_train, y_train = X[mid:], y[mid:]
+            if dataset.test_data is not None:
+                X_test, y_test = dataset.eval_batch(k, t)
+                X_train, y_train = dataset.data[(k, t)]
+            else:
+                X, y = dataset.data[(k, t)]
+                mid = len(X) // 2
+                X_test, y_test = X[:mid], y[:mid]
+                X_train, y_train = X[mid:], y[mid:]
 
             # Predict with the current local model copy.
             y_pred = models[k].predict(X_test)
@@ -271,11 +279,15 @@ def run_oracle_baseline(
     for t in range(T):
         uploads_by_concept: dict[int, list[dict[str, np.ndarray]]] = {}
         for k in range(K):
-            X, y = dataset.data[(k, t)]
             true_concept = int(dataset.concept_matrix[k, t])
-            mid = len(X) // 2
-            X_test, y_test = X[:mid], y[:mid]
-            X_train, y_train = X[mid:], y[mid:]
+            if dataset.test_data is not None:
+                X_test, y_test = dataset.eval_batch(k, t)
+                X_train, y_train = dataset.data[(k, t)]
+            else:
+                X, y = dataset.data[(k, t)]
+                mid = len(X) // 2
+                X_test, y_test = X[:mid], y[:mid]
+                X_train, y_train = X[mid:], y[mid:]
 
             model = _get_concept_model(true_concept, k)
             if true_concept in concept_params:

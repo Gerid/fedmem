@@ -15,12 +15,34 @@ from .data_streams import ConceptSpec, generate_samples, make_concept_specs
 
 @dataclass
 class DriftDataset:
-    """Complete drift dataset with ground truth concept assignments."""
+    """Complete drift dataset with ground truth concept assignments.
+
+    Attributes
+    ----------
+    data : dict
+        Training batches per (client, time_step).
+    test_data : dict | None
+        Optional held-out evaluation batches per (client, time_step).
+        When present, runners should use these for accuracy computation
+        to avoid evaluating on training samples. Populated only by
+        dataset builders that have enabled ``eval_on_test_pool``.
+    """
 
     concept_matrix: np.ndarray  # (K, T) int array of concept IDs
     data: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]  # (k, t) -> (X, y)
     config: GeneratorConfig
     concept_specs: list[ConceptSpec]
+    test_data: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] | None = None
+
+    def eval_batch(self, k: int, t: int) -> tuple[np.ndarray, np.ndarray]:
+        """Return the batch to use for evaluation at (k, t).
+
+        Falls back to the training batch if no held-out test pool was
+        constructed, preserving existing runner behavior.
+        """
+        if self.test_data is not None and (k, t) in self.test_data:
+            return self.test_data[(k, t)]
+        return self.data[(k, t)]
 
     def save(self, base_dir: str | Path | None = None) -> Path:
         """Save dataset to disk.
