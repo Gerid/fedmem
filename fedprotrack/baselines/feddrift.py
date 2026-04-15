@@ -211,10 +211,13 @@ class FedDriftClient:
                     best_loss = loss
                     best_concept = cid
 
-            # Compute random-guess loss as spawn threshold:
-            # cross-entropy of uniform prediction = log(n_classes)
-            n_unique = max(len(np.unique(y)), 2)
-            random_loss = float(np.log(n_unique))
+            # Spawn threshold = log(n_classes_total), i.e. uniform
+            # prediction loss over the full output space. A pool model
+            # from a different concept achieves roughly this loss, so
+            # only spawn when NO pool model does better than random.
+            # This is more conservative than log(n_unique_in_batch) and
+            # prevents pool explosion on disjoint-label recurrence.
+            random_loss = float(np.log(max(self.n_classes, 2)))
 
             if best_concept is not None and best_loss < random_loss:
                 # Re-use existing concept: load its parameters
