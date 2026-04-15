@@ -215,6 +215,21 @@ class TwoPhaseConfig:
     drct_shrinkage: bool = False
     drct_d_eff_ratio: float = 0.9
     drct_min_concepts: int = 2
+    # Warmup window during which λ̂ is forced to 1 (pure FedAvg aggregation).
+    # Low-SNR datasets (e.g. CIFAR-10) suffer from noisy early σ_B² estimates
+    # that pull λ̂ away from 1; fixing λ̂=1 for the first W rounds lets concept
+    # statistics stabilize before empirical-Bayes shrinkage kicks in.
+    drct_warmup_rounds: int = 0
+    # SNR-gated shrinkage: when between-concept signal is weak relative to
+    # within-concept noise, the Stein estimate of σ_B² is unreliable and
+    # shrinkage collapses per-concept models into FedAvg. Gate λ by the
+    # observed SNR r = σ_B² / (σ²·d_eff/n̄_k); set λ=0 when r < threshold.
+    drct_snr_gate: bool = False
+    drct_snr_threshold: float = 1.0
+    # EMA smoothing of σ_B² / σ² across rounds. Single-round estimates are
+    # noisy in low-SNR regimes; EMA stabilises them assuming drift is slow.
+    # beta=0 disables smoothing (use instantaneous estimate).
+    drct_sigma_ema_beta: float = 0.0
     # Ablation knobs for OT concept discovery. Setting to the ablation value
     # recovers the pre-fix behaviour; defaults preserve the current path.
     # The drct_force_ambient_d_eff knob was removed in the v2 submission: the
@@ -336,6 +351,10 @@ class TwoPhaseFedProTrack:
         self._last_addressing_round: int = -1
         self._novelty_streaks: dict[int, int] = {}
         self._latest_global_fedavg: dict[str, np.ndarray] | None = None
+        # Per-round DRCT shrinkage diagnostics (populated by _apply_drct_shrinkage)
+        self.drct_lambda_log: list[dict[str, object]] = []
+        self._drct_sigma2_ema: float | None = None
+        self._drct_sigma_B2_ema: float | None = None
 
     def phase_a(
         self,
@@ -1083,6 +1102,18 @@ class TwoPhaseFedProTrack:
         if len(concept_uploads) < self.config.drct_min_concepts:
             return aggregated
 
+        # Warmup: force λ̂=1 (pure FedAvg) for the first W rounds so noisy
+        # early σ_B² estimates cannot pull concept models apart before
+        # between-concept structure is resolved.
+        if self._round <= self.config.drct_warmup_rounds:
+            self.drct_lambda_log.append(
+                {"round": self._round, "lambda_mean": 1.0, "warmup": True}
+            )
+            return {
+                cid: {k: global_fedavg[k].copy() for k in agg}
+                for cid, agg in aggregated.items()
+            }
+
         # Estimate d_eff: effective dimensionality of between-concept structure.
         # Using participation ratio of concept mean SVD singular values:
         #   d_eff = (Σ s_i)² / Σ s_i²
@@ -1111,21 +1142,74 @@ class TwoPhaseFedProTrack:
         # σ_B² — between-concept variance (bias-corrected)
         sigma_B2 = self._estimate_sigma_B2(aggregated, sigma2, concept_uploads)
 
+        # EMA smoothing of variance estimates across rounds. Single-round
+        # σ_B² is noisy when concepts are not yet well-separated; the EMA
+        # assumes true between-concept structure drifts slowly.
+        beta = float(self.config.drct_sigma_ema_beta)
+        if beta > 0.0:
+            if self._drct_sigma2_ema is None:
+                self._drct_sigma2_ema = sigma2
+                self._drct_sigma_B2_ema = sigma_B2
+            else:
+                self._drct_sigma2_ema = beta * self._drct_sigma2_ema + (1.0 - beta) * sigma2
+                self._drct_sigma_B2_ema = beta * self._drct_sigma_B2_ema + (1.0 - beta) * sigma_B2
+            sigma2 = self._drct_sigma2_ema
+            sigma_B2 = self._drct_sigma_B2_ema
+
+        # SNR gate: if between-concept signal is dominated by within-concept
+        # noise, the Stein estimate is unreliable — fall back to λ=0 (trust
+        # clustering) rather than the default λ→1 (collapse to FedAvg).
+        if self.config.drct_snr_gate:
+            n_bar = np.mean([
+                float(len(concept_groups.get(cid, [])))
+                for cid in aggregated
+            ]) if aggregated else 1.0
+            within_term = sigma2 * d_eff / max(n_bar, 1.0)
+            snr = sigma_B2 / within_term if within_term > 1e-30 else 0.0
+            if snr < float(self.config.drct_snr_threshold):
+                self.drct_lambda_log.append({
+                    "round": self._round,
+                    "n_concepts": len(aggregated),
+                    "sigma2": sigma2,
+                    "sigma_B2": sigma_B2,
+                    "d_eff": d_eff,
+                    "snr": snr,
+                    "snr_gate": True,
+                    "lambda_mean": 0.0,
+                })
+                return {cid: {k: v.copy() for k, v in agg.items()}
+                        for cid, agg in aggregated.items()}
+
         # Per-concept shrinkage
         result: dict[int, dict[str, np.ndarray]] = {}
+        per_concept_lambdas: dict[int, float] = {}
         for cid, agg in aggregated.items():
             n_k = float(len(concept_groups.get(cid, [])))
             if n_k <= 0:
                 result[cid] = agg
+                per_concept_lambdas[cid] = 0.0
                 continue
             # λ = σ²·d_eff / n_k / (σ²·d_eff / n_k + σ_B²)
             variance_term = sigma2 * d_eff / n_k
             denom = variance_term + sigma_B2
             lam = float(np.clip(variance_term / denom, 0.0, 1.0)) if denom > 1e-30 else 0.5
+            per_concept_lambdas[cid] = lam
             result[cid] = {
                 key: (1.0 - lam) * agg[key] + lam * global_fedavg[key]
                 for key in agg
             }
+
+        lam_values = list(per_concept_lambdas.values())
+        self.drct_lambda_log.append({
+            "round": self._round,
+            "n_concepts": len(aggregated),
+            "sigma2": sigma2,
+            "sigma_B2": sigma_B2,
+            "d_eff": d_eff,
+            "lambda_mean": float(np.mean(lam_values)) if lam_values else 0.0,
+            "lambda_std": float(np.std(lam_values)) if lam_values else 0.0,
+            "per_concept": dict(per_concept_lambdas),
+        })
         return result
 
     @staticmethod

@@ -326,6 +326,10 @@ def _build_methods(
     model_type: str = "linear",
     ot_affinity_scale: str = "local",
     ot_eigengap_method: str = "last_significant",
+    drct_warmup_rounds: int = 0,
+    drct_snr_gate: bool = False,
+    drct_snr_threshold: float = 1.0,
+    drct_sigma_ema_beta: float = 0.0,
 ):
     """Build a dict of method-name -> callable returning a result.
 
@@ -401,6 +405,10 @@ def _build_methods(
                 drct_shrinkage=(fpt_mode in {"drct", "drct-hw", "ot"}),
                 drct_d_eff_ratio=0.9,
                 drct_min_concepts=2,
+                drct_warmup_rounds=drct_warmup_rounds,
+                drct_snr_gate=drct_snr_gate,
+                drct_snr_threshold=drct_snr_threshold,
+                drct_sigma_ema_beta=drct_sigma_ema_beta,
                 ot_affinity_scale=ot_affinity_scale,
                 ot_eigengap_method=ot_eigengap_method,
             ),
@@ -563,6 +571,10 @@ def _run_single_seed(
     dirichlet_alpha: float | None = None,
     ot_affinity_scale: str = "local",
     ot_eigengap_method: str = "last_significant",
+    drct_warmup_rounds: int = 0,
+    drct_snr_gate: bool = False,
+    drct_snr_threshold: float = 1.0,
+    drct_sigma_ema_beta: float = 0.0,
 ) -> list[dict]:
     """Run all methods for one seed and return result rows.
 
@@ -625,6 +637,10 @@ def _run_single_seed(
         model_type=model_type,
         ot_affinity_scale=ot_affinity_scale,
         ot_eigengap_method=ot_eigengap_method,
+        drct_warmup_rounds=drct_warmup_rounds,
+        drct_snr_gate=drct_snr_gate,
+        drct_snr_threshold=drct_snr_threshold,
+        drct_sigma_ema_beta=drct_sigma_ema_beta,
     )
 
     rows: list[dict] = []
@@ -1066,6 +1082,23 @@ def _parse_args() -> argparse.Namespace:
              "is the plateau-noise-adjusted last-significant-gap heuristic (fix 1a); "
              "'argmax' recovers the classical pre-fix heuristic (ablation)."
     )
+    parser.add_argument(
+        "--drct-warmup-rounds", type=int, default=0,
+        help="Force λ̂=1 (pure FedAvg) for the first W federation rounds "
+             "(default: 0, no warmup)."
+    )
+    parser.add_argument(
+        "--drct-snr-gate", action="store_true",
+        help="Enable SNR-gated shrinkage (skip when σ_B²/(σ²·d_eff/n̄) < threshold)."
+    )
+    parser.add_argument(
+        "--drct-snr-threshold", type=float, default=1.0,
+        help="SNR threshold below which shrinkage is gated off (default: 1.0)."
+    )
+    parser.add_argument(
+        "--drct-sigma-ema-beta", type=float, default=0.0,
+        help="EMA factor for σ², σ_B² smoothing across rounds (0=off, default: 0)."
+    )
 
     return parser.parse_args()
 
@@ -1179,6 +1212,10 @@ def _run_preset(preset_name: str, args: argparse.Namespace) -> list[dict]:
             dirichlet_alpha=args.dirichlet_alpha,
             ot_affinity_scale=args.ot_affinity_scale,
             ot_eigengap_method=args.ot_eigengap_method,
+            drct_warmup_rounds=args.drct_warmup_rounds,
+            drct_snr_gate=args.drct_snr_gate,
+            drct_snr_threshold=args.drct_snr_threshold,
+            drct_sigma_ema_beta=args.drct_sigma_ema_beta,
         )
         all_rows.extend(seed_rows)
 
@@ -1333,6 +1370,10 @@ def main() -> None:
                 dirichlet_alpha=args.dirichlet_alpha,
                 ot_affinity_scale=args.ot_affinity_scale,
                 ot_eigengap_method=args.ot_eigengap_method,
+                drct_warmup_rounds=args.drct_warmup_rounds,
+                drct_snr_gate=args.drct_snr_gate,
+                drct_snr_threshold=args.drct_snr_threshold,
+                drct_sigma_ema_beta=args.drct_sigma_ema_beta,
             )
             all_rows.extend(seed_rows)
 

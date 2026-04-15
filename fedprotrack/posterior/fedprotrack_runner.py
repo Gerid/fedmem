@@ -1586,6 +1586,10 @@ class FedProTrackRunner:
             drct_shrinkage=self.config.drct_shrinkage,
             drct_d_eff_ratio=self.config.drct_d_eff_ratio,
             drct_min_concepts=self.config.drct_min_concepts,
+            drct_warmup_rounds=self.config.drct_warmup_rounds,
+            drct_snr_gate=self.config.drct_snr_gate,
+            drct_snr_threshold=self.config.drct_snr_threshold,
+            drct_sigma_ema_beta=self.config.drct_sigma_ema_beta,
         )
 
         protocol = TwoPhaseFedProTrack(cfg)
@@ -2033,6 +2037,11 @@ class FedProTrackRunner:
                             spawned=max(0, ot_concept_memory.n_concepts - n_discovered),
                             addressing_performed=True,
                         )
+                        # OT path bypasses protocol.phase_a where _round is
+                        # incremented; increment here so warmup / SNR gate
+                        # logic in phase_b sees the correct round number.
+                        protocol._round += 1
+                        protocol._last_addressing_round = protocol._round
                     else:
                         # --- Gibbs posterior (original Phase A) ---
                         client_signatures = None
