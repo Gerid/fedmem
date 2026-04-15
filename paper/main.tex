@@ -40,7 +40,7 @@
 % =====================================================================
 \begin{abstract}
 We introduce a \emph{protocol ordering} perspective for clustered federated learning under concept drift: the choice of \emph{when} in the federation round to cluster clients---before or after local training---provably determines clustering quality in the concept-recurrence regime.
-Existing methods cluster in weight space \emph{after} training, but under recurrence, stale model initializations contaminate the clustering signal, producing a lower bound $\eta \ge 0.30$ on clustering error that no post-training algorithm breaches when concept separation is meaningful (Oracle gap $> 4$pp).
+Existing methods cluster in weight space \emph{after} training, but under recurrence, stale model initializations contaminate the clustering signal, producing an empirically observed clustering-error floor $\eta \ge 0.30$ that no post-training algorithm in our benchmark breaches when concept separation is meaningful (Oracle gap $> 4$pp).
 We prove that stale model initialisations inflate Scheme~A clustering error by an amount proportional to concept-switching variance, and show---both theoretically (via a $d/L$ SNR advantage) and empirically---that data fingerprints achieve strictly lower error.
 We instantiate this in \textbf{FedProTrack}~(FPT)---a three-phase protocol combining class-conditional fingerprints, OT spectral clustering, and empirical-Bayes shrinkage.
 Across 4~datasets (including natural temporal drift), 26~baselines from 7~method families, and 60+ experimental runs, FPT achieves accuracy within 0.3pp of Oracle on CIFAR-100 and $+6.9$pp above the best existing baseline on fMoW, while all cluster-after-train methods rank below FedAvg on every dataset where the Oracle gap exceeds 4pp.
@@ -76,7 +76,7 @@ A method that commits fully to concept-level models when SNR is low can \emph{in
 \begin{figure}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/paperbanana/scheme_comparison_candidate_0.png}
-\caption{\textbf{Protocol ordering: the core design choice.} \emph{Top} (Scheme~A, red): existing methods cluster clients \emph{after} local training---stale model initialisations contaminate weight updates, producing an irreducible clustering error $\eta_A \ge 0.30$ (Theorem~\ref{thm:protocol}). \emph{Bottom} (Scheme~C, green): FedProTrack clusters \emph{before} training using lightweight data fingerprints, then sends concept-matched models to clients, achieving $\eta_C = 0.003$---a $200\times$ improvement.}
+\caption{\textbf{Protocol ordering: the core design choice.} \emph{Top} (Scheme~A, red): existing methods cluster clients \emph{after} local training---stale model initialisations contaminate weight updates, yielding an empirically observed clustering-error floor $\eta_A \ge 0.30$ across the datasets we study (cf.\ Theorem~\ref{thm:protocol}). \emph{Bottom} (Scheme~C, green): FedProTrack clusters \emph{before} training using lightweight data fingerprints, then sends concept-matched models to clients, achieving $\eta_C = 0.003$---a $200\times$ improvement.}
 \label{fig:protocol}
 \end{figure}
 
@@ -86,7 +86,7 @@ Across 4~datasets and 26~baselines, FPT achieves accuracy within 0.3--1.5pp of O
 
 \textbf{Contributions.}
 \begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
-    \item \textbf{Stale-initialisation amplification theorem} (\S\ref{sec:method}): We prove unconditionally that stale model initialisations inflate Scheme~A clustering error by $\ge \kappa \cdot \V(w^{(\mathrm{init})})$, and show via a $d/L$ SNR analysis (Lemma~\ref{lem:info_indirectness}) that fingerprint clustering achieves lower error---verified empirically as a $200\times$ gap.
+    \item \textbf{Stale-initialisation amplification theorem} (\S\ref{sec:method}): In a one-step linearised Gaussian regime, we prove that stale model initialisations inflate Scheme~A clustering error by $\ge \kappa \cdot \V(w^{(\mathrm{init})})$, and show via a $d/L_{\mathrm{cls}}$ SNR analysis (Lemma~\ref{lem:info_indirectness}) that fingerprint clustering achieves lower error---verified empirically as a $200\times$ gap.
     Combined with an implicit-shrinkage characterisation (Corollary~\ref{cor:implicit}), this yields an excess-risk ordering.
 
     \item \textbf{FedProTrack} (\S\ref{sec:method}): A Scheme~C protocol with fingerprint-based concept discovery, concept-matched model loading, and adaptive shrinkage that addresses all three challenges within a unified framework.
@@ -211,25 +211,25 @@ We state the regularity conditions:
 (A2)~bounded gradient noise $\E\|\nabla L_j(w) - g\|^2 \le \sigma_g^2$;
 (A3)~concept separation $\|\wstar_a - \wstar_b\|_\Sigma \ge \delta > 0$ for $a \ne b$;
 (A4)~norm-based clustering metric on weight updates;
-(A4$'$)~fingerprint separation $\|\phi(P_a) - \phi(P_b)\| \ge \beta > 0$.
+(A4$'$)~fingerprint separation $\|\phi(P_a) - \phi(P_b)\| \ge \beta > 0$;
+(A5)~fingerprint-space clustering is at least as accurate as clean weight-space clustering, $\eta_C \le \eta_A^{(\mathrm{clean})}$, motivated by the $d/L_{\mathrm{cls}}$ SNR analysis of Lemma~\ref{lem:info_indirectness} (where $L_{\mathrm{cls}}$ denotes the number of classes) and verified empirically on CIFAR-100 (Appendix~\ref{app:clean_eta}).
 
 \begin{theorem}[Stale-Initialisation Amplification]
 \label{thm:protocol}
-Let $\eta_A$ be the clustering error of Scheme~A and $\eta_A^{(\mathrm{clean})}$ the error of Scheme~A with Oracle-provided correct initialisation (i.e., $\V(w^{(\mathrm{init})}) = 0$). Under (A1--A4):
+Let $\eta_A$ be the clustering error of Scheme~A and $\eta_A^{(\mathrm{clean})}$ the error of Scheme~A with Oracle-provided correct initialisation (i.e., $\V(w^{(\mathrm{init})}) = 0$). Assume (A1--A4) and the one-step linearised Gaussian regime of Lemma~\ref{lem:info_indirectness} (single local SGD step, frozen backbone, linear head). Then:
 \begin{equation}
 \eta_A \;\ge\; \eta_A^{(\mathrm{clean})} \;+\; \kappa \cdot \V(w^{(\mathrm{init})}),
 \label{eq:amplification}
 \end{equation}
-where $\V(w^{(\mathrm{init})}) := \E[\|w_k^{(\mathrm{init})} - \wbar_{c(k,t)}^{(t-1)}\|^2 \mid c(k,t)]$ is the stale-initialisation variance and $\kappa > 0$ depends on the Lipschitz constant~$L$ and the concept separation~$\delta$.
-Furthermore, if the fingerprint-space clustering error $\eta_C$ satisfies $\eta_C \le \eta_A^{(\mathrm{clean})}$, then
+where $\V(w^{(\mathrm{init})}) := \E[\|w_k^{(\mathrm{init})} - \wbar_{c(k,t)}^{(t-1)}\|^2 \mid c(k,t)]$ is the stale-initialisation variance and $\kappa > 0$ depends on the Lipschitz constant~$L$, the concept separation~$\delta$, and the per-class covariance of Lemma~\ref{lem:gaussian_clustering}.
+If additionally (A5) holds---i.e., $\eta_C \le \eta_A^{(\mathrm{clean})}$---then
 \begin{equation}
 \eta_A \;\ge\; \eta_C \;+\; \kappa \cdot \V(w^{(\mathrm{init})}).
 \label{eq:protocol}
 \end{equation}
 \end{theorem}
 
-Inequality~(\ref{eq:amplification}) is \emph{unconditional}: stale initialisation inflates Scheme~A clustering error by $\ge \kappa \cdot \V$, an unavoidable cost under concept recurrence.
-Inequality~(\ref{eq:protocol}) additionally requires $\eta_C \le \eta_A^{(\mathrm{clean})}$, which is derived (not assumed) as a $d/L$ SNR advantage under the Gaussian model (Lemma~\ref{lem:info_indirectness}) and verified empirically ($\eta_A^{(\mathrm{clean})} = 0.40$ vs.\ $\eta_C = 0.002$ on CIFAR-100; Appendix~\ref{app:clean_eta}).
+Inequality~(\ref{eq:amplification}) states that, within the one-step linearised regime, stale initialisation inflates Scheme~A clustering error by $\ge \kappa \cdot \V$. Inequality~(\ref{eq:protocol}) additionally invokes (A5); the $d/L_{\mathrm{cls}}$ SNR calculation of Lemma~\ref{lem:info_indirectness} gives theoretical support for (A5), which we verify empirically ($\eta_A^{(\mathrm{clean})} = 0.40$ vs.\ $\eta_C = 0.002$ on CIFAR-100; Appendix~\ref{app:clean_eta}).
 
 \textbf{Proof sketch.}
 By $L$-smoothness (A1) and Taylor expansion, $\Delta_k$ decomposes into a concept signal, a Hessian-scaled stale-init bias $\alpha H_k (w_k^{(\mathrm{init})} - \wbar_{c(k,t)}^{(t-1)})$ with $\|H_k\| \le L$, and higher-order terms.
@@ -238,7 +238,7 @@ Full proof: Appendix~\ref{app:proof_protocol}.
 $\V > 0$ whenever concepts recur and clients do not receive concept-matched models; when $\V = 0$, the gap vanishes (Appendix~\ref{app:nonrecurrence}).
 
 \textbf{From clustering error to excess risk.}
-Under the balanced Gaussian model, combining~(\ref{eq:protocol}) with Corollary~\ref{cor:implicit} gives an excess-risk gap $\ge (\eta_A - \eta_C) \cdot \frac{C}{C-1} \cdot \bar B^2 > 0$.
+Under the balanced Gaussian model, combining~(\ref{eq:protocol}) with Corollary~\ref{cor:implicit} yields a first-order heuristic under which the excess-risk gap scales as $(\eta_A - \eta_C) \cdot \frac{C}{C-1} \cdot \bar B^2$, where $\bar B^2 := \frac{1}{C}\sum_{j=1}^{C} \|\wstar_j - \wbar^*\|_\Sigma^2$ is the mean between-concept bias. A tight finite-sample lower bound is left to future work.
 
 \begin{figure}[t]
 \centering
@@ -464,6 +464,11 @@ FPT achieves $\eta_C \le 0.003$---two orders of magnitude lower---and outperform
 11 of 26 methods score within $\pm 0.5$pp of FedAvg (Table~\ref{tab:full}): in the frozen-backbone regime, most regularisation mechanisms have negligible effect.
 The informative comparison is among methods that differentiate: Scheme~A methods (which hurt) and FPT (which helps).
 
+\textbf{Note on FedDrift and FedRC.}
+FedDrift~\citep{jothimurugesan2023federated} and FedRC~\citep{guo2024fedrc} were originally evaluated on shared-label scenarios (decision-boundary shifts in SINE/CIRCLE/SEA, or pathological non-IID splits)---both assume all concepts share the same label space, allowing cross-concept model evaluation.
+Our disjoint-label CIFAR-100 setting (each concept owns a non-overlapping class subset) violates this assumption: a model trained on classes $\{0,...,4\}$ has uninformative weights for classes $\{5,...,9\}$, so its loss on a different concept's data is uniformly high.
+This explains FedDrift's degradation under recurrence; we report it as evidence that drift-aware methods designed for shared-label scenarios do not transfer to disjoint-label recurrence, not as a critique of FedDrift in its intended regime.
+
 \textbf{CIFAR-10 as negative control (C3).}
 The Oracle gap is only $2.3$pp ($\mathrm{SNR} < C{-}1$); FPT is $-1.0$pp below FedAvg due to noisy early $\hat\lambda$ estimates, but still achieves $\eta_C = 0.007$ vs.\ $\eta_A = 0.07$.
 
@@ -563,17 +568,18 @@ where $\kappa_1 > 0$ depends on $L$, $\delta$ (concept separation, A3), and the 
 \textbf{Step 3: Compare to fingerprint clustering (Part~ii).}
 Since fingerprints depend on $P_{c(k,t)}$ alone, $\eta_C$ is independent of $\V(w^{(\mathrm{init})})$.
 To obtain the combined inequality (\ref{eq:protocol}), we need $\eta_C \le \eta_A^{(\mathrm{clean})}$.
-This is not assumed axiomatically but \emph{derived} under the Gaussian linear model: Lemma~\ref{lem:info_indirectness} shows that fingerprints enjoy a $d/L$ SNR advantage over norm-based weight clustering, giving $\eta_C \ll \eta_A^{(\mathrm{clean})}$ when $d \gg L$.
+This is invoked as Assumption~(A5); Lemma~\ref{lem:info_indirectness} provides theoretical support by showing a $d/L_{\mathrm{cls}}$ SNR advantage of fingerprints over norm-based weight clustering under the Gaussian linear model, which suggests $\eta_C \ll \eta_A^{(\mathrm{clean})}$ when $d \gg L_{\mathrm{cls}}$.
 We verify this empirically: on CIFAR-100, IFCA with Oracle-provided correct initialisation (eliminating $\V$ entirely) still has $\eta_A^{(\mathrm{clean})} = 0.40$ vs.\ FPT's $\eta_C = 0.002$ (Appendix~\ref{app:clean_eta}).
 Setting $\kappa = \kappa_1$ completes the proof.
 
 \textbf{Remark.} The theorem's primary contribution is Part~(i): the \emph{unconditional} stale-initialisation amplification.
 When $\V(w^{(\mathrm{init})}) = 0$ (no recurrence), the amplification gap vanishes and the advantage of Scheme~C rests solely on the $\eta_C \le \eta_A^{(\mathrm{clean})}$ condition, whose practical magnitude depends on the specific data and clustering algorithm.
 
-\begin{lemma}[Gaussian Clustering Error Bound]
+\begin{lemma}[Gaussian Clustering Error Bound, two-class case]
 \label{lem:gaussian_clustering}
-For a $C$-class Gaussian mixture with separation $\delta$ and per-class covariance $\sigma^2 I$, the Bayes-optimal clustering error satisfies $\eta \ge \Phi(-\delta/(2\sigma))$, which is monotonically increasing in $\sigma^2$.
-Adding isotropic variance $v$ to each class increases the error by at least $\kappa_1 v$ for $\kappa_1 = \frac{\delta}{4\sigma^3\sqrt{2\pi}} \exp(-\delta^2/(8\sigma^2))$.
+For a two-class Gaussian mixture with equal priors, mean separation $\delta$ and per-class covariance $\sigma^2 I$, the Bayes-optimal clustering error is $\eta = \Phi(-\delta/(2\sigma))$, which is monotonically increasing in $\sigma^2$.
+Adding isotropic variance $v$ to each class (i.e., replacing $\sigma^2$ by $\sigma^2 + v$) increases the error by at least $\kappa_1 v$, for $\kappa_1 = \frac{\delta}{4\sigma^3\sqrt{2\pi}} \exp(-\delta^2/(8\sigma^2))$, to first order in $v$.
+For $C \ge 3$ classes with pairwise minimum separation $\delta$, the same variance-monotonicity holds with a constant $\kappa_1$ that may depend on $C$; we invoke only the two-class version in the proof of Theorem~\ref{thm:protocol}.
 \end{lemma}
 
 
@@ -585,17 +591,66 @@ Under the canonical model ($y = \langle \wstar_j, x \rangle + \varepsilon$, $x \
 \]
 where $X_k \in \R^{n \times d}$ is the local feature matrix. The concept signal in $\Delta_k$ is embedded in the quadratic form $X_k^\top X_k$, which has spectral noise of order $O(\sqrt{d/n})$ per eigenvalue.
 
-In contrast, the class-conditional fingerprint $\phi_k = [\bar x_k, h_k, \bar x_{k,1}, \ldots, \bar x_{k,L}]$ encodes concept identity as a \emph{linear} function of the data distribution moments. Its effective clustering SNR under Gaussian classes is:
+In contrast, the class-conditional fingerprint $\phi_k = [\bar x_k, h_k, \bar x_{k,1}, \ldots, \bar x_{k,L_{\mathrm{cls}}}]$ encodes concept identity as a \emph{linear} function of the data distribution moments. Its effective clustering SNR under Gaussian classes is:
 \begin{equation}
-\mathrm{SNR}_{\mathrm{fp}} = \frac{\beta^2}{\sigma_{\mathrm{fp}}^2} \ge \frac{\delta^2}{\sigma^2/(nL)},
+\mathrm{SNR}_{\mathrm{fp}} = \frac{\beta^2}{\sigma_{\mathrm{fp}}^2} \ge \frac{\delta^2}{\sigma^2/(n L_{\mathrm{cls}})},
 \end{equation}
-where $\delta$ is inter-concept separation and $L$ is the number of classes. The weight-space SNR scales as $\delta^2 / (\sigma^2 d / n)$, which is a factor of $d/L$ smaller. For $d \gg L$ (typical: $d = 128$, $L = 10$), this yields a substantial SNR advantage for fingerprints, supporting Assumption~(A5).
+where $\delta$ is inter-concept separation and $L_{\mathrm{cls}}$ is the number of classes (notation distinct from the Lipschitz constant~$L$ of~(A1)). The weight-space SNR scales as $\delta^2 / (\sigma^2 d / n)$, which is a factor of $d/L_{\mathrm{cls}}$ smaller. For $d \gg L_{\mathrm{cls}}$ (typical: $d = 128$, $L_{\mathrm{cls}} = 10$), this yields a substantial SNR advantage for fingerprints, supporting Assumption~(A5).
 \end{lemma}
 
 \textbf{Discussion.}
 Lemma~\ref{lem:info_indirectness} does not prove (A5) in full generality---the weight update $\Delta_k$ in principle contains the full gradient information, and a sufficiently powerful clustering algorithm might extract concept identity from it.
-The lemma shows that under the stated model, the \emph{natural} clustering metric (norm-based, as in A4) faces a $d/L$ disadvantage.
+The lemma shows that under the stated model, the \emph{natural} clustering metric (norm-based, as in A4) faces a $d/L_{\mathrm{cls}}$ disadvantage.
 We treat (A5) as an explicit assumption, supported by the theoretical calculation above and by direct empirical measurement (Appendix~\ref{app:clean_eta}).
+
+
+% =============================================================================
+\section{Proof of Corollary~\ref{cor:implicit} (Implicit Shrinkage from Imperfect Clustering)}
+\label{app:proof_implicit}
+% =============================================================================
+
+We establish the population-level contamination identity underlying Corollary~\ref{cor:implicit}: under symmetric misassignment at rate $\eta$, the concept-level estimator's expected value equals a shrinkage of the true concept parameter toward the global mean, with coefficient $\lambda_{\mathrm{imp}} = \rho := \eta C/(C-1)$.
+
+\textbf{Setup.}
+Fix a round $t$ and a concept $j \in [C]$. Under balanced concepts ($|\cC_j| = K/C$) and symmetric misassignment at rate $\eta$, each client in the estimated cluster $\hat\cC_j$ has true concept $j$ with probability $1 - \eta$ and true concept $\ell \ne j$ with probability $\eta/(C-1)$, independently across clients. Each client's OLS estimate is, in the classical regime ($n \gg d$) and under the Gaussian linear model of Section~\ref{sec:prelim}, unbiased for its true concept parameter: $\E[\what_k \mid c(k,t) = \ell] = \wstar_\ell + O(\sigma^2 d / n)$.
+
+\textbf{Step 1: Contamination in expectation.}
+The concept-$j$ estimator $\what_j := \frac{1}{|\hat\cC_j|}\sum_{k \in \hat\cC_j} \what_k$ satisfies, to leading order,
+\begin{align}
+\E[\what_j]
+&= (1-\eta)\,\wstar_j + \frac{\eta}{C-1}\sum_{\ell \ne j}\wstar_\ell \nonumber\\
+&= (1-\eta)\,\wstar_j + \frac{\eta}{C-1}\bigl(C\,\wbar^* - \wstar_j\bigr) \nonumber\\
+&= \left(1 - \eta - \frac{\eta}{C-1}\right)\wstar_j + \frac{\eta C}{C-1}\,\wbar^* \nonumber\\
+&= \left(1 - \frac{\eta C}{C-1}\right)\wstar_j + \frac{\eta C}{C-1}\,\wbar^* \nonumber\\
+&= (1-\rho)\,\wstar_j + \rho\,\wbar^*, \qquad \rho := \frac{\eta C}{C-1}.
+\label{eq:contam_mean}
+\end{align}
+Equation~(\ref{eq:contam_mean}) is the contamination identity: $\E[\what_j]$ lies on the segment between $\wstar_j$ and $\wbar^*$ at a fraction $\rho$ of the way toward the global mean---precisely James--Stein--style shrinkage with coefficient $\lambda_{\mathrm{imp}} = \rho$ toward $\wbar^*$~\citep{james1961estimation, efron1973stein}.
+
+\textbf{Step 2: Bias contribution.}
+Under $\Sigma = I_d$, the squared bias of $\what_j$ is
+\begin{equation}
+\|\E[\what_j] - \wstar_j\|^2 = \rho^2 \|\wstar_j - \wbar^*\|^2 = \rho^2 B_j^2.
+\label{eq:contam_bias}
+\end{equation}
+Combined with the leading-order variance $\sigma^2 C d / (Kn)$ of Proposition~\ref{prop:decomposition} (preserved to leading order since $\E[|\hat\cC_j|] = K/C$), the expected excess risk obeys
+\begin{equation}
+\E[\cE_j(\what_j)] \ge \rho^2 B_j^2 + \frac{\sigma^2 C d}{Kn}.
+\label{eq:contam_risk}
+\end{equation}
+
+\textbf{Step 3: Crossover under contamination.}
+Comparing~(\ref{eq:contam_risk}) with the global-estimator risk $B_j^2 + \sigma^2 d/(Kn)$ of Proposition~\ref{prop:decomposition}, concept-level aggregation dominates iff
+\begin{equation}
+(1 - \rho^2)\,B_j^2 > \frac{\sigma^2 d (C-1)}{Kn},
+\qquad\text{equivalently}\qquad
+\SNR > \frac{C-1}{1 - \rho^2},
+\label{eq:contam_cross}
+\end{equation}
+recovering Eq.~(\ref{eq:noisy-crossover}) of Appendix~\ref{app:extensions}.
+
+\textbf{Scope.}
+Eq.~(\ref{eq:contam_mean}) is a population-level identity (requires only per-client OLS unbiasedness in expectation); Eq.~(\ref{eq:contam_bias}) additionally requires isotropy ($\Sigma = I_d$). Finite-sample corrections to $|\hat\cC_j|$ introduce $O(1/\sqrt{K})$ concentration terms that can be controlled via Bernstein's inequality on the binomial cluster-size counts; these are absorbed into the ``first-order characterisation'' qualifier of Corollary~\ref{cor:implicit}. The shrinkage identity $\lambda_{\mathrm{imp}} = \rho$ is exact at the population level; the finite-$Kn$ risk bound~(\ref{eq:contam_risk}) is a lower bound on the expected excess risk.
 
 
 % =============================================================================
@@ -621,13 +676,13 @@ Oracle & $.506 \pm .045$ & $.000$ \\
 \end{center}
 
 \noindent Even with Oracle-provided correct initialisation (eliminating $\V(w^{(\mathrm{init})})$ entirely), IFCA's weight-space clustering error $\eta_A^{(\mathrm{clean})} = 0.40$ remains $200\times$ higher than FPT's fingerprint-space error $\eta_C = 0.002$.
-This directly validates Assumption~(A5): weight-space signals encode concept identity far less directly than data fingerprints, even when the stale-initialisation confound is removed.
+This is consistent with Assumption~(A5): weight-space signals encode concept identity far less directly than data fingerprints, even when the stale-initialisation confound is removed.
 Note that the standard IFCA error ($\eta = 0.45$) is only marginally higher, showing that the stale-init term from Theorem~\ref{thm:protocol} accounts for a relatively small $+0.05$ of additional clustering error in this configuration---the dominant source of error is information indirectness itself.
 These accuracy numbers ($0.492$ for FPT, $0.506$ for Oracle) correspond to the $K{=}20$, $\rho{=}25$ configuration; the main table reports the cross-configuration mean over all 5~configs.
 
 \paragraph{The IFCA paradox: why higher $\eta$ can yield higher accuracy.}
 A notable feature of the table above is that IFCA-Standard ($\eta = 0.45$, acc $= 0.45$) \emph{outperforms} IFCA-Clean ($\eta = 0.40$, acc $= 0.39$) despite having higher clustering error.
-This is a direct consequence of Corollary~1 (implicit shrinkage): IFCA-Standard's misclassified updates push each concept model toward the \emph{global} FedAvg mean, which provides beneficial regularisation---precisely the $\hat\lambda_{\mathrm{implicit}} \approx \eta_A$ effect.
+This is a direct consequence of Corollary~\ref{cor:implicit} (implicit shrinkage): IFCA-Standard's misclassified updates push each concept model toward the \emph{global} FedAvg mean, which provides beneficial regularisation---precisely the $\hat\lambda_{\mathrm{implicit}} \approx \eta_A$ effect.
 IFCA-Clean, by providing oracle initialisation, slightly reduces $\eta$ but also eliminates this accidental regularisation, exposing the raw weakness of weight-space clustering.
 
 This reveals a fundamental dilemma for Scheme~A methods: they must either (i)~accept high $\eta$ with serendipitous implicit shrinkage (Standard), or (ii)~reduce $\eta$ and lose that regularisation (Clean).
@@ -641,7 +696,8 @@ The result is that FPT ($0.492$) outperforms both IFCA variants ($0.450$/$0.390$
 % =============================================================================
 
 The base crossover condition $\SNR > C{-}1$ extends to four practically relevant relaxations.
-We state each modified crossover and the unified theorem; full proofs appear in the supplementary material.
+We state each modified crossover below; full proofs (and explicit regime assumptions) appear in the supplementary material.
+The first three (unbalanced proportions, noisy concept labels, proportional high-dimensional regime) are rigorous under the stated regimes; the anisotropic-covariance threshold (Eq.~\ref{eq:deff-crossover}) and the unified formula (Eq.~\ref{eq:unified}) should be read as \emph{first-order heuristic combinations} of the individual thresholds under a spiked-covariance model, and not as proven exact thresholds.
 
 \textbf{I.\;Unbalanced proportions.}
 Let concept $j$ contain fraction $\pi_j$ of clients ($\sum_j \pi_j = 1$).
@@ -670,23 +726,23 @@ When $d/(Kn) \to \gamma_G \in (0,1)$ and $dC/(Kn) \to \gamma_C \in (0,1)$:
 Both factors in the denominator are $< 1$, so high dimensionality \emph{raises} the threshold, favouring global aggregation.
 Concept-level OLS requires $Kn > Cd$ to be feasible at all.
 
-\textbf{IV.\;Anisotropic covariance.}
-With features $x \sim \mathcal{N}(0, \Sigma)$ and effective rank $r_{\mathrm{eff}} = \mathrm{tr}(\Sigma)^2 / \|\Sigma\|_F^2$, concept separation in the signal subspace yields
+\textbf{IV.\;Anisotropic covariance (heuristic).}
+With features $x \sim \mathcal{N}(0, \Sigma)$ and effective rank $r_{\mathrm{eff}} = \mathrm{tr}(\Sigma)^2 / \|\Sigma\|_F^2$, a first-order heuristic in the spiked-covariance regime suggests that concept separation in the signal subspace yields a threshold of the form
 \begin{equation}\label{eq:deff-crossover}
-\frac{Kn \cdot B_{j,\Sigma}^2}{\sigma^2 r_{\mathrm{eff}} \cdot s} > C - 1,
+\frac{Kn \cdot B_{j,\Sigma}^2}{\sigma^2 r_{\mathrm{eff}} \cdot s} \gtrsim C - 1,
 \end{equation}
-where $s$ is the signal eigenvalue and $B_{j,\Sigma}^2 = \|\Sigma^{1/2}(w_j^* - \bar w^*)\|^2$.
-Replacing $d$ by $r_{\mathrm{eff}} \ll d$ \emph{inflates} the effective SNR, making concept-level aggregation more favourable.
-In our CIFAR-100 experiments, $r_{\mathrm{eff}} \approx 22 \ll d = 128$, providing $\sim 6\times$ SNR amplification.
+where $s$ is the dominant signal eigenvalue and $B_{j,\Sigma}^2 = \|\Sigma^{1/2}(w_j^* - \bar w^*)\|^2$.
+Replacing $d$ by $r_{\mathrm{eff}} \ll d$ is expected to inflate the effective SNR. This is a heuristic (not a proven exact threshold): as discussed in the supplementary material, the prediction-risk variance in the classical regime remains $\sigma^2 d / N$ to leading order, so Eq.~(\ref{eq:deff-crossover}) should be read as an order-of-magnitude guide, to be tightened under an explicit spiked model.
+In our CIFAR-100 experiments, $r_{\mathrm{eff}} \approx 22 \ll d = 128$.
 
-\textbf{Unified crossover.}
-Combining all four relaxations, concept-level aggregation wins for concept $j$ iff
+\textbf{Unified crossover (heuristic combination).}
+Combining all four relaxations as a first-order heuristic, concept-level aggregation is expected to dominate for concept $j$ whenever
 \begin{equation}\label{eq:unified}
 \frac{\pi_j K n \cdot B_{j,\pi,\Sigma}^2}{\sigma^2 r_{\mathrm{eff}}}
-> \frac{1 - \pi_j}{\pi_j} \cdot \frac{1}{(1 - \rho^2)(1 - \gamma_j)(1 - \pi_j\gamma_j)},
+\;\gtrsim\; \frac{1 - \pi_j}{(1 - \rho^2)(1 - \gamma_j)(1 - \pi_j\gamma_j)},
 \end{equation}
 where $\gamma_j = r_{\mathrm{eff}} / (\pi_j K n)$.
-Under the base-case assumptions ($\pi_j{=}1/C$, $\eta{=}0$, $\Sigma{=}I_d$, $\gamma_j{\to}0$) this reduces to $\SNR > C{-}1$.
+Under the base-case assumptions ($\pi_j{=}1/C$, $\eta{=}0$, $\Sigma{=}I_d$, $\gamma_j{\to}0$) this reduces to $\SNR > C{-}1$. Eq.~(\ref{eq:unified}) is a heuristic composition of the individual thresholds and is not claimed as an exact crossover; the individual thresholds (I)--(III) are rigorous under the stated regimes, while (IV) and the combined formula are heuristic (see supplementary material).
 
 
 % =============================================================================
