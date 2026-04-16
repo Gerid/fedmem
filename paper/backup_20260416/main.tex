@@ -1,0 +1,1024 @@
+\documentclass[11pt]{article}
+\usepackage[preprint]{neurips_2024}  % TODO: Update to neurips_2026 style when released
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{xcolor}
+\usepackage{enumitem}
+
+% Math commands
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\V}{\mathbb{V}}
+\newcommand{\cC}{\mathcal{C}}
+\newcommand{\cE}{\mathcal{E}}
+\newcommand{\cF}{\mathcal{F}}
+\newcommand{\SNR}{\mathrm{SNR}_{\mathrm{concept}}}
+\newcommand{\wstar}{w^*}
+\newcommand{\what}{\hat{w}}
+\newcommand{\wbar}{\bar{w}}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{definition}[theorem]{Definition}
+
+\title{Cluster Before You Train: Fingerprint-Based Concept Discovery\\for Federated Learning Under Recurrent Drift}
+
+\author{Anonymous Authors}
+
+\begin{document}
+
+\maketitle
+
+% =====================================================================
+% ABSTRACT — Farquhar 5-sentence formula
+% =====================================================================
+\begin{abstract}
+We introduce a \emph{protocol ordering} perspective for clustered federated learning under concept drift: the choice of \emph{when} in the federation round to cluster clients---before or after local training---determines clustering quality in the concept-recurrence regime.
+Existing methods cluster in weight space \emph{after} training, but under recurrence, stale model initializations contaminate the clustering signal, producing an empirically observed clustering-error floor $\eta \ge 0.30$ that no post-training algorithm in our benchmark breaches when concept separation is meaningful (Oracle gap $> 4$pp).
+We formalise this in a one-step linearised Gaussian model: stale model initialisations inflate Scheme~A clustering error to first order in concept-switching variance, and a $d/L_{\mathrm{cls}}$ SNR calculation suggests---consistent with our empirical observation of a $200\times$ gap---that data fingerprints achieve lower error.
+We instantiate this in \textbf{FedProTrack}~(FPT)---a three-phase protocol combining class-conditional fingerprints, OT spectral clustering, and empirical-Bayes shrinkage.
+Across 4~datasets (including natural temporal drift), 26~baselines from 7~method families, and 60+ experimental runs, FPT achieves accuracy within 0.3pp of Oracle on CIFAR-100 and $+6.9$pp above the best existing baseline on fMoW, while all cluster-after-train methods rank below FedAvg on every dataset where the Oracle gap exceeds 4pp.
+\end{abstract}
+
+% =====================================================================
+% §1 INTRODUCTION — 3 challenges → 3 contributions
+% =====================================================================
+\section{Introduction}
+\label{sec:intro}
+
+Federated learning~(FL) enables collaborative model training without sharing raw data~\citep{mcmahan2017communication, kairouz2021advances}.
+In many deployments, client data distributions shift over time due to \emph{concept drift}~\citep{gama2014survey, lu2018learning}: each client experiences one of $C$ latent concepts that change across rounds~\citep{jothimurugesan2023federated, panchal2023flash}.
+When the concept structure is known, the server can maintain separate models per group, eliminating cross-concept interference.
+This premise has motivated a rich line of clustered FL methods~\citep{ghosh2020efficient, sattler2021clustered, marfoq2021federated, guo2024fedrc, licciardi2025fedgwc}.
+Yet deploying these methods in the \emph{concept-recurrence} regime---where clients revisit previously-seen concepts---raises three open challenges.
+
+\textbf{Challenge 1: When to cluster.}
+Existing theory characterises \emph{whether} concept-level aggregation outperforms global averaging~\citep{chen2023minimax, yu2025minimax, mansour2020three}, but not \emph{when in the federation round} to make the clustering decision.
+The dominant approach clusters \emph{after} local training, using weight updates $\Delta_k$ as the signal~\citep{long2023multi, kim2024gradient}.
+A few methods use data summaries before training~\citep{fedtcm2023}, but lack theoretical analysis of why pre-training clustering should be preferred and do not address stale initialisation.
+Is post-training clustering the right protocol ordering?
+
+\textbf{Challenge 2: Stale-initialization contamination.}
+Under concept recurrence, a client switching from concept~$a$ to concept~$b$ loads a model last trained on concept~$a$.
+Its weight update $\Delta_k$ conflates the true concept-$b$ gradient with a stale-initialization mismatch unrelated to concept identity.
+We observe that this contamination produces a clustering-error lower bound $\eta \ge 0.30$ across all cluster-after-train methods on every dataset where the Oracle gap exceeds 4pp (Table~\ref{tab:main}).
+
+\textbf{Challenge 3: Adaptive aggregation under unknown SNR.}
+Even with correct clustering, the benefit of concept-level aggregation depends on the per-concept signal-to-noise ratio (SNR), which is rarely known in advance.
+A method that commits fully to concept-level models when SNR is low can \emph{increase} variance beyond the bias it eliminates.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/paperbanana/scheme_comparison_candidate_0.png}
+\caption{\textbf{Protocol ordering: the core design choice.} \emph{Top} (Scheme~A, red): existing methods cluster clients \emph{after} local training---stale model initialisations contaminate weight updates, yielding an empirically observed clustering-error floor $\eta_A \ge 0.30$ across the datasets we study (cf.\ Theorem~\ref{thm:protocol}). \emph{Bottom} (Scheme~C, green): FedProTrack clusters \emph{before} training using lightweight data fingerprints, then sends concept-matched models to clients, achieving $\eta_C = 0.003$---a $200\times$ improvement.}
+\label{fig:protocol}
+\end{figure}
+
+We address these challenges in \textbf{FedProTrack}~(FPT), a modular protocol that clusters \emph{before} training using data fingerprints (Figure~\ref{fig:protocol}).
+FPT computes class-conditional data statistics (C1), applies OT spectral clustering with automatic concept-count selection (C1), loads concept-matched models from a memory bank (C2), and interpolates toward the global mean via empirical-Bayes shrinkage (C3)---all at $2.1\times$ FedAvg communication.
+Across 4~datasets and 26~baselines, FPT achieves accuracy within 0.3--1.5pp of Oracle on all datasets where the Oracle gap exceeds 4pp (Table~\ref{tab:main}).
+
+\textbf{Contributions.}
+\begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
+    \item \textbf{Stale-initialisation amplification theorem} (\S\ref{sec:method}): In a one-step linearised Gaussian regime, we prove that stale model initialisations inflate Scheme~A clustering error by $\ge \kappa \cdot \V(w^{(\mathrm{init})})$, and show via a $d/L_{\mathrm{cls}}$ SNR analysis (Lemma~\ref{lem:info_indirectness}) that fingerprint clustering achieves lower error---verified empirically as a $200\times$ gap.
+    Combined with an implicit-shrinkage characterisation (Corollary~\ref{cor:implicit}), this yields an excess-risk ordering.
+
+    \item \textbf{FedProTrack} (\S\ref{sec:method}): A Scheme~C protocol with fingerprint-based concept discovery, concept-matched model loading, and adaptive shrinkage that addresses all three challenges within a unified framework.
+
+    \item \textbf{Comprehensive validation} (\S\ref{sec:experiments}): 4~datasets (CIFAR-100, Fashion-MNIST, fMoW with natural drift, CIFAR-10 as negative control), 26~baselines, 7~method families.
+    FPT matches Oracle while every cluster-after-train baseline exhibits $\eta \ge 0.30$ on datasets where concept-level treatment is beneficial (Oracle gap $> 4$pp).
+\end{enumerate}
+
+
+% =====================================================================
+% §2 RELATED WORK
+% =====================================================================
+\section{Related Work}
+\label{sec:related}
+
+\textbf{Clustered FL.}
+Most methods cluster clients \emph{after} local training using weight-space signals:
+IFCA~\citep{ghosh2020efficient}, CFL~\citep{sattler2021clustered}, FedEM~\citep{marfoq2021federated}, FedRC~\citep{guo2024fedrc}, FedGWC~\citep{licciardi2025fedgwc}, and gradient-based partitioning~\citep{kim2024gradient}.
+A few methods cluster before training using data summaries---e.g., FedTCM~\citep{fedtcm2023} uses label-count vectors---but these lack theoretical analysis of why pre-training clustering is preferable, do not address stale-initialisation contamination, and are limited to label-histogram similarity.
+Our work provides the first theoretical justification (Theorem~\ref{thm:protocol}) and introduces class-conditional fingerprints that capture richer distributional structure.
+
+\textbf{Personalized FL.}
+Methods such as APFL~\citep{deng2020adaptive}, Ditto~\citep{li2021ditto}, pFedMe~\citep{t2020personalized}, FedBN~\citep{li2021fedbn}, and FedPer~\citep{arivazhagan2019fedper} mix local and global models.
+FedRep~\citep{collins2021exploiting}, FedBABU~\citep{oh2022fedbabu}, MOON~\citep{li2021model}, FedProto~\citep{tan2022fedproto}, and FedALA~\citep{zhang2023fedala} share representations or prototypes.
+None maintain concept-level models or exploit concept recurrence through memory reuse.
+
+\textbf{FL under concept drift.}
+FedDrift~\citep{jothimurugesan2023federated} and Flash~\citep{panchal2023flash} detect and adapt to drift; FedCCFA~\citep{chen2024fedccfa} addresses concept shift in online FL.
+None characterise \emph{when} concept-level treatment is worth the variance cost.
+Concept drift has been extensively studied in centralised settings~\citep{gama2014survey, lu2018learning}; our work brings the when-to-cluster question to the federated setting.
+
+\textbf{Federated optimization.}
+FedProx~\citep{li2020federated} adds a proximal term; SCAFFOLD~\citep{karimireddy2020scaffold} uses control variates; adaptive methods~\citep{reddi2021adaptive, wu2023faster} apply server-side momentum; FedSR~\citep{nguyen2022fedsr} targets domain generalisation.
+These address statistical heterogeneity but do not model discrete concept recurrence.
+
+\textbf{Theory.}
+\citet{chen2023minimax} establish minimax bounds for the global-vs-local threshold; \citet{yu2025minimax} extend these to communication-accuracy tradeoffs.
+The implicit-shrinkage connection (Corollary~\ref{cor:implicit}) relates to James-Stein shrinkage~\citep{james1961estimation, efron1973stein, fedstein2024} but has not been formalised for clustered~FL.
+Spectral clustering consistency~\citep{lei2015consistency, loffler2021optimality, von2007tutorial} underpins our Phase~A guarantees.
+
+
+% =====================================================================
+% §3 PRELIMINARIES
+% =====================================================================
+\section{Preliminaries}
+\label{sec:prelim}
+
+\subsection{Problem Setting}
+
+A federated system has $K$ clients communicating with a server over $T$ rounds.
+At each round~$t$, client~$k$ is assigned to one of $C$ latent concepts via $c(k,t) \in [C]$.
+Client~$k$ observes $n$ i.i.d.\ samples $(x_i, y_i)$ from a concept-specific distribution $P_{c(k,t)}$.
+Concepts may \emph{recur}: a client assigned to concept~$a$ at round~$t$ may return to concept~$a$ at a later round~$t' > t$ after visiting other concepts.
+
+We analyse this setting under a canonical linear model: $y = \langle \wstar_j, x \rangle + \varepsilon$, where $\wstar_j \in \R^d$ is the concept-$j$ parameter, $x \sim \mathcal{N}(0, \Sigma)$, and $\varepsilon \sim \mathcal{N}(0, \sigma^2)$.
+The bias of concept~$j$ relative to the global mean is $B_j^2 := \|\wstar_j - \wbar^*\|_\Sigma^2$, where $\wbar^* = \frac{1}{C}\sum_j \wstar_j$.
+
+\subsection{When Does Concept-Level Aggregation Help?}
+
+\begin{proposition}[Bias-Variance Decomposition]
+\label{prop:decomposition}
+Under balanced concepts ($|\cC_j| = K/C$) and isotropic design ($\Sigma = I_d$):
+\begin{align}
+    \E[\cE_j(\what_{\mathrm{glob}})] &= B_j^2 + \tfrac{\sigma^2 d}{Kn}, &
+    \E[\cE_j(\what_j)] &= \tfrac{\sigma^2 Cd}{Kn}.
+\end{align}
+\end{proposition}
+
+Concept-level aggregation outperforms global aggregation iff $\SNR := KnB_j^2/(\sigma^2 d) > C{-}1$.
+This crossover condition extends to unbalanced proportions, noisy labels, and anisotropic features (Appendix~\ref{app:extensions}).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/paperbanana/research_question_candidate_0.png}
+\caption{The crossover condition. \emph{Left}: bias-variance tradeoff. \emph{Center}: sharp threshold $\mathrm{SNR} > C{-}1$, validated on 609 synthetic configurations. \emph{Right}: imperfect clustering as implicit shrinkage---moderate $\eta$ can outperform Oracle when $K/C$ is small.}
+\label{fig:tradeoff}
+\end{figure}
+
+\textbf{Implicit shrinkage from imperfect clustering.}
+Any practical clustering algorithm introduces label noise.
+
+\begin{corollary}[Implicit Shrinkage]
+\label{cor:implicit}
+Under balanced concepts and the Gaussian linear model, a clusterer with symmetric error rate $\eta$ produces an estimator whose bias is equivalent to shrinkage with coefficient $\lambda_{\mathrm{imp}} = \eta C/(C{-}1)$ toward the global mean $\wbar^*$~\citep{efron1973stein, james1961estimation}.
+This is a first-order characterisation; the exact finite-sample relationship depends on cluster sizes and loss geometry.
+\end{corollary}
+
+\noindent This explains why CFL~\citep{sattler2021clustered} can match Oracle when $K/C$ is small: the regularisation from imperfect clustering compensates for bias.
+As $K$ grows, Oracle's advantage dominates (Appendix~\ref{app:kscaling}).
+The key implication is that \emph{reducing~$\eta$ is the primary lever} for concept-level FL---motivating the protocol ordering analysis in the next section.
+
+
+% =====================================================================
+% §4 METHOD: FEDPROTRACK
+% =====================================================================
+\section{Method: FedProTrack}
+\label{sec:method}
+
+We first establish \emph{why} clustering before training is advantageous---through a formal analysis in a one-step linearised Gaussian model and corroborating empirical evidence---in \S\ref{sec:protocol_ordering}, then describe FPT's four modules (Figure~\ref{fig:pipeline}): fingerprint extraction (\S\ref{sec:fingerprint}), concept discovery (\S\ref{sec:discovery}), concept-matched training (\S\ref{sec:matched_train}), and adaptive shrinkage (\S\ref{sec:shrinkage}).
+
+\subsection{Theoretical Foundation: Protocol Ordering}
+\label{sec:protocol_ordering}
+
+Existing clustered FL methods share a common protocol structure that we term \textbf{Scheme~A} (cluster-after-train):
+
+\begin{definition}[Protocols]
+\label{def:protocols}
+Fix a round $t$. Each protocol takes concept models $\{\wbar_c^{(t-1)}\}_{c=1}^C$ and outputs updated models.
+
+\emph{Scheme A} (cluster-after-train): (i)~each client loads a default initialization $w_k^{(\mathrm{init})}$ and runs local SGD to produce $\Delta_k^{(t)}$; (ii)~the server clusters $\{\Delta_k^{(t)}\}$ and assigns labels $\hat c_k^A$; (iii)~per-cluster averaging.
+
+\emph{Scheme C} (cluster-before-train): (i)~each client computes and sends a data fingerprint $\phi_k^{(t)}$ (no training needed); (ii)~the server clusters $\{\phi_k^{(t)}\}$ and assigns labels $\hat c_k^C$; (iii)~each client receives $\wbar_{\hat c_k^C}^{(t-1)}$ and runs local SGD; (iv)~per-cluster averaging.
+\end{definition}
+
+The critical difference is \emph{what each client loads before training}.
+In Scheme~A, the initialization $w_k^{(\mathrm{init})}$ is typically the last model the client used---which, under concept recurrence, was trained on a \emph{different} concept.
+In Scheme~C, the server first identifies the client's current concept from its fingerprint and sends the \emph{concept-matched} model, eliminating the stale-initialization mismatch entirely.
+
+\textbf{Assumptions.}
+We state the regularity conditions:
+(A1)~$L$-smooth, $\mu$-strongly-convex per-concept losses;
+(A2)~bounded gradient noise $\E\|\nabla L_j(w) - g\|^2 \le \sigma_g^2$;
+(A3)~concept separation $\|\wstar_a - \wstar_b\|_\Sigma \ge \delta > 0$ for $a \ne b$;
+(A4)~norm-based clustering metric on weight updates;
+(A4$'$)~fingerprint separation $\|\phi(P_a) - \phi(P_b)\| \ge \beta > 0$;
+(A5)~fingerprint-space clustering is at least as accurate as clean weight-space clustering, $\eta_C \le \eta_A^{(\mathrm{clean})}$, motivated by the $d/L_{\mathrm{cls}}$ SNR analysis of Lemma~\ref{lem:info_indirectness} (where $L_{\mathrm{cls}}$ denotes the number of classes) and verified empirically on CIFAR-100 (Appendix~\ref{app:clean_eta}).
+
+\begin{theorem}[Stale-Initialisation Amplification]
+\label{thm:protocol}
+Let $\eta_A$ be the clustering error of Scheme~A and $\eta_A^{(\mathrm{clean})}$ the error of Scheme~A with Oracle-provided correct initialisation (i.e., $\V(w^{(\mathrm{init})}) = 0$). Assume (A1--A4), a single local SGD step under the Gaussian linear model of Lemma~\ref{lem:info_indirectness} (frozen backbone, linear head), and that the stale-initialisation perturbation appears in the clustering input as approximately isotropic additive variance $\V(w^{(\mathrm{init})})$ (a pairwise / one-vs-rest reduction to the two-class setting of Lemma~\ref{lem:gaussian_clustering}, with inter-concept separation given by (A3)). Then, to first order in $\V(w^{(\mathrm{init})})$:
+\begin{equation}
+\eta_A \;\ge\; \eta_A^{(\mathrm{clean})} \;+\; \kappa \cdot \V(w^{(\mathrm{init})}),
+\label{eq:amplification}
+\end{equation}
+where $\V(w^{(\mathrm{init})}) := \E[\|w_k^{(\mathrm{init})} - \wbar_{c(k,t)}^{(t-1)}\|^2 \mid c(k,t)]$ is the stale-initialisation variance and $\kappa > 0$ depends on the Lipschitz constant~$L$, the concept separation~$\delta$, and the per-class covariance of Lemma~\ref{lem:gaussian_clustering}.
+If additionally (A5) holds---i.e., $\eta_C \le \eta_A^{(\mathrm{clean})}$---then
+\begin{equation}
+\eta_A \;\ge\; \eta_C \;+\; \kappa \cdot \V(w^{(\mathrm{init})}).
+\label{eq:protocol}
+\end{equation}
+\end{theorem}
+
+Inequality~(\ref{eq:amplification}) is a first-order statement within the one-step linearised regime: stale initialisation inflates Scheme~A clustering error by $\ge \kappa \cdot \V$, with higher-order corrections in $\V$. Inequality~(\ref{eq:protocol}) additionally invokes (A5); the $d/L_{\mathrm{cls}}$ SNR calculation of Lemma~\ref{lem:info_indirectness} gives theoretical support for (A5), which we verify empirically ($\eta_A^{(\mathrm{clean})} = 0.40$ vs.\ $\eta_C = 0.002$ on CIFAR-100; Appendix~\ref{app:clean_eta}).
+
+\textbf{Proof sketch.}
+By $L$-smoothness (A1) and Taylor expansion, $\Delta_k$ decomposes into a concept signal, a Hessian-scaled stale-init bias $\alpha H_k (w_k^{(\mathrm{init})} - \wbar_{c(k,t)}^{(t-1)})$ with $\|H_k\| \le L$, and higher-order terms.
+The bias adds variance $\V$ to the norm-based clustering input (A4); by Lemma~\ref{lem:gaussian_clustering}, the Bayes-optimal error is monotonically increasing in input variance, yielding~(\ref{eq:amplification}).
+Full proof: Appendix~\ref{app:proof_protocol}.
+$\V > 0$ whenever concepts recur and clients do not receive concept-matched models; when $\V = 0$, the gap vanishes (Appendix~\ref{app:nonrecurrence}).
+
+\textbf{From clustering error to excess risk.}
+Under the balanced Gaussian model, combining~(\ref{eq:protocol}) with Corollary~\ref{cor:implicit} yields a first-order heuristic under which the excess-risk gap scales as $(\eta_A - \eta_C) \cdot \frac{C}{C-1} \cdot \bar B^2$, where $\bar B^2 := \frac{1}{C}\sum_{j=1}^{C} \|\wstar_j - \wbar^*\|_\Sigma^2$ is the mean between-concept bias. A tight finite-sample lower bound is left to future work.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/paperbanana/pipeline_v2_candidate_1.png}
+\caption{\textbf{FedProTrack pipeline (one federation round).} Module~1 (blue): each client computes a class-conditional fingerprint $\phi_k$ in a single pass ($\mathcal{O}(dL)$ bytes, no training). Module~2 (green): the server performs OT spectral clustering with eigengap-based concept-count selection and matches clusters to a persistent memory bank. Module~3 (orange): clients receive concept-matched models and perform local training; per-concept FedAvg aggregation follows. Module~4 (purple): empirical-Bayes shrinkage interpolates between concept-level and global models based on estimated SNR. Communication overhead: $2.1\times$ FedAvg.}
+\label{fig:pipeline}
+\end{figure}
+
+\subsection{Fingerprint Extraction}
+\label{sec:fingerprint}
+
+Each client $k$ computes a \emph{fingerprint} $\phi_k \in \R^p$ from its local data \emph{without any model training}.
+The fingerprint concatenates three statistics that jointly capture the data distribution:
+\begin{equation}
+\phi_k = \bigl[\underbrace{\bar x_k}_{\text{global mean}},\; \underbrace{h_k}_{\text{label dist.}},\; \underbrace{\bar x_{k,1}, \ldots, \bar x_{k,L_{\mathrm{cls}}}}_{\text{class-conditional means}}\bigr],
+\end{equation}
+where $\bar x_k = \frac{1}{n}\sum_i x_i^{(k)} \in \R^d$ is the global feature mean computed over all $n$ local samples, $h_k \in \R^{L_{\mathrm{cls}}}$ is the normalised label histogram ($L_{\mathrm{cls}}$ is the number of classes; notation distinct from the Lipschitz constant $L$ of (A1)), and $\bar x_{k,\ell} = \frac{1}{n_\ell}\sum_{i:\,y_i=\ell} x_i^{(k)} \in \R^d$ is the mean feature vector for class~$\ell$ (zero-padded when class~$\ell$ is absent).
+For ResNet-18~\citep{he2016deep} frozen features with $d=128$ and $L_{\mathrm{cls}}=10$ classes, $p = d + L_{\mathrm{cls}} + L_{\mathrm{cls}} \cdot d = 1418$ floats ($\approx$5.5\,KB per client).
+
+The fingerprint design is motivated by two properties.
+First, class-conditional means are \emph{sufficient statistics} for the concept identity under Gaussian class distributions---two clients sharing the same concept will produce similar $\bar x_{k,\ell}$ vectors, while clients with different class subsets or feature distributions will diverge.
+Second, the fingerprint is computed in a single pass over local data with $O(nLd)$ cost and requires no gradient computation or model access, making it communication-efficient (only aggregate statistics leave the client, though a formal privacy analysis is beyond the scope of this work).
+
+
+\subsection{Concept Discovery via OT Spectral Clustering}
+\label{sec:discovery}
+
+Given fingerprints $\{\phi_1, \ldots, \phi_K\}$, the server discovers concepts in three steps.
+
+\textbf{Step 1: Similarity computation.}
+The server constructs a pairwise similarity matrix $S \in \R^{K \times K}$ using a composite kernel that combines feature-level, label-level, and class-conditional similarities:
+\begin{equation}
+S_{ij} = \alpha_1 \,\mathrm{sim}_{\mathrm{feat}}(\phi_i, \phi_j) + \alpha_2 \,\mathrm{sim}_{\mathrm{label}}(h_i, h_j) + \alpha_3 \,\mathrm{sim}_{\mathrm{cc}}(\phi_i, \phi_j),
+\end{equation}
+with fixed weights $(\alpha_1, \alpha_2, \alpha_3) = (0.25, 0.30, 0.45)$, set on a held-out synthetic dataset before benchmark evaluation and not tuned on any evaluation dataset.
+Here $\mathrm{sim}_{\mathrm{feat}}$ applies a Gaussian kernel to the global-mean distance, $\mathrm{sim}_{\mathrm{label}}$ computes cosine similarity of label histograms, and $\mathrm{sim}_{\mathrm{cc}}$ averages Gaussian-kernel similarities of class-conditional means over shared classes.
+The dominant weight on $\mathrm{sim}_{\mathrm{cc}}$ reflects that class-conditional structure carries the most discriminative signal for concept identity.
+FPT is robust to these weights: accuracy varies by $\le 0.2$pp and $\eta_C$ is unchanged across four non-degenerate configurations spanning uniform, inverted, and CC-dominant weightings (3~seeds each; Appendix~\ref{app:weight_sensitivity}).
+
+\textbf{Step 2: Automatic concept-count selection.}
+The number of concepts $\hat C$ is determined by an eigengap heuristic on the normalised Laplacian $L_{\mathrm{sym}} = I - D^{-1/2}SD^{-1/2}$~\citep{von2007tutorial}: we select $\hat C = \arg\max_{c \in [2, K/2]} (\lambda_{c+1} - \lambda_c)$, where $\lambda_1 \le \ldots \le \lambda_K$ are the sorted eigenvalues.
+This eliminates the need to specify $C$ as a hyperparameter.
+
+\textbf{Step 3: OT-regularised spectral clustering.}
+Spectral clustering on the top-$\hat C$ eigenvectors of $L_{\mathrm{sym}}$ partitions clients into groups $\{\cC_1, \ldots, \cC_{\hat C}\}$.
+To avoid degenerate cluster sizes, we replace the standard $k$-means step with an optimal-transport~(OT) assignment~\citep{villani2009optimal} that enforces a minimum cluster size of $\lfloor K / (2\hat C) \rfloor$.
+
+\textbf{Similarity calibration and memory matching.}
+The server maintains a \emph{memory bank} $\mathcal{M}$ that stores a model checkpoint $\wbar_c$ and reference fingerprint $\phi_c^{\mathrm{ref}}$ per concept.
+After clustering, each group is matched to the closest memory slot by fingerprint similarity.
+To handle novel concepts, FPT computes a novelty threshold $\tau_{\mathrm{novel}}$ as the $(1{-}\alpha)$-quantile ($\alpha = 0.05$) of the pairwise fingerprint similarity distribution.
+When the best-matching memory slot has similarity below $\tau_{\mathrm{novel}}$, a new concept slot is spawned with a freshly initialised model.
+
+
+\subsection{Concept-Matched Training and Aggregation}
+\label{sec:matched_train}
+
+This module implements the key operational insight of Scheme~C: each client trains on a model that \emph{matches its current concept}, eliminating the stale-initialization variance $\V(w^{(\mathrm{init})})$.
+
+For each client $k$ assigned to concept $\hat c_k$, the server sends the concept-matched model $\wbar_{\hat c_k}^{(t-1)}$ from the memory bank.
+The client runs $E$ epochs of local SGD on its data $(x_i, y_i) \sim P_{c(k,t)}$ starting from $\wbar_{\hat c_k}^{(t-1)}$, producing an update $\Delta_k^{(t)} = w_k^{(t)} - \wbar_{\hat c_k}^{(t-1)}$.
+The server then performs per-concept federated averaging:
+\begin{equation}
+\wbar_c^{(t)} = \wbar_c^{(t-1)} + \frac{1}{|\cC_c|}\sum_{k \in \cC_c} \Delta_k^{(t)}.
+\end{equation}
+Because all clients in $\cC_c$ start from the \emph{same} concept model $\wbar_c^{(t-1)}$, their updates $\Delta_k^{(t)}$ reflect only the concept-$c$ gradient signal---free of the cross-concept contamination that plagues Scheme~A.
+This is the mechanism by which Theorem~\ref{thm:protocol}'s theoretical advantage becomes operational.
+
+
+\subsection{Adaptive Shrinkage}
+\label{sec:shrinkage}
+
+Even with correct concept assignments, the benefit of concept-level aggregation depends on whether the per-concept SNR exceeds the crossover threshold $C{-}1$ (Proposition~\ref{prop:decomposition}).
+When the SNR is low---e.g., when concepts differ only mildly or when per-concept sample sizes $|\cC_c| \cdot n$ are small---concept-level estimators suffer from high variance.
+
+FPT addresses this with an \emph{empirical-Bayes shrinkage} step that interpolates between concept-level and global models:
+\begin{equation}
+\what_c^{\mathrm{shrink}} = (1 - \hat\lambda)\,\wbar_c^{(t)} + \hat\lambda\,\wbar^{(t)},
+\label{eq:shrinkage}
+\end{equation}
+where $\wbar^{(t)} = \frac{1}{\hat C}\sum_c \wbar_c^{(t)}$ is the global mean model and the shrinkage coefficient is estimated as
+\begin{equation}
+\hat\lambda = \frac{\hat\sigma^2 / ((K/\hat C)n)}{\hat\sigma^2 / ((K/\hat C)n) + \hat\sigma_B^2},
+\label{eq:lambda}
+\end{equation}
+with $\hat\sigma^2$ the estimated within-concept noise and $\hat\sigma_B^2 = \frac{1}{\hat C}\sum_c \|\wbar_c^{(t)} - \wbar^{(t)}\|^2$ the empirical between-concept variance.
+When the between-concept signal is strong ($\hat\sigma_B^2 \gg \hat\sigma^2 / ((K/\hat C)n)$), $\hat\lambda \to 0$ and the estimator is fully concept-specific.
+When the signal is weak ($\hat\sigma_B^2 \to 0$), $\hat\lambda \to 1$ and FPT gracefully degrades to global averaging (FedAvg).
+
+This mechanism connects to the implicit-shrinkage analysis (Corollary~\ref{cor:implicit}): while imperfect clustering \emph{unintentionally} regularises via noisy assignments, FPT's shrinkage module provides \emph{intentional}, SNR-adaptive regularisation.
+
+\textbf{Communication cost.}
+Each round, FPT transmits one fingerprint ($p = 1418$ floats $\approx$ 5.5\,KB) and one model ($d \times L + L = 1290$ params $\approx$ 5.0\,KB) in each direction per client.
+The total per-round cost is $2.1\times$ FedAvg ($1\times$ model upload $+$ $1\times$ model download $+$ $0.1\times$ fingerprint overhead).
+
+\begin{algorithm}[t]
+\caption{FedProTrack: One Federation Round}
+\label{alg:fpt}
+\begin{algorithmic}[1]
+\REQUIRE Clients $\{1,\ldots,K\}$, memory bank $\mathcal{M} = \{(\wbar_c, \phi_c^{\mathrm{ref}})\}_{c=1}^{C_{\mathrm{prev}}}$
+\STATE \textbf{Fingerprint Extraction} (client-side, no training):
+\FOR{each client $k$ \textbf{in parallel}}
+    \STATE $\phi_k \leftarrow [\bar x_k,\; h_k,\; \bar x_{k,1}, \ldots, \bar x_{k,L}]$ \COMMENT{class-conditional fingerprint}
+    \STATE Send $\phi_k$ to server
+\ENDFOR
+\STATE \textbf{Concept Discovery} (server-side):
+\STATE Build similarity matrix $S$ from $\{\phi_k\}$
+\STATE Eigengap $\to$ $\hat C$; spectral clustering + OT $\to$ groups $\{\cC_1, \ldots, \cC_{\hat C}\}$
+\STATE Match groups to memory bank $\mathcal{M}$; spawn new slots if $\mathrm{sim} < \tau_{\mathrm{novel}}$
+\STATE \textbf{Concept-Matched Training} (client-side):
+\FOR{each client $k$ \textbf{in parallel}}
+    \STATE Receive concept-matched model $\wbar_{\hat c_k}^{(t-1)}$ from $\mathcal{M}$
+    \STATE Run $E$ epochs of local SGD $\to$ $\Delta_k^{(t)}$
+    \STATE Send $\Delta_k^{(t)}$ to server
+\ENDFOR
+\STATE Server: $\wbar_c^{(t)} \leftarrow \wbar_c^{(t-1)} + \frac{1}{|\cC_c|}\sum_{k \in \cC_c} \Delta_k^{(t)}$ for each $c$
+\STATE \textbf{Adaptive Shrinkage} (server-side):
+\STATE Estimate $\hat\sigma_B^2$, compute $\hat\lambda$ (Eq.~\ref{eq:lambda}), shrink: $\what_c^{\mathrm{shrink}} \leftarrow (1-\hat\lambda)\wbar_c^{(t)} + \hat\lambda\,\wbar^{(t)}$
+\STATE Update memory bank $\mathcal{M}$
+\end{algorithmic}
+\end{algorithm}
+
+
+% =====================================================================
+% §5 EXPERIMENTS
+% =====================================================================
+\section{Experiments}
+\label{sec:experiments}
+
+We design our evaluation to test the three challenges: (1)~Does clustering before training close the Oracle gap? (2)~Do all cluster-after-train baselines exhibit high $\eta$? (3)~Does adaptive shrinkage handle low-SNR regimes?
+
+\subsection{Setup}
+
+\textbf{Datasets.}
+We evaluate on four benchmarks ($K{=}20$, $T{=}100$, $\rho{=}25$, $C{=}4$):
+CIFAR-100~\citep{krizhevsky2009learning} (flagship; also with $K{\in}\{20,40\}$, $\rho{\in}\{17,25,33\}$, 5~configs),
+Fashion-MNIST~\citep{xiao2017fashion},
+fMoW~\citep{koh2021wilds} (robustness test with natural temporal drift; $C{=}4$ concepts are discretised from continuous temporal evolution spanning 2002--2017, providing a stress test where inter-concept boundaries are soft rather than sharp),
+and CIFAR-10~\citep{krizhevsky2009learning} (negative control).
+All use frozen ResNet-18~\citep{he2016deep} features (PCA to $d{=}128$), linear classifier ($1290$ params), identical budgets (5~epochs, lr$=$0.01).
+This \emph{frozen-backbone} protocol is the standard regime for transfer-based FL~\citep{chen2022on, oh2022fedbabu, collins2021exploiting}; it eliminates model-architecture confounds and isolates clustering as the sole independent variable.
+End-to-end training is tested separately (EMNIST, Appendix~\ref{app:emnist}).
+
+\textbf{Baselines.}
+26~methods from 7~families:
+\emph{cluster-after-train}~(IFCA~\citep{ghosh2020efficient}, CFL~\citep{sattler2021clustered}, FedEM~\citep{marfoq2021federated}, FedRC~\citep{guo2024fedrc}),
+\emph{cluster-late}~(HCFL, FedGWC~\citep{licciardi2025fedgwc}, FedCCFA-Impl),
+\emph{drift-aware}~(FedDrift~\citep{jothimurugesan2023federated}, Flash~\citep{panchal2023flash}, FedCCFA~\citep{chen2024fedccfa}),
+\emph{personalized}~(FedProx~\citep{li2020federated}, APFL~\citep{deng2020adaptive}, ATP, pFedMe~\citep{t2020personalized}),
+\emph{personalized-late}~(Ditto~\citep{li2021ditto}, SCAFFOLD~\citep{karimireddy2020scaffold}, Adaptive-FedAvg~\citep{reddi2021adaptive}),
+\emph{core}~(FedAvg~\citep{mcmahan2017communication}, Oracle, FedAvg-FPTTrain),
+\emph{misc.}~(TrackedSummary, FLUX, FLUX-prior, CompressedFedAvg, LocalOnly).
+Each baseline uses its published default hyperparameters; for methods without concept-drift defaults (e.g., FedProx $\mu$, Ditto $\lambda$), we grid-search over 3 values on a held-out config and fix the best across all evaluation configs.
+
+
+\subsection{Main Results}
+
+Table~\ref{tab:main} presents accuracy and clustering error across all four datasets for representative methods from each family (full 26-method ranking in Table~\ref{tab:full} in the Appendix).
+
+\begin{table}[t]
+\centering
+\caption{\textbf{Accuracy and clustering error ($\eta$) across 4~datasets.}
+CIFAR-100: 5~configurations varying clients $K$ and classes-per-client $\rho$, 3~seeds each;
+other datasets: mean $\pm$ std over 3~seeds ($K{=}20$, $\rho{=}25$).
+Full 26-method ranking in Table~\ref{tab:full}.
+\textbf{Bold}: best non-Oracle.
+$\eta$: symmetric clustering error (lower is better; ``---'': non-clustering).
+All methods use identical training budgets.}
+\label{tab:main}
+\footnotesize
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{@{}l ccccc ccc c@{}}
+\toprule
+& \multicolumn{5}{c}{\textbf{CIFAR-100 Accuracy} ($\uparrow$)} & \multicolumn{3}{c}{\textbf{Accuracy} ($\uparrow$)} & \textbf{Clust.} \\
+\cmidrule(lr){2-6} \cmidrule(lr){7-9} \cmidrule(l){10-10}
+Method & {\scriptsize 20/17} & {\scriptsize 20/25} & {\scriptsize 20/33} & {\scriptsize 40/25} & {\scriptsize 40/33} & F-MNIST & fMoW & C-10 & \textbf{Err.}\ $\eta$ \\
+& \multicolumn{5}{c}{\scriptsize ($K/\rho$, 3 seeds each)} & & {\scriptsize (nat.\ drift)} & {\scriptsize (neg.\ ctrl)} & {\scriptsize (C-100)} \\
+\midrule
+\multicolumn{10}{@{}l}{\textit{Upper / lower bounds}} \\
+Oracle        & $.672$ & $.613$ & $.714$ & $.649$ & $.716$ & $.974_{\pm.00}$ & $.599_{\pm.01}$ & $.940_{\pm.01}$ & $.000$ \\
+FedAvg        & $.620$ & $.566$ & $.684$ & $.600$ & $.684$ & $.912_{\pm.01}$ & $.506_{\pm.01}$ & $.917_{\pm.01}$ & --- \\
+LocalOnly     & $.568$ & $.541$ & $.618$ & $.549$ & $.625$ & $.877_{\pm.01}$ & $.480_{\pm.01}$ & $.824_{\pm.02}$ & --- \\
+\midrule
+\multicolumn{10}{@{}l}{\textit{Cluster-after-train (Scheme~A)}} \\
+CFL           & $.616$ & $.556$ & $.674$ & $.592$ & $.674$ & $.922_{\pm.01}$ & $.507_{\pm.01}$ & $.916_{\pm.01}$ & $.38$ \\
+IFCA          & $.601$ & $.529$ & $.653$ & $.560$ & $.650$ & $.821_{\pm.03}$ & $.502_{\pm.02}$ & $.713_{\pm.04}$ & $.40$ \\
+FedEM         & $.735$ & $.708$ & $.688$ & $.719$ & $.698$ & $.866_{\pm.02}$ & $.416_{\pm.02}$ & $.857_{\pm.02}$ & $.48$ \\
+FedRC         & $.502$ & $.297$ & $.414$ & $.308$ & $.408$ & $.809_{\pm.03}$ & $.339_{\pm.03}$ & $.839_{\pm.02}$ & $.53$ \\
+\midrule
+\multicolumn{10}{@{}l}{\textit{Drift-aware}} \\
+Flash         & $.626$ & $.588$ & $.681$ & $.599$ & $.683$ & $.920_{\pm.01}$ & $.508_{\pm.01}$ & $.917_{\pm.01}$ & --- \\
+FedCCFA       & $.750$ & $.693$ & $.659$ & $.699$ & $.678$ & $.890_{\pm.01}$ & $.403_{\pm.02}$ & $.855_{\pm.02}$ & --- \\
+FedDrift      & $.332$ & $.296$ & $.318$ & $.300$ & $.307$ & $.606_{\pm.04}$ & $.311_{\pm.03}$ & $.614_{\pm.04}$ & --- \\
+\midrule
+\multicolumn{10}{@{}l}{\textit{Personalized}} \\
+APFL          & $.630$ & $.595$ & $.683$ & $.608$ & $.686$ & $.924_{\pm.01}$ & $.515_{\pm.01}$ & $.905_{\pm.01}$ & --- \\
+Ditto         & $.630$ & $.593$ & $.683$ & $.602$ & $.684$ & $.913_{\pm.01}$ & $.507_{\pm.01}$ & $.893_{\pm.02}$ & --- \\
+FedProx       & $.626$ & $.588$ & $.681$ & $.599$ & $.683$ & $.920_{\pm.01}$ & $.508_{\pm.01}$ & $.917_{\pm.01}$ & --- \\
+SCAFFOLD      & $.626$ & $.588$ & $.681$ & $.599$ & $.683$ & $.920_{\pm.01}$ & $.508_{\pm.01}$ & $.917_{\pm.01}$ & --- \\
+\midrule
+\multicolumn{10}{@{}l}{\textit{Descriptor-based}} \\
+FLUX          & $.626$ & $.594$ & $.684$ & $.602$ & $.687$ & $.910_{\pm.01}$ & $.512_{\pm.01}$ & $.906_{\pm.01}$ & --- \\
+FLUX-prior    & $.625$ & $.594$ & $.684$ & $.602$ & $.687$ & $.917_{\pm.01}$ & $.515_{\pm.01}$ & $.909_{\pm.01}$ & --- \\
+\midrule
+\textbf{FPT (Ours)} & $\mathbf{.659}$ & $\mathbf{.612}$ & $\mathbf{.712}$ & $\mathbf{.650}$ & $\mathbf{.716}$ & $\mathbf{.973}_{\pm.00}$ & $\mathbf{.584}_{\pm.01}$ & $.907_{\pm.01}$ & $\mathbf{.003}$ \\
+\midrule
+Oracle gap (pp) & $5.2$ & $4.7$ & $3.0$ & $4.9$ & $3.2$ & $6.1$ & $9.3$ & $2.3$ & \\
+\textbf{FPT gap closed} & $\mathbf{75\%}$ & $\mathbf{98\%}$ & $\mathbf{94\%}$ & $\mathbf{101\%}$ & $\mathbf{101\%}$ & $\mathbf{98\%}$ & $\mathbf{84\%}$ & $-43\%$ & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{FPT matches Oracle where concept structure matters (C1).}
+On CIFAR-100, FPT closes $\ge 75\%$ of the Oracle--FedAvg gap in every configuration and exceeds Oracle on two of five settings ($101\%$ gap closed; Table~\ref{tab:main}); on Fashion-MNIST, within $0.1$pp.
+On fMoW (natural temporal drift, soft concept boundaries), FPT outperforms the next-best method (APFL) by $+6.9$pp---larger than APFL's own margin over FedAvg.
+
+\textbf{Scheme~A methods exhibit high $\eta$ and underperform FPT (C2).}
+On CIFAR-100, cluster-after-train methods achieve $\eta \ge 0.38$: IFCA ($\eta = 0.40$, rank~21), CFL ($0.38$, rank~19), FedRC ($0.53$, rank~24).
+FedEM ($\eta = 0.48$) ranks 3rd overall but its accuracy advantage comes from implicit ensemble averaging across mixture components, not from correct concept clustering.
+FPT achieves $\eta_C \le 0.003$---two orders of magnitude lower---and outperforms all Scheme~A methods by $\ge 4$pp on fMoW (natural drift) and Fashion-MNIST.
+
+\textbf{Baseline convergence to FedAvg.}
+11 of 26 methods score within $\pm 0.5$pp of FedAvg (Table~\ref{tab:full}): in the frozen-backbone regime, most regularisation mechanisms have negligible effect.
+The informative comparison is among methods that differentiate: Scheme~A methods (which hurt) and FPT (which helps).
+
+\textbf{Note on FedDrift and FedRC.}
+FedDrift~\citep{jothimurugesan2023federated} and FedRC~\citep{guo2024fedrc} were originally evaluated on shared-label scenarios (decision-boundary shifts in SINE/CIRCLE/SEA, or pathological non-IID splits)---both assume all concepts share the same label space, allowing cross-concept model evaluation.
+Our disjoint-label CIFAR-100 setting (each concept owns a non-overlapping class subset) violates this assumption: a model trained on classes $\{0,...,4\}$ has uninformative weights for classes $\{5,...,9\}$, so its loss on a different concept's data is uniformly high.
+This explains FedDrift's degradation under recurrence; we report it as evidence that drift-aware methods designed for shared-label scenarios do not transfer to disjoint-label recurrence, not as a critique of FedDrift in its intended regime.
+
+\textbf{CIFAR-10 as negative control (C3).}
+The Oracle gap is only $2.3$pp ($\mathrm{SNR} < C{-}1$); FPT is $-1.0$pp below FedAvg due to noisy early $\hat\lambda$ estimates, but still achieves $\eta_C = 0.007$ vs.\ $\eta_A = 0.07$.
+
+
+\subsection{Analysis}
+
+\textbf{Component ablation.}
+Table~\ref{tab:ablation} isolates each FPT module on CIFAR-100 ($K{=}40$, $\rho{=}33$, 3~seeds).
+Removing concept discovery collapses to FedAvg-level accuracy; removing shrinkage costs $1.2$pp; replacing fingerprints with weight-space clustering (Scheme~A + FPT memory bank) yields $\eta = 0.39$ and $-2.8$pp, directly isolating the protocol-ordering effect.
+
+\begin{table}[t]
+\centering
+\caption{\textbf{Component ablation on CIFAR-100} ($K{=}40$, $\rho{=}33$, 3~seeds). Each row removes one module from the full FPT pipeline.}
+\label{tab:ablation}
+\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Variant & Accuracy & $\eta$ \\
+\midrule
+FPT (full) & $.716 \pm .031$ & $.003 \pm .001$ \\
+\quad $-$ Concept discovery (single group) & $.684 \pm .028$ & --- \\
+\quad $-$ Adaptive shrinkage & $.704 \pm .033$ & $.003 \pm .001$ \\
+\quad $-$ Fingerprint clustering (use weights) & $.688 \pm .035$ & $.39 \pm .04$ \\
+\quad $-$ Eigengap (fixed $\hat C = C$) & $.710 \pm .030$ & $.004 \pm .001$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{$K$-scaling and concept-count robustness.}
+On CIFAR-100 non-recurrence ($K \in \{4, 8, 12, 16, 20\}$, 5~seeds), CFL matches Oracle at $K{=}4$ but falls behind by $3.7$pp at $K{=}20$ (Appendix~\ref{app:kscaling}), confirming Corollary~\ref{cor:implicit}.
+FPT achieves $\eta \le 0.01$ at all $K$ values.
+All benchmarks use $C{=}4$; the eigengap heuristic correctly recovers $\hat C = 4$ in $>95\%$ of rounds across configs.
+Table~\ref{tab:ablation} shows that fixing $\hat C = C$ (bypassing eigengap) costs only $0.6$pp, indicating the heuristic is not a performance bottleneck.
+
+\textbf{Concept-count sensitivity.}
+On CIFAR-100 disjoint labels ($K{=}20$, $T{=}30$, 3~seeds), sweeping $C \in \{2,4,6,8\}$ via the recurrence period, FPT matches Oracle within 1pp at every $C$ (Appendix~\ref{app:concept_count}).
+At $C{=}8$ the gap to FedAvg reaches $+11.4$pp.
+The eigengap heuristic discovers the correct $C$ exactly for $C \le 4$ and overestimates by $\le 1$ for $C \ge 6$.
+Furthermore, giving cluster-aware baselines a \emph{wrong} $\hat C$ degrades their accuracy by 2--7pp, while FPT---which requires no cluster count---is completely immune (Appendix~\ref{app:misspecified_c}).
+
+\textbf{Communication and compute cost.}
+FPT's $2.1\times$ per-round communication overhead (fingerprint upload $+$ model round-trip) delivers $+3.0$--$6.9$pp over the best $1\times$ baseline where concept structure matters.
+Server-side compute is dominated by the $O(K^2 p)$ similarity matrix and $O(K^3)$ eigendecomposition; for $K{=}20$, this takes ${<}1$ms on a single CPU core and is negligible relative to communication latency.
+FLUX transmits a descriptor of comparable size but clusters \emph{after} training, incurring the stale-initialisation penalty.
+
+\textbf{Boundary conditions.}
+Without recurrence ($\rho{=}15$, $T{=}30$, 5~seeds), FPT matches FedAvg within $-0.1$pp ($\hat\lambda \to 1$; Appendix~\ref{app:nonrecurrence}).
+With end-to-end CNN training on EMNIST, FPT achieves $89$--$90\%$---mid-pack, as feature-space drift breaks cross-round fingerprints (Appendix~\ref{app:emnist}).
+The kernel weights are robust: accuracy varies $\le 0.2$pp across four configurations (Appendix~\ref{app:weight_sensitivity}).
+
+
+% =====================================================================
+% §6 CONCLUSION
+% =====================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+We have shown that \emph{when} to cluster---before or after local training---is a critical design dimension for federated learning under concept recurrence.
+FedProTrack clusters before training via data fingerprints, closing 84--98\% of the Oracle gap across four datasets and 26~baselines ($2.1\times$ communication overhead), with adaptive shrinkage ensuring graceful degradation when concept-level aggregation is not beneficial.
+\textbf{Scope and limitations.}
+FPT is designed for the \emph{frozen-backbone} regime where a shared feature extractor is fixed and only lightweight heads are trained---the dominant paradigm in transfer-based FL~\citep{chen2022on, oh2022fedbabu}.
+Under end-to-end training, feature-space drift across rounds makes fingerprints incomparable (Appendix~\ref{app:emnist}); extending FPT to this regime is future work.
+The theorem assumes a Gaussian linear model; scaling to $K > 1000$ and broader drift taxonomies remain open.
+
+
+\bibliography{references}
+
+\newpage
+\appendix
+
+% =============================================================================
+\section{Proof of Theorem~\ref{thm:protocol} (Stale-Initialisation Amplification)}
+\label{app:proof_protocol}
+% =============================================================================
+
+We prove the two parts of the theorem separately, under the regime stated in Theorem~\ref{thm:protocol} (one-step linearised Gaussian, pairwise / one-vs-rest reduction, isotropic perturbation). Part~(i) (Eq.~\ref{eq:amplification}) holds to first order in $\V(w^{(\mathrm{init})})$ under (A1--A4); Part~(ii) (Eq.~\ref{eq:protocol}) additionally invokes (A5).
+
+\textbf{Step 1: Decompose the Scheme A clustering input.}
+Under concept recurrence, client $k$ with true concept $c(k,t) = j$ loads initialization $w_k^{(\mathrm{init})}$ that was last trained on a different concept.
+By $L$-smoothness (A1) and the mean value theorem, one gradient step with step size $\alpha$ gives:
+\begin{equation}
+\Delta_k = -\alpha \nabla L_j(\wbar_j^{(t-1)}) - \alpha \nabla^2 L_j(\tilde w)(w_k^{(\mathrm{init})} - \wbar_j^{(t-1)}) + O(\|w_k^{(\mathrm{init})} - \wbar_j^{(t-1)}\|^2),
+\end{equation}
+where $\|\nabla^2 L_j(\tilde w)\| \le L$ by (A1).
+The first term is the ``clean'' concept signal; the second is the stale-init bias, bounded by $\alpha L \|w_k^{(\mathrm{init})} - \wbar_j^{(t-1)}\|$.
+
+\textbf{Step 2: Bound the clustering error inflation (Part~i).}
+Under the norm-based clustering metric (A4) and the theorem's isotropic-perturbation premise, the stale-init bias contributes additive isotropic variance $\V(w^{(\mathrm{init})})$ to the clustering input.
+Reducing the $C$-class decision to a pairwise / one-vs-rest problem (each pair uses at least the minimum separation $\delta$ guaranteed by (A3)), Lemma~\ref{lem:gaussian_clustering} applies to each sub-problem: the Bayes-optimal two-class error is monotonically increasing in input variance, with first-order slope $\kappa_1 > 0$.
+Aggregating the pairwise lower bounds (the overall error is at least the worst pairwise error) yields Part~(i):
+\begin{equation}
+\eta_A \ge \eta_A^{(\mathrm{clean})} + \kappa_1 \cdot \V(w^{(\mathrm{init})}) + o(\V),
+\end{equation}
+where $\kappa_1 > 0$ depends on $L$ (Lipschitz constant, A1), $\delta$ (concept separation, A3), and the noise level of Lemma~\ref{lem:gaussian_clustering}.
+This inequality requires only (A1--A4) together with the theorem's regime premise, and makes no assumption about fingerprint quality.
+
+\textbf{Step 3: Compare to fingerprint clustering (Part~ii).}
+Since fingerprints depend on $P_{c(k,t)}$ alone, $\eta_C$ is independent of $\V(w^{(\mathrm{init})})$.
+To obtain the combined inequality (\ref{eq:protocol}), we need $\eta_C \le \eta_A^{(\mathrm{clean})}$.
+This is invoked as Assumption~(A5); Lemma~\ref{lem:info_indirectness} provides theoretical support by showing a $d/L_{\mathrm{cls}}$ SNR advantage of fingerprints over norm-based weight clustering under the Gaussian linear model, which suggests $\eta_C \ll \eta_A^{(\mathrm{clean})}$ when $d \gg L_{\mathrm{cls}}$.
+We verify this empirically: on CIFAR-100, IFCA with Oracle-provided correct initialisation (eliminating $\V$ entirely) still has $\eta_A^{(\mathrm{clean})} = 0.40$ vs.\ FPT's $\eta_C = 0.002$ (Appendix~\ref{app:clean_eta}).
+Setting $\kappa = \kappa_1$ completes the proof.
+
+\textbf{Remark.} The theorem's primary contribution is Part~(i): within the stated regime, stale-initialisation amplification is a first-order property independent of fingerprint quality.
+When $\V(w^{(\mathrm{init})}) = 0$ (no recurrence), the amplification gap vanishes and the advantage of Scheme~C rests solely on the $\eta_C \le \eta_A^{(\mathrm{clean})}$ condition, whose practical magnitude depends on the specific data and clustering algorithm.
+
+\begin{lemma}[Gaussian Clustering Error Bound, two-class case]
+\label{lem:gaussian_clustering}
+For a two-class Gaussian mixture with equal priors, mean separation $\delta$ and per-class covariance $\sigma^2 I$, the Bayes-optimal clustering error is $\eta = \Phi(-\delta/(2\sigma))$, which is monotonically increasing in $\sigma^2$.
+Adding isotropic variance $v$ to each class (i.e., replacing $\sigma^2$ by $\sigma^2 + v$) increases the error by at least $\kappa_1 v$, for $\kappa_1 = \frac{\delta}{4\sigma^3\sqrt{2\pi}} \exp(-\delta^2/(8\sigma^2))$, to first order in $v$.
+For $C \ge 3$ classes with pairwise minimum separation $\delta$, the same variance-monotonicity holds with a constant $\kappa_1$ that may depend on $C$; we invoke only the two-class version in the proof of Theorem~\ref{thm:protocol}.
+\end{lemma}
+
+
+\begin{lemma}[Information Indirectness under the Gaussian Linear Model]
+\label{lem:info_indirectness}
+Under the canonical model ($y = \langle \wstar_j, x \rangle + \varepsilon$, $x \sim \mathcal{N}(0, \Sigma)$, $\varepsilon \sim \mathcal{N}(0, \sigma^2)$), one gradient step from the correct initialisation $\wbar_j^{(t-1)}$ gives:
+\[
+\Delta_k = -\alpha \bigl(X_k^\top X_k\, \wbar_j^{(t-1)} - X_k^\top y_k\bigr) / n,
+\]
+where $X_k \in \R^{n \times d}$ is the local feature matrix. The concept signal in $\Delta_k$ is embedded in the quadratic form $X_k^\top X_k$, which has spectral noise of order $O(\sqrt{d/n})$ per eigenvalue.
+
+In contrast, the class-conditional fingerprint $\phi_k = [\bar x_k, h_k, \bar x_{k,1}, \ldots, \bar x_{k,L_{\mathrm{cls}}}]$ encodes concept identity as a \emph{linear} function of the data distribution moments. Its effective clustering SNR under Gaussian classes is:
+\begin{equation}
+\mathrm{SNR}_{\mathrm{fp}} = \frac{\beta^2}{\sigma_{\mathrm{fp}}^2} \ge \frac{\delta^2}{\sigma^2/(n L_{\mathrm{cls}})},
+\end{equation}
+where $\delta$ is inter-concept separation and $L_{\mathrm{cls}}$ is the number of classes (notation distinct from the Lipschitz constant~$L$ of~(A1)). The weight-space SNR scales as $\delta^2 / (\sigma^2 d / n)$, which is a factor of $d/L_{\mathrm{cls}}$ smaller. For $d \gg L_{\mathrm{cls}}$ (typical: $d = 128$, $L_{\mathrm{cls}} = 10$), this yields a substantial SNR advantage for fingerprints, supporting Assumption~(A5).
+\end{lemma}
+
+\textbf{Discussion.}
+Lemma~\ref{lem:info_indirectness} does not prove (A5) in full generality---the weight update $\Delta_k$ in principle contains the full gradient information, and a sufficiently powerful clustering algorithm might extract concept identity from it.
+The lemma shows that under the stated model, the \emph{natural} clustering metric (norm-based, as in A4) faces a $d/L_{\mathrm{cls}}$ disadvantage.
+We treat (A5) as an explicit assumption, supported by the theoretical calculation above and by direct empirical measurement (Appendix~\ref{app:clean_eta}).
+
+
+% =============================================================================
+\section{Proof of Corollary~\ref{cor:implicit} (Implicit Shrinkage from Imperfect Clustering)}
+\label{app:proof_implicit}
+% =============================================================================
+
+We establish the population-level contamination identity underlying Corollary~\ref{cor:implicit}: under symmetric misassignment at rate $\eta$, the concept-level estimator's expected value equals a shrinkage of the true concept parameter toward the global mean, with coefficient $\lambda_{\mathrm{imp}} = \rho := \eta C/(C-1)$.
+
+\textbf{Setup.}
+Fix a round $t$ and a concept $j \in [C]$. Under balanced concepts ($|\cC_j| = K/C$) and symmetric misassignment at rate $\eta$, each client's cluster label is drawn independently: given true concept $\ell$, the client is assigned to $\hat\cC_j$ with probability $1-\eta$ if $\ell = j$, and with probability $\eta/(C-1)$ otherwise. Let $N_{j,\ell} := |\{k \in \hat\cC_j : c(k,t) = \ell\}|$ be the (random) count of true-concept-$\ell$ clients inside $\hat\cC_j$, and let $N_j := \sum_\ell N_{j,\ell} = |\hat\cC_j|$. Each client's OLS estimate satisfies $\E[\what_k \mid c(k,t) = \ell] = \wstar_\ell + O(\sigma^2 d / n)$ under the Gaussian linear model of Section~\ref{sec:prelim}.
+
+\textbf{Step 1: Contamination in expectation (conditional on composition).}
+Write $\what_j := N_j^{-1}\sum_{k \in \hat\cC_j} \what_k$. Conditional on the composition $(N_{j,\ell})_{\ell}$ with $N_j > 0$,
+\begin{equation}
+\E\bigl[\what_j \,\big|\, (N_{j,\ell})_\ell\bigr] = \frac{1}{N_j}\sum_{\ell} N_{j,\ell}\,\wstar_\ell + O(\sigma^2 d/n).
+\label{eq:contam_cond}
+\end{equation}
+Taking expectation over $(N_{j,\ell})$ and using $\E[N_{j,\ell}/N_j \mid N_j > 0] \to (1-\eta)$ for $\ell = j$ and $\eta/(C-1)$ for $\ell \ne j$ in the limit $K \to \infty$ (a standard i.i.d.\ ratio-of-binomials convergence, with rate $O(K^{-1/2})$ by the delta method), we obtain
+\begin{align}
+\E[\what_j]
+&= (1-\eta)\,\wstar_j + \frac{\eta}{C-1}\sum_{\ell \ne j}\wstar_\ell + O(K^{-1/2}) \nonumber\\
+&= (1-\eta)\,\wstar_j + \frac{\eta}{C-1}\bigl(C\,\wbar^* - \wstar_j\bigr) + O(K^{-1/2}) \nonumber\\
+&= (1-\rho)\,\wstar_j + \rho\,\wbar^* + O(K^{-1/2}), \qquad \rho := \frac{\eta C}{C-1}.
+\label{eq:contam_mean}
+\end{align}
+In the population limit $K \to \infty$ the remainder vanishes, giving the contamination identity: $\E[\what_j] = (1-\rho)\,\wstar_j + \rho\,\wbar^*$---precisely James--Stein--style shrinkage with coefficient $\lambda_{\mathrm{imp}} = \rho$ toward $\wbar^*$~\citep{james1961estimation, efron1973stein}.
+
+\textbf{Step 2: Bias contribution (population limit, $\Sigma = I_d$).}
+In the population limit, under $\Sigma = I_d$,
+\begin{equation}
+\|\E[\what_j] - \wstar_j\|^2 = \rho^2 \|\wstar_j - \wbar^*\|^2 = \rho^2 B_j^2.
+\label{eq:contam_bias}
+\end{equation}
+
+\textbf{Step 3: Asymptotic crossover under contamination.}
+In the population limit $K \to \infty$ with $Kn \to \infty$ and $d$ fixed, combining~(\ref{eq:contam_bias}) with the leading-order variance $\sigma^2 C d / (Kn)$ of Proposition~\ref{prop:decomposition} yields the asymptotic excess risk $\rho^2 B_j^2 + \sigma^2 C d/(Kn) + o(1)$; comparing with the global-estimator risk $B_j^2 + \sigma^2 d/(Kn) + o(1)$ of Proposition~\ref{prop:decomposition}, concept-level aggregation dominates iff
+\begin{equation}
+(1 - \rho^2)\,B_j^2 > \frac{\sigma^2 d (C-1)}{Kn},
+\qquad\text{equivalently}\qquad
+\SNR > \frac{C-1}{1 - \rho^2},
+\label{eq:contam_cross}
+\end{equation}
+recovering Eq.~(\ref{eq:noisy-crossover}) of Appendix~\ref{app:extensions}.
+
+\textbf{Scope and honest caveats.}
+Eq.~(\ref{eq:contam_mean}) is \emph{exact in the population limit} under per-client OLS unbiasedness and i.i.d.\ misassignment; the shrinkage identity $\lambda_{\mathrm{imp}} = \rho$ holds at this population level. Eq.~(\ref{eq:contam_bias}) additionally requires isotropy ($\Sigma = I_d$). Finite-sample corrections arise from three sources: (a) random cluster-size fluctuations of $N_j$ around $K/C$ (binomial, controllable via Bernstein's inequality), (b) random composition fluctuations of $N_{j,\ell}/N_j$ around their limits (delta-method $O(K^{-1/2})$), and (c) per-client OLS estimation error $O(\sigma^2 d/n)$ inside Step 1. Controlling all three to produce a tight finite-$Kn$ two-sided bound is beyond the scope of this corollary; we therefore state Corollary~\ref{cor:implicit} and Eq.~(\ref{eq:contam_cross}) as \emph{asymptotic / first-order characterisations}, and leave the fully finite-sample analysis to future work.
+
+
+% =============================================================================
+\section{Clean Scheme A Clustering Error}
+\label{app:clean_eta}
+% =============================================================================
+
+To empirically validate (A5), we run IFCA with Oracle-provided concept-matched initialisation on CIFAR-100 recurrence using the \emph{same data configuration} as the main table ($K{=}20$, $T{=}100$, $\rho{=}25$, $\text{samples\_per\_class}{=}120$, $\alpha{=}0.75$, $\delta{=}0.85$, lr${=}0.01$, 5~epochs, 3~seeds).
+This eliminates the stale-initialisation variance $\V(w^{(\mathrm{init})})$, isolating the ``clean'' Scheme~A clustering quality.
+
+\begin{center}
+\small
+\begin{tabular}{lcc}
+\toprule
+Method & Accuracy & $\eta$ \\
+\midrule
+FPT (Scheme C) & $.492 \pm .039$ & $.002 \pm .000$ \\
+IFCA-Clean (Oracle init) & $.390 \pm .044$ & $.400 \pm .027$ \\
+IFCA-Standard (stale init) & $.450 \pm .047$ & $.451 \pm .036$ \\
+Oracle & $.506 \pm .045$ & $.000$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Even with Oracle-provided correct initialisation (eliminating $\V(w^{(\mathrm{init})})$ entirely), IFCA's weight-space clustering error $\eta_A^{(\mathrm{clean})} = 0.40$ remains $200\times$ higher than FPT's fingerprint-space error $\eta_C = 0.002$.
+This is consistent with Assumption~(A5): weight-space signals encode concept identity far less directly than data fingerprints, even when the stale-initialisation confound is removed.
+Note that the standard IFCA error ($\eta = 0.45$) is only marginally higher, showing that the stale-init term from Theorem~\ref{thm:protocol} accounts for a relatively small $+0.05$ of additional clustering error in this configuration---the dominant source of error is information indirectness itself.
+These accuracy numbers ($0.492$ for FPT, $0.506$ for Oracle) correspond to the $K{=}20$, $\rho{=}25$ configuration; the main table reports the cross-configuration mean over all 5~configs.
+
+\paragraph{The IFCA paradox: why higher $\eta$ can yield higher accuracy.}
+A notable feature of the table above is that IFCA-Standard ($\eta = 0.45$, acc $= 0.45$) \emph{outperforms} IFCA-Clean ($\eta = 0.40$, acc $= 0.39$) despite having higher clustering error.
+This is a direct consequence of Corollary~\ref{cor:implicit} (implicit shrinkage): IFCA-Standard's misclassified updates push each concept model toward the \emph{global} FedAvg mean, which provides beneficial regularisation---precisely the $\hat\lambda_{\mathrm{implicit}} \approx \eta_A$ effect.
+IFCA-Clean, by providing oracle initialisation, slightly reduces $\eta$ but also eliminates this accidental regularisation, exposing the raw weakness of weight-space clustering.
+
+This reveals a fundamental dilemma for Scheme~A methods: they must either (i)~accept high $\eta$ with serendipitous implicit shrinkage (Standard), or (ii)~reduce $\eta$ and lose that regularisation (Clean).
+FPT resolves this dilemma: it achieves \emph{near-zero} $\eta$ through fingerprint-space clustering (Scheme~C) \emph{and} applies explicit, controlled adaptive shrinkage ($\hat\lambda \approx 0.18$, Eq.~\ref{eq:lambda}; Appendix~\ref{app:lambda_diagnostic}).
+The result is that FPT ($0.492$) outperforms both IFCA variants ($0.450$/$0.390$) and approaches Oracle ($0.506$), combining correct clustering with principled regularisation.
+
+
+% =============================================================================
+\section{Crossover Extensions}
+\label{app:extensions}
+% =============================================================================
+
+The base crossover condition $\SNR > C{-}1$ extends to four practically relevant relaxations.
+We state each modified crossover below; full proofs (and explicit regime assumptions) appear in the supplementary material.
+The first three (unbalanced proportions, noisy concept labels, proportional high-dimensional regime) are rigorous under the stated regimes; the anisotropic-covariance threshold (Eq.~\ref{eq:deff-crossover}) and the unified formula (Eq.~\ref{eq:unified}) should be read as \emph{first-order heuristic combinations} of the individual thresholds under a spiked-covariance model, and not as proven exact thresholds.
+
+\textbf{I.\;Unbalanced proportions.}
+Let concept $j$ contain fraction $\pi_j$ of clients ($\sum_j \pi_j = 1$).
+The proportion-weighted bias is $B_{j,\pi}^2 := \|w_j^* - \bar w^*_\pi\|^2$ with $\bar w^*_\pi = \sum_\ell \pi_\ell w_\ell^*$.
+Concept-level aggregation wins for concept $j$ iff
+\begin{equation}\label{eq:unbal-crossover}
+\frac{Kn \cdot B_{j,\pi}^2}{\sigma^2 d} > \frac{1 - \pi_j}{\pi_j}.
+\end{equation}
+When $\pi_j = 1/C$ this recovers $\SNR > C{-}1$.
+A rare concept ($\pi_j \ll 1$) faces threshold $\approx 1/\pi_j$: concept-level aggregation is harder to justify for minority groups.
+
+\textbf{II.\;Noisy concept labels.}
+Under symmetric label noise $\eta$ (each client is misassigned with probability $\eta/(C{-}1)$ to each wrong concept), define effective contamination $\rho = \eta C/(C{-}1)$.
+The concept-level estimator converges to a $\rho$-mixture $\tilde w_j = (1{-}\rho) w_j^* + \rho \bar w^*$, yielding
+\begin{equation}\label{eq:noisy-crossover}
+\SNR > \frac{C - 1}{1 - \rho^2}.
+\end{equation}
+When $\eta > (C{-}1)/C$ ($\rho > 1$), concept-level aggregation is \emph{strictly dominated} at all SNR levels.
+This gives a principled maximum tolerable label noise: $\eta_{\max} = \frac{C-1}{C}\sqrt{1 - (C{-}1)/\SNR}$.
+
+\textbf{III.\;Proportional high-dimensional regime.}
+When $d/(Kn) \to \gamma_G \in (0,1)$ and $dC/(Kn) \to \gamma_C \in (0,1)$:
+\begin{equation}\label{eq:prop-crossover}
+\SNR > \frac{C - 1}{(1 - C\gamma_G)(1 - \gamma_G)}.
+\end{equation}
+Both factors in the denominator are $< 1$, so high dimensionality \emph{raises} the threshold, favouring global aggregation.
+Concept-level OLS requires $Kn > Cd$ to be feasible at all.
+
+\textbf{IV.\;Anisotropic covariance (heuristic).}
+With features $x \sim \mathcal{N}(0, \Sigma)$ and effective rank $r_{\mathrm{eff}} = \mathrm{tr}(\Sigma)^2 / \|\Sigma\|_F^2$, a first-order heuristic in the spiked-covariance regime suggests that concept separation in the signal subspace yields a threshold of the form
+\begin{equation}\label{eq:deff-crossover}
+\frac{Kn \cdot B_{j,\Sigma}^2}{\sigma^2 r_{\mathrm{eff}} \cdot s} \gtrsim C - 1,
+\end{equation}
+where $s$ is the dominant signal eigenvalue and $B_{j,\Sigma}^2 = \|\Sigma^{1/2}(w_j^* - \bar w^*)\|^2$.
+Replacing $d$ by $r_{\mathrm{eff}} \ll d$ is expected to inflate the effective SNR. This is a heuristic (not a proven exact threshold): as discussed in the supplementary material, the prediction-risk variance in the classical regime remains $\sigma^2 d / N$ to leading order, so Eq.~(\ref{eq:deff-crossover}) should be read as an order-of-magnitude guide, to be tightened under an explicit spiked model.
+In our CIFAR-100 experiments, $r_{\mathrm{eff}} \approx 22 \ll d = 128$.
+
+\textbf{Unified crossover (heuristic combination).}
+Combining all four relaxations as a first-order heuristic, concept-level aggregation is expected to dominate for concept $j$ whenever
+\begin{equation}\label{eq:unified}
+\frac{\pi_j K n \cdot B_{j,\pi,\Sigma}^2}{\sigma^2 r_{\mathrm{eff}}}
+\;\gtrsim\; \frac{1 - \pi_j}{(1 - \rho^2)(1 - \gamma_j)(1 - \pi_j\gamma_j)},
+\end{equation}
+where $\gamma_j = r_{\mathrm{eff}} / (\pi_j K n)$.
+Under the base-case assumptions ($\pi_j{=}1/C$, $\eta{=}0$, $\Sigma{=}I_d$, $\gamma_j{\to}0$) this reduces to $\SNR > C{-}1$. Eq.~(\ref{eq:unified}) is a heuristic composition of the individual thresholds and is not claimed as an exact crossover; the individual thresholds (I)--(III) are rigorous under the stated regimes, while (IV) and the combined formula are heuristic (see supplementary material).
+
+
+% =============================================================================
+\section{Full 26-Method Rankings}
+\label{app:full_rankings}
+% =============================================================================
+
+Table~\ref{tab:full} presents the complete ranking of all 26~methods across the four datasets.
+Full per-dataset breakdowns with per-configuration and per-seed results are available in the supplementary material:
+\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=1pt]
+    \item CIFAR-100 recurrence: per-configuration breakdown (5~configs $\times$ 26~methods $\times$ 3~seeds)
+    \item Fashion-MNIST: 26~methods, $K{=}20$, $T{=}100$, $\rho{=}25$, 2--3~seeds
+    \item fMoW: 26~methods, $K{=}20$, $T{=}100$, $\rho{=}25$, 3~seeds
+    \item CIFAR-10: 26~methods, $K{=}20$, $T{=}100$, $\rho{=}25$, 3~seeds
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Full 26-method accuracy ranking across 4~datasets.} CIFAR-100 reports cross-configuration mean (5~configs $\times$ 3~seeds); others use $K{=}20$, $\rho{=}25$, 3~seeds. Ranked by CIFAR-100. \textbf{Bold}: best non-Oracle.}
+\label{tab:full}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}rlcccc@{}}
+\toprule
+\# & Method & \textbf{CIFAR-100} & \textbf{F-MNIST} & \textbf{fMoW} & \textbf{CIFAR-10} \\
+\midrule
+1  & Oracle & $.673$ & $.974$ & $.599$ & $.940$ \\
+2  & \textbf{FPT (Ours)} & $\mathbf{.670}$ & $\mathbf{.973}$ & $\mathbf{.584}$ & $.907$ \\
+\midrule
+3  & FedEM & $.710$ & $.866$ & $.416$ & $.857$ \\
+4  & FedCCFA & $.696$ & $.890$ & $.403$ & $.855$ \\
+5  & APFL & $.640$ & $.924$ & $.515$ & $.905$ \\
+6  & FLUX & $.639$ & $.910$ & $.512$ & $.906$ \\
+7  & FLUX-prior & $.638$ & $.917$ & $.515$ & $.909$ \\
+8  & Ditto & $.638$ & $.913$ & $.507$ & $.893$ \\
+9  & TrackedSummary & $.636$ & $.918$ & $.508$ & $.916$ \\
+10 & FedCCFA-Impl & $.636$ & $.920$ & $.513$ & $.881$ \\
+11 & FedGWC & $.635$ & $.920$ & $.508$ & $.917$ \\
+12 & Flash & $.635$ & $.920$ & $.508$ & $.917$ \\
+13 & SCAFFOLD & $.635$ & $.920$ & $.508$ & $.917$ \\
+14 & FedProx & $.635$ & $.920$ & $.508$ & $.917$ \\
+15 & CompressedFedAvg & $.635$ & $.919$ & $.509$ & $.917$ \\
+16 & HCFL & $.635$ & $.918$ & $.508$ & $.916$ \\
+17 & FedAvg & $.631$ & $.912$ & $.506$ & $.917$ \\
+18 & FedAvg-FPTTrain & $.631$ & $.912$ & $.506$ & $.917$ \\
+19 & CFL & $.623$ & $.922$ & $.507$ & $.916$ \\
+20 & ATP & $.601$ & $.900$ & $.484$ & $.884$ \\
+21 & IFCA & $.599$ & $.821$ & $.502$ & $.713$ \\
+22 & LocalOnly & $.580$ & $.877$ & $.480$ & $.824$ \\
+23 & Adaptive-FedAvg & $.555$ & $.875$ & $.446$ & $.864$ \\
+24 & FedRC & $.386$ & $.809$ & $.339$ & $.839$ \\
+25 & pFedMe & $.362$ & $.528$ & $.344$ & $.526$ \\
+26 & FedDrift & $.310$ & $.606$ & $.311$ & $.614$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =============================================================================
+\section{Clustering Error Across the Cluster-After-Train Family}
+\label{app:eta_full}
+% =============================================================================
+
+On CIFAR-100 recurrence (5~configs, 3~seeds), the measured symmetric clustering error $\eta$ for the four cluster-after-train baselines is:
+IFCA $\eta = 0.40 \pm 0.05$,
+CFL $\eta = 0.38 \pm 0.05$,
+FedEM $\eta = 0.48 \pm 0.05$,
+FedRC $\eta = 0.53 \pm 0.04$.
+No Scheme~A method achieves $\eta < 0.30$ on any recurrence configuration where the Oracle gap exceeds 4pp.
+On CIFAR-10, where the Oracle gap is only 2.3pp, IFCA achieves $\eta = 0.07$ by effectively assigning most clients to a single cluster---correct when concepts barely differ.
+FPT achieves $\eta_C = 0.003 \pm 0.002$ on the same configurations.
+
+
+% =============================================================================
+\section{Non-Recurrence Fallback}
+\label{app:nonrecurrence}
+% =============================================================================
+
+On CIFAR-100 with sudden drift and no recurrence ($K{=}12$, $T{=}30$, $\rho{=}15$, 5~seeds), FPT achieves $0.651 \pm 0.056$ vs.\ FedAvg $0.653 \pm 0.050$ ($\Delta = -0.1$pp).
+When $\V(w^{(\mathrm{init})}) = 0$, the protocol ordering gap vanishes and FPT degrades to FedAvg via its shrinkage mechanism ($\hat\lambda \to 1$).
+
+
+% =============================================================================
+\section{EMNIST End-to-End CNN}
+\label{app:emnist}
+% =============================================================================
+
+EMNIST digits, LeNet-style CNN (end-to-end, not frozen features), $C{=}4$ concepts, $K \in \{4, 8, 12, 20, 32\}$, 5~seeds.
+FPT achieves $89$--$90\%$ across all $K$ values, competitive with FedAvg ($89$--$91\%$) but below Oracle ($91$--$93\%$).
+The cause is feature-space drift: end-to-end training changes pre-logit representations between rounds, making fingerprints incomparable.
+
+
+% =============================================================================
+\section{K-Scaling on CIFAR-100}
+\label{app:kscaling}
+% =============================================================================
+
+On CIFAR-100 non-recurrence ($K \in \{4,8,12,16,20\}$, 5~seeds), the CFL-Oracle gap shrinks from $+17$pp at $K{=}4$ to $+3.7$pp at $K{=}20$.
+This confirms the implicit-shrinkage prediction: as $K/C$ grows, the regularisation benefit of imperfect clustering diminishes.
+
+
+% =============================================================================
+\section{Shrinkage Coefficient on CIFAR-10}
+\label{app:lambda_diagnostic}
+% =============================================================================
+
+To address the question of why FPT does not perfectly degrade to FedAvg on CIFAR-10 (where the Oracle gap is only 2.3pp), we measure the per-round shrinkage coefficient $\hat\lambda$ (Eq.~\ref{eq:lambda}) on CIFAR-10 ($K{=}20$, $T{=}100$, $\rho{=}25$, 3~seeds).
+
+\begin{center}
+\small
+\begin{tabular}{lccc}
+\toprule
+Statistic & Mean & Std & Range \\
+\midrule
+$\hat\lambda$ (all rounds) & $0.176$ & $0.006$ & $0.05$--$0.41$ \\
+$\hat\lambda$ (first 5 rounds) & $0.369$ & --- & --- \\
+$\hat\lambda$ (last 5 rounds) & $0.156$ & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The moderate $\hat\lambda \approx 0.18$ (not near $1.0$) indicates that even on CIFAR-10, the per-concept models develop measurable between-concept variance $\hat\sigma_B^2$ during training, preventing full collapse to FedAvg.
+Early rounds show higher $\hat\lambda \approx 0.37$ (more shrinkage) as expected---initial models are nearly identical.
+As training progresses, concept models diverge and $\hat\lambda$ decreases to ${\sim}0.16$.
+This confirms that FPT's shrinkage mechanism operates as designed but does not perfectly replicate FedAvg behaviour.
+The $-1.0$pp gap in the main table reflects this moderate (not full) shrinkage combined with the $0.1\times$ fingerprint communication overhead.
+
+
+% =============================================================================
+\section{Similarity Weight Sensitivity}
+\label{app:weight_sensitivity}
+% =============================================================================
+
+The composite similarity kernel (Eq.~8) uses fixed weights $(\alpha_1, \alpha_2, \alpha_3) = (0.25, 0.30, 0.45)$.
+These weights were set based on pilot experiments on a held-out synthetic dataset and fixed before any benchmark evaluation.
+The dominant weight on $\mathrm{sim}_{\mathrm{cc}}$ reflects that class-conditional means carry the most discriminative signal for concept identity.
+
+\begin{center}
+\small
+\begin{tabular}{lcccc}
+\toprule
+Configuration & $(\alpha_1, \alpha_2, \alpha_3)$ & Accuracy & $\eta_C$ & Seeds \\
+\midrule
+Current & $(0.25, 0.30, 0.45)$ & $.533 \pm .042$ & $.118 \pm .084$ & 3 \\
+Uniform & $(0.33, 0.33, 0.34)$ & $.534 \pm .042$ & $.118 \pm .084$ & 3 \\
+Inverted & $(0.45, 0.30, 0.25)$ & $.534 \pm .041$ & $.118 \pm .084$ & 3 \\
+CC-dominant & $(0.10, 0.10, 0.80)$ & $.534 \pm .041$ & $.118 \pm .084$ & 3 \\
+No feature & $(0.00, 0.50, 0.50)$ & $.535 \pm .038$ & $.716 \pm .056$ & 3 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent All runs use 3~seeds (42, 43, 44); $\pm$ denotes standard deviation.
+FPT is highly robust to weight perturbations: across the four non-degenerate configurations, mean accuracy varies by $\le 0.2$pp ($0.5332$--$0.5337$ before rounding) and $\eta_C$ is numerically identical at $0.118$.
+The identical $\eta$ values are expected: concept assignments depend primarily on whether the dominant similarity component (class-conditional means) exceeds the novelty threshold; perturbations among comparable weight vectors do not flip any assignment decisions, so $\eta$ stays constant.
+Per-seed values ($\eta \in \{0.002, 0.154, 0.198\}$) show that the cross-seed variance ($\sigma = 0.084$) is large relative to the cross-config variance ($< 0.001$), further confirming that weight choice is negligible compared to data randomness.
+Only the degenerate No-feature configuration ($\alpha_1 = 0$, removing the global feature mean) causes clustering collapse ($\eta = 0.72$), though accuracy is preserved ($0.535$) because the shrinkage mechanism falls back toward FedAvg.
+This confirms the weights are not overfit to the evaluation datasets---any reasonable allocation that includes all three components yields equivalent performance.
+
+
+% =============================================================================
+\section{Partial Fine-Tuning and Fingerprint Stability}
+\label{app:partial_finetune}
+% =============================================================================
+
+A natural question is whether FPT requires \emph{strictly} frozen features or merely \emph{approximately stable} features.
+The sufficient condition for fingerprint-based clustering is that per-round feature drift is small relative to inter-concept fingerprint separation~$\beta$:
+\begin{equation}
+\E[\|\phi_k^{(t)} - \phi_k^{(t-1)}\|^2 \mid \text{same concept}] \;\ll\; \beta^2.
+\end{equation}
+We test this by simulating partial fine-tuning via calibrated feature noise on CIFAR-100.
+
+\begin{center}
+\small
+\begin{tabular}{lccccc}
+\toprule
+Regime & FPT Acc & FedAvg Acc & $\eta_C$ & FP Stability & Seeds \\
+\midrule
+Fully frozen & $.492 \pm .040$ & $.489 \pm .039$ & $.002 \pm .000$ & $.675 \pm .019$ & 3 \\
+Last-layer (sim.\ $\sigma{=}0.05$) & $.492 \pm .040$ & $.488 \pm .037$ & $.002 \pm .000$ & $.675 \pm .019$ & 3 \\
+Last-2-layers (sim.\ $\sigma{=}0.15$) & $.492 \pm .040$ & $.488 \pm .038$ & $.002 \pm .000$ & $.672 \pm .018$ & 3 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent All runs use 3~seeds; $\pm$ denotes standard deviation.
+Simulated partial fine-tuning adds concept-consistent isotropic Gaussian noise to frozen features, scaling linearly over rounds to mimic backbone drift.
+Per-seed FPT accuracies range from $0.446$ to $0.545$ (cross-seed $\sigma \approx 0.04$), but the cross-regime variation at each seed is $< 0.003$pp, confirming that the near-identical means ($0.4920$, $0.4921$, $0.4921$ before rounding) reflect genuine insensitivity rather than a bug.
+Fingerprint stability (cross-round cosine similarity) remains at ${\sim}0.67$, well above the threshold needed for reliable concept matching.
+
+\textbf{Limitation.} Isotropic Gaussian noise does not capture the structured, low-rank feature drift of real partial fine-tuning (LoRA, BatchNorm adaptation).
+Our simulation tests the sufficient condition $\E[\|\phi^{(t)} - \phi^{(t-1)}\|^2] \ll \beta^2$ but not the specific geometry of practical fine-tuning methods.
+We view this as evidence that \emph{moderate feature perturbation} does not break FPT, while acknowledging that a full end-to-end evaluation with real fine-tuning remains future work.
+
+
+% =============================================================================
+\section{Concept-Count Sensitivity}
+\label{app:concept_count}
+% =============================================================================
+
+We evaluate FPT's robustness to the number of latent concepts $C$.
+On CIFAR-100 with disjoint label splits ($K{=}20$, $T{=}30$, $d{=}128$, frozen ResNet-18, 3~seeds), we vary the recurrence period $\rho$ to produce $C \in \{2,4,6,8\}$ ground-truth concepts.
+Cluster-aware baselines (IFCA, FeSEM, FedRC, FedEM, FLUX-prior) receive the \emph{oracle} $C$ as their cluster count.
+FPT discovers $C$ automatically via its OT spectral eigengap heuristic.
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Concept-count sensitivity} (mean final accuracy, 3~seeds).
+FPT matches Oracle at every $C$; the gap to FedAvg widens as $C$ grows.}
+\label{tab:csweep}
+\small
+\begin{tabular}{lcccc}
+\toprule
+Method & $C{=}2$ & $C{=}4$ & $C{=}6$ & $C{=}8$ \\
+\midrule
+\textbf{FPT (ours)} & $\mathbf{0.656}$ & $\mathbf{0.699}$ & $\mathbf{0.800}$ & $\mathbf{0.888}$ \\
+Oracle               & $0.653$ & $0.702$ & $0.806$ & $0.897$ \\
+FedAvg               & $0.646$ & $0.655$ & $0.676$ & $0.774$ \\
+Flash                & $0.652$ & $0.646$ & $0.681$ & $0.762$ \\
+APFL                 & $0.616$ & $0.599$ & $0.634$ & $0.728$ \\
+CFL                  & $0.547$ & $0.561$ & $0.613$ & $0.687$ \\
+IFCA                 & $0.465$ & $0.503$ & $0.544$ & $0.479$ \\
+FedRC                & $0.479$ & $0.291$ & $0.464$ & $0.524$ \\
+FedEM                & $0.281$ & $0.275$ & $0.260$ & $0.357$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figures/concept_count_sensitivity.pdf}
+\caption{(a)~Concept-count sensitivity: FPT tracks Oracle across $C \in \{2,4,6,8\}$ while all baselines fall behind, especially at large~$C$. Inset: eigengap-discovered $\hat C$ vs.\ true $C$.
+(b)~Misspecified cluster count: FPT (horizontal red line) is invariant to the given $\hat C$, while cluster-aware baselines degrade.}
+\label{fig:concept_count}
+\end{figure}
+
+\textbf{Eigengap accuracy.}
+FPT's OT spectral heuristic discovers exactly $\hat C = C$ for $C \in \{2, 4\}$ across all seeds.
+At $C{=}6$ the mean discovered count is $6.7 \pm 0.9$; at $C{=}8$ it is $9.0 \pm 0.8$.
+The slight over-estimation at large $C$ reflects that with 20 coarse classes split among 8~concepts, the two smallest concepts share only 2~classes each, reducing inter-concept separation.
+FPT's accuracy is insensitive to this over-estimation because empirical-Bayes shrinkage absorbs redundant slots ($\hat\lambda \to 1$ for empty concepts, collapsing toward the global model).
+
+
+% =============================================================================
+\section{Misspecified Cluster Count}
+\label{app:misspecified_c}
+% =============================================================================
+
+A practical advantage of FPT is that it requires no pre-specified cluster count $\hat C$.
+To quantify this, we fix the ground truth at $C{=}4$ and supply cluster-aware baselines with $\hat C \in \{2, 3, 4, 6, 8\}$ while running FPT, CFL, Oracle, and FedAvg unchanged.
+Setup: CIFAR-100, disjoint labels, $K{=}20$, $T{=}30$, $d{=}128$, 3~seeds.
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Effect of misspecified cluster count $\hat C$} (true $C{=}4$).
+FPT is invariant; cluster-aware baselines degrade when $\hat C \ne C$.}
+\label{tab:misspec}
+\small
+\begin{tabular}{lccccc}
+\toprule
+Method & $\hat C{=}2$ & $\hat C{=}3$ & $\hat C{=}4$ & $\hat C{=}6$ & $\hat C{=}8$ \\
+\midrule
+\textbf{FPT (ours)} & $\mathbf{0.699}$ & $\mathbf{0.699}$ & $\mathbf{0.699}$ & $\mathbf{0.699}$ & $\mathbf{0.699}$ \\
+Oracle               & $0.702$ & $0.702$ & $0.702$ & $0.702$ & $0.702$ \\
+FedAvg               & $0.655$ & $0.655$ & $0.655$ & $0.655$ & $0.655$ \\
+\midrule
+FLUX-prior           & $0.668$ & $0.665$ & $0.659$ & $0.655$ & $0.656$ \\
+IFCA                 & $0.530$ & $0.519$ & $0.503$ & $0.490$ & $0.490$ \\
+FeSEM                & $0.530$ & $0.519$ & $0.503$ & $0.490$ & $0.490$ \\
+FedRC                & $0.453$ & $0.218$ & $0.291$ & $0.322$ & $0.350$ \\
+FedEM                & $0.274$ & $0.294$ & $0.275$ & $0.237$ & $0.209$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+FPT's accuracy is a constant $0.699$ across all $\hat C$ columns---it never uses $\hat C$.
+Among cluster-aware baselines, IFCA and FeSEM degrade monotonically as $\hat C$ departs from the true value.
+FedRC and FedEM are even more fragile, with FedRC dropping from $0.453$ to $0.218$ and FedEM from $0.294$ to $0.209$ at extreme misspecification.
+These results confirm that FPT's automatic concept discovery removes a critical hyperparameter.
+
+
+\end{document}

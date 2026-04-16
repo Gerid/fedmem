@@ -224,7 +224,7 @@ class TwoPhaseConfig:
     # within-concept noise, the Stein estimate of σ_B² is unreliable and
     # shrinkage collapses per-concept models into FedAvg. Gate λ by the
     # observed SNR r = σ_B² / (σ²·d_eff/n̄_k); set λ=0 when r < threshold.
-    drct_snr_gate: bool = False
+    drct_snr_gate: bool = True
     drct_snr_threshold: float = 1.0
     # EMA smoothing of σ_B² / σ² across rounds. Single-round estimates are
     # noisy in low-SNR regimes; EMA stabilises them assuming drift is slow.
