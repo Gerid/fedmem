@@ -1,0 +1,213 @@
+\relax 
+\bibstyle{plainnat}
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{mcmahan2017communication,kairouz2021advances}
+\citation{gama2014survey,lu2018learning}
+\citation{jothimurugesan2023federated,panchal2023flash}
+\citation{ghosh2020efficient,sattler2021clustered,marfoq2021federated,guo2024fedrc,licciardi2025fedgwc}
+\citation{chen2023minimax,yu2025minimax,mansour2020three}
+\citation{long2023multi,kim2024gradient}
+\citation{fedtcm2023}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\newlabel{sec:intro}{{1}{1}{Introduction}{section.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces \textbf  {Protocol ordering: the core design choice.} \emph  {Top} (Scheme~A, red): existing methods cluster clients \emph  {after} local training---stale model initialisations contaminate weight updates, yielding an empirically observed clustering-error floor $\eta _A \ge 0.30$ across the datasets we study (cf.\ Theorem~\ref {thm:protocol}). \emph  {Bottom} (Scheme~C, green): FedProTrack clusters \emph  {before} training using lightweight data fingerprints, then sends concept-matched models to clients, achieving $\eta _C = 0.003$---a $200\times $ improvement.}}{2}{figure.1}\protected@file@percent }
+\newlabel{fig:protocol}{{1}{2}{\textbf {Protocol ordering: the core design choice.} \emph {Top} (Scheme~A, red): existing methods cluster clients \emph {after} local training---stale model initialisations contaminate weight updates, yielding an empirically observed clustering-error floor $\eta _A \ge 0.30$ across the datasets we study (cf.\ Theorem~\ref {thm:protocol}). \emph {Bottom} (Scheme~C, green): FedProTrack clusters \emph {before} training using lightweight data fingerprints, then sends concept-matched models to clients, achieving $\eta _C = 0.003$---a $200\times $ improvement}{figure.1}{}}
+\citation{ghosh2020efficient}
+\citation{sattler2021clustered}
+\citation{marfoq2021federated}
+\citation{guo2024fedrc}
+\citation{licciardi2025fedgwc}
+\citation{kim2024gradient}
+\citation{fedtcm2023}
+\citation{deng2020adaptive}
+\citation{li2021ditto}
+\citation{t2020personalized}
+\citation{li2021fedbn}
+\citation{arivazhagan2019fedper}
+\citation{collins2021exploiting}
+\citation{oh2022fedbabu}
+\citation{li2021model}
+\citation{tan2022fedproto}
+\citation{zhang2023fedala}
+\citation{jothimurugesan2023federated}
+\citation{panchal2023flash}
+\citation{chen2024fedccfa}
+\citation{gama2014survey,lu2018learning}
+\citation{li2020federated}
+\citation{karimireddy2020scaffold}
+\citation{reddi2021adaptive,wu2023faster}
+\citation{nguyen2022fedsr}
+\citation{chen2023minimax}
+\citation{yu2025minimax}
+\citation{james1961estimation,efron1973stein,fedstein2024}
+\citation{lei2015consistency,loffler2021optimality,von2007tutorial}
+\@writefile{toc}{\contentsline {section}{\numberline {2}Related Work}{3}{section.2}\protected@file@percent }
+\newlabel{sec:related}{{2}{3}{Related Work}{section.2}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Preliminaries}{3}{section.3}\protected@file@percent }
+\newlabel{sec:prelim}{{3}{3}{Preliminaries}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Problem Setting}{3}{subsection.3.1}\protected@file@percent }
+\citation{efron1973stein,james1961estimation}
+\citation{sattler2021clustered}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces The crossover condition. \emph  {Left}: bias-variance tradeoff. \emph  {Center}: sharp threshold $\mathrm  {SNR} > C{-}1$, validated on 609 synthetic configurations. \emph  {Right}: imperfect clustering as implicit shrinkage---moderate $\eta $ can outperform Oracle when $K/C$ is small.}}{4}{figure.2}\protected@file@percent }
+\newlabel{fig:tradeoff}{{2}{4}{The crossover condition. \emph {Left}: bias-variance tradeoff. \emph {Center}: sharp threshold $\mathrm {SNR} > C{-}1$, validated on 609 synthetic configurations. \emph {Right}: imperfect clustering as implicit shrinkage---moderate $\eta $ can outperform Oracle when $K/C$ is small}{figure.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}When Does Concept-Level Aggregation Help?}{4}{subsection.3.2}\protected@file@percent }
+\newlabel{prop:decomposition}{{1}{4}{Bias-Variance Decomposition}{theorem.1}{}}
+\newlabel{cor:implicit}{{2}{4}{Implicit Shrinkage}{theorem.2}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Method: FedProTrack}{5}{section.4}\protected@file@percent }
+\newlabel{sec:method}{{4}{5}{Method: FedProTrack}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Theoretical Foundation: Protocol Ordering}{5}{subsection.4.1}\protected@file@percent }
+\newlabel{sec:protocol_ordering}{{4.1}{5}{Theoretical Foundation: Protocol Ordering}{subsection.4.1}{}}
+\newlabel{def:protocols}{{3}{5}{Protocols}{theorem.3}{}}
+\newlabel{thm:protocol}{{4}{5}{Stale-Initialisation Amplification}{theorem.4}{}}
+\newlabel{eq:amplification}{{2}{5}{Stale-Initialisation Amplification}{equation.4.2}{}}
+\newlabel{eq:protocol}{{3}{5}{Stale-Initialisation Amplification}{equation.4.3}{}}
+\citation{he2016deep}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces \textbf  {FedProTrack pipeline (one federation round).} Module~1 (blue): each client computes a class-conditional fingerprint $\phi _k$ in a single pass ($\mathcal  {O}(dL)$ bytes, no training). Module~2 (green): the server performs OT spectral clustering with eigengap-based concept-count selection and matches clusters to a persistent memory bank. Module~3 (orange): clients receive concept-matched models and perform local training; per-concept FedAvg aggregation follows. Module~4 (purple): empirical-Bayes shrinkage interpolates between concept-level and global models based on estimated SNR. Communication overhead: $2.1\times $ FedAvg.}}{6}{figure.3}\protected@file@percent }
+\newlabel{fig:pipeline}{{3}{6}{\textbf {FedProTrack pipeline (one federation round).} Module~1 (blue): each client computes a class-conditional fingerprint $\phi _k$ in a single pass ($\mathcal {O}(dL)$ bytes, no training). Module~2 (green): the server performs OT spectral clustering with eigengap-based concept-count selection and matches clusters to a persistent memory bank. Module~3 (orange): clients receive concept-matched models and perform local training; per-concept FedAvg aggregation follows. Module~4 (purple): empirical-Bayes shrinkage interpolates between concept-level and global models based on estimated SNR. Communication overhead: $2.1\times $ FedAvg}{figure.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Fingerprint Extraction}{6}{subsection.4.2}\protected@file@percent }
+\newlabel{sec:fingerprint}{{4.2}{6}{Fingerprint Extraction}{subsection.4.2}{}}
+\citation{von2007tutorial}
+\citation{villani2009optimal}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Concept Discovery via OT Spectral Clustering}{7}{subsection.4.3}\protected@file@percent }
+\newlabel{sec:discovery}{{4.3}{7}{Concept Discovery via OT Spectral Clustering}{subsection.4.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Concept-Matched Training and Aggregation}{7}{subsection.4.4}\protected@file@percent }
+\newlabel{sec:matched_train}{{4.4}{7}{Concept-Matched Training and Aggregation}{subsection.4.4}{}}
+\citation{krizhevsky2009learning}
+\citation{xiao2017fashion}
+\citation{koh2021wilds}
+\citation{krizhevsky2009learning}
+\citation{he2016deep}
+\citation{chen2022on,oh2022fedbabu,collins2021exploiting}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5}Adaptive Shrinkage}{8}{subsection.4.5}\protected@file@percent }
+\newlabel{sec:shrinkage}{{4.5}{8}{Adaptive Shrinkage}{subsection.4.5}{}}
+\newlabel{eq:shrinkage}{{7}{8}{Adaptive Shrinkage}{equation.4.7}{}}
+\newlabel{eq:lambda}{{8}{8}{Adaptive Shrinkage}{equation.4.8}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Experiments}{8}{section.5}\protected@file@percent }
+\newlabel{sec:experiments}{{5}{8}{Experiments}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Setup}{8}{subsection.5.1}\protected@file@percent }
+\citation{ghosh2020efficient}
+\citation{sattler2021clustered}
+\citation{marfoq2021federated}
+\citation{guo2024fedrc}
+\citation{licciardi2025fedgwc}
+\citation{jothimurugesan2023federated}
+\citation{panchal2023flash}
+\citation{chen2024fedccfa}
+\citation{li2020federated}
+\citation{deng2020adaptive}
+\citation{t2020personalized}
+\citation{li2021ditto}
+\citation{karimireddy2020scaffold}
+\citation{reddi2021adaptive}
+\citation{mcmahan2017communication}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces FedProTrack: One Federation Round}}{9}{algorithm.1}\protected@file@percent }
+\newlabel{alg:fpt}{{1}{9}{Adaptive Shrinkage}{algorithm.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Main Results}{9}{subsection.5.2}\protected@file@percent }
+\citation{jothimurugesan2023federated}
+\citation{guo2024fedrc}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces \textbf  {Accuracy and clustering error ($\eta $) across 4~datasets.} CIFAR-100: 5~configurations varying clients $K$ and classes-per-client $\rho $, 3~seeds each; other datasets: mean $\pm $ std over 3~seeds ($K{=}20$, $\rho {=}25$). Full 26-method ranking in Table~\ref {tab:full}. \textbf  {Bold}: best non-Oracle. $\eta $: symmetric clustering error (lower is better; ``---'': non-clustering). All methods use identical training budgets.}}{10}{table.1}\protected@file@percent }
+\newlabel{tab:main}{{1}{10}{\textbf {Accuracy and clustering error ($\eta $) across 4~datasets.} CIFAR-100: 5~configurations varying clients $K$ and classes-per-client $\rho $, 3~seeds each; other datasets: mean $\pm $ std over 3~seeds ($K{=}20$, $\rho {=}25$). Full 26-method ranking in Table~\ref {tab:full}. \textbf {Bold}: best non-Oracle. $\eta $: symmetric clustering error (lower is better; ``---'': non-clustering). All methods use identical training budgets}{table.1}{}}
+\citation{chen2022on,oh2022fedbabu}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces \textbf  {Component ablation on CIFAR-100} ($K{=}40$, $\rho {=}33$, 3~seeds). Each row removes one module from the full FPT pipeline.}}{11}{table.2}\protected@file@percent }
+\newlabel{tab:ablation}{{2}{11}{\textbf {Component ablation on CIFAR-100} ($K{=}40$, $\rho {=}33$, 3~seeds). Each row removes one module from the full FPT pipeline}{table.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Analysis}{11}{subsection.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Conclusion}{11}{section.6}\protected@file@percent }
+\newlabel{sec:conclusion}{{6}{11}{Conclusion}{section.6}{}}
+\bibdata{references}
+\bibcite{arivazhagan2019fedper}{{1}{2019}{{Arivazhagan et~al.}}{{Arivazhagan, Aggarwal, Singh, and Choudhary}}}
+\bibcite{chen2022on}{{2}{2022}{{Chen and Chao}}{{}}}
+\bibcite{chen2024fedccfa}{{3}{2024}{{Chen and Chao}}{{}}}
+\bibcite{chen2023minimax}{{4}{2023}{{Chen et~al.}}{{Chen, Dou, and Cai}}}
+\bibcite{collins2021exploiting}{{5}{2021}{{Collins et~al.}}{{Collins, Hassani, Mokhtari, and Shakkottai}}}
+\bibcite{deng2020adaptive}{{6}{2020}{{Deng et~al.}}{{Deng, Kamani, and Mahdavi}}}
+\bibcite{efron1973stein}{{7}{1973}{{Efron and Morris}}{{}}}
+\bibcite{gama2014survey}{{8}{2014}{{Gama et~al.}}{{Gama, {\v {Z}}liobait{\.e}, Bifet, Pechenizkiy, and Bouchachia}}}
+\bibcite{ghosh2020efficient}{{9}{2020}{{Ghosh et~al.}}{{Ghosh, Chung, Yin, and Ramchandran}}}
+\bibcite{guo2024fedrc}{{10}{2024}{{Guo et~al.}}{{Guo, Guo, Li, and Lin}}}
+\bibcite{he2016deep}{{11}{2016}{{He et~al.}}{{He, Zhang, Ren, and Sun}}}
+\bibcite{james1961estimation}{{12}{1961}{{James and Stein}}{{}}}
+\bibcite{jothimurugesan2023federated}{{13}{2023}{{Jothimurugesan et~al.}}{{Jothimurugesan, Hsieh, Wang, Joshi, and Gibbons}}}
+\bibcite{kairouz2021advances}{{14}{2021}{{Kairouz et~al.}}{{Kairouz, McMahan, Avent, Bellet, Bennis, Bhagoji, Bonawitz, Charles, Cormode, Cummings, et~al.}}}
+\bibcite{karimireddy2020scaffold}{{15}{2020}{{Karimireddy et~al.}}{{Karimireddy, Kale, Mohri, Reddi, Stich, and Suresh}}}
+\bibcite{kim2024gradient}{{16}{2024}{{Kim et~al.}}{{Kim, Kim, and De~Veciana}}}
+\bibcite{koh2021wilds}{{17}{2021}{{Koh et~al.}}{{Koh, Sagawa, Marklund, Xie, Zhang, Balsubramani, Hu, Yasunaga, Phillips, Gao, Lee, David, Stavness, Guo, Earnshaw, Haque, Beery, Leskovec, Kundaje, Picard, Recht, Duchi, and Liang}}}
+\bibcite{krizhevsky2009learning}{{18}{2009}{{Krizhevsky}}{{}}}
+\bibcite{lei2015consistency}{{19}{2015}{{Lei and Rinaldo}}{{}}}
+\bibcite{li2021model}{{20}{2021{a}}{{Li et~al.}}{{Li, He, and Song}}}
+\bibcite{li2020federated}{{21}{2020}{{Li et~al.}}{{Li, Sahu, Zaheer, Sanjabi, Talwalkar, and Smith}}}
+\bibcite{li2021ditto}{{22}{2021{b}}{{Li et~al.}}{{Li, Hu, Beirami, and Smith}}}
+\bibcite{li2021fedbn}{{23}{2021{c}}{{Li et~al.}}{{Li, Jiang, Zhang, Kamp, and Dou}}}
+\bibcite{licciardi2025fedgwc}{{24}{2025}{{Licciardi et~al.}}{{Licciardi, Fabbri, Fantacci, and Luise}}}
+\bibcite{loffler2021optimality}{{25}{2021}{{L{\"o}ffler et~al.}}{{L{\"o}ffler, Zhang, and Zhou}}}
+\bibcite{long2023multi}{{26}{2023}{{Long et~al.}}{{Long, Xie, Shen, Zhou, Wang, and Jiang}}}
+\bibcite{lu2018learning}{{27}{2018}{{Lu et~al.}}{{Lu, Liu, Dong, Gu, Gama, and Zhang}}}
+\bibcite{mansour2020three}{{28}{2020}{{Mansour et~al.}}{{Mansour, Mohri, Ro, and Suresh}}}
+\bibcite{marfoq2021federated}{{29}{2021}{{Marfoq et~al.}}{{Marfoq, Neglia, Bellet, Kameni, and Vidal}}}
+\bibcite{mcmahan2017communication}{{30}{2017}{{McMahan et~al.}}{{McMahan, Moore, Ramage, Hampson, and Arcas}}}
+\bibcite{nguyen2022fedsr}{{31}{2022}{{Nguyen et~al.}}{{Nguyen, Torr, and Lim}}}
+\bibcite{oh2022fedbabu}{{32}{2022}{{Oh et~al.}}{{Oh, Kim, and Yun}}}
+\bibcite{panchal2023flash}{{33}{2023}{{Panchal et~al.}}{{Panchal, Choudhary, Mitra, Mukherjee, Sarkhel, Mitra, and Guan}}}
+\bibcite{reddi2021adaptive}{{34}{2021}{{Reddi et~al.}}{{Reddi, Charles, Zaheer, Garrett, Rush, Kone{\v {c}}n{\`y}, Kumar, and McMahan}}}
+\bibcite{sattler2021clustered}{{35}{2021}{{Sattler et~al.}}{{Sattler, M{\"u}ller, and Samek}}}
+\bibcite{fedstein2024}{{36}{2024}{{Sontakke et~al.}}{{Sontakke, Baheri, and Mohassel}}}
+\bibcite{t2020personalized}{{37}{2020}{{T~Dinh et~al.}}{{T~Dinh, Tran, and Nguyen}}}
+\bibcite{tan2022fedproto}{{38}{2022}{{Tan et~al.}}{{Tan, Long, Liu, Zhou, Lu, Jiang, and Zhang}}}
+\bibcite{villani2009optimal}{{39}{2009}{{Villani}}{{}}}
+\bibcite{von2007tutorial}{{40}{2007}{{Von~Luxburg}}{{}}}
+\bibcite{wu2023faster}{{41}{2023}{{Wu et~al.}}{{Wu, Huang, Hu, and Huang}}}
+\bibcite{xiao2017fashion}{{42}{2017}{{Xiao et~al.}}{{Xiao, Rasul, and Vollgraf}}}
+\bibcite{fedtcm2023}{{43}{2023}{{Yang et~al.}}{{Yang, Hu, Salazar, Liu, and Li}}}
+\bibcite{yu2025minimax}{{44}{2025}{{Yu et~al.}}{{Yu, He, Sun, Xue, and Li}}}
+\bibcite{zhang2023fedala}{{45}{2023}{{Zhang et~al.}}{{Zhang, Hua, Wang, Song, Xue, Ma, and Guan}}}
+\@writefile{toc}{\contentsline {section}{\numberline {A}Proof of Theorem~\ref {thm:protocol} (Stale-Initialisation Amplification)}{15}{appendix.A}\protected@file@percent }
+\newlabel{app:proof_protocol}{{A}{15}{Proof of Theorem~\ref {thm:protocol} (Stale-Initialisation Amplification)}{appendix.A}{}}
+\newlabel{lem:gaussian_clustering}{{5}{15}{Gaussian Clustering Error Bound, two-class case}{theorem.5}{}}
+\newlabel{lem:info_indirectness}{{6}{15}{Information Indirectness under the Gaussian Linear Model}{theorem.6}{}}
+\citation{james1961estimation,efron1973stein}
+\@writefile{toc}{\contentsline {section}{\numberline {B}Proof of Corollary~\ref {cor:implicit} (Implicit Shrinkage from Imperfect Clustering)}{16}{appendix.B}\protected@file@percent }
+\newlabel{app:proof_implicit}{{B}{16}{Proof of Corollary~\ref {cor:implicit} (Implicit Shrinkage from Imperfect Clustering)}{appendix.B}{}}
+\newlabel{eq:contam_cond}{{12}{16}{Proof of Corollary~\ref {cor:implicit} (Implicit Shrinkage from Imperfect Clustering)}{equation.B.12}{}}
+\newlabel{eq:contam_mean}{{13}{16}{Proof of Corollary~\ref {cor:implicit} (Implicit Shrinkage from Imperfect Clustering)}{equation.B.13}{}}
+\newlabel{eq:contam_bias}{{14}{17}{Proof of Corollary~\ref {cor:implicit} (Implicit Shrinkage from Imperfect Clustering)}{equation.B.14}{}}
+\newlabel{eq:contam_cross}{{15}{17}{Proof of Corollary~\ref {cor:implicit} (Implicit Shrinkage from Imperfect Clustering)}{equation.B.15}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {C}Clean Scheme A Clustering Error}{17}{appendix.C}\protected@file@percent }
+\newlabel{app:clean_eta}{{C}{17}{Clean Scheme A Clustering Error}{appendix.C}{}}
+\@writefile{toc}{\contentsline {paragraph}{The IFCA paradox: why higher $\eta $ can yield higher accuracy.}{17}{section*.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {D}Crossover Extensions}{18}{appendix.D}\protected@file@percent }
+\newlabel{app:extensions}{{D}{18}{Crossover Extensions}{appendix.D}{}}
+\newlabel{eq:unbal-crossover}{{16}{18}{Crossover Extensions}{equation.D.16}{}}
+\newlabel{eq:noisy-crossover}{{17}{18}{Crossover Extensions}{equation.D.17}{}}
+\newlabel{eq:prop-crossover}{{18}{18}{Crossover Extensions}{equation.D.18}{}}
+\newlabel{eq:deff-crossover}{{19}{18}{Crossover Extensions}{equation.D.19}{}}
+\newlabel{eq:unified}{{20}{19}{Crossover Extensions}{equation.D.20}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {E}Full 26-Method Rankings}{19}{appendix.E}\protected@file@percent }
+\newlabel{app:full_rankings}{{E}{19}{Full 26-Method Rankings}{appendix.E}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {F}Clustering Error Across the Cluster-After-Train Family}{19}{appendix.F}\protected@file@percent }
+\newlabel{app:eta_full}{{F}{19}{Clustering Error Across the Cluster-After-Train Family}{appendix.F}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {G}Non-Recurrence Fallback}{19}{appendix.G}\protected@file@percent }
+\newlabel{app:nonrecurrence}{{G}{19}{Non-Recurrence Fallback}{appendix.G}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {H}EMNIST End-to-End CNN}{19}{appendix.H}\protected@file@percent }
+\newlabel{app:emnist}{{H}{19}{EMNIST End-to-End CNN}{appendix.H}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces \textbf  {Full 26-method accuracy ranking across 4~datasets.} CIFAR-100 reports cross-configuration mean (5~configs $\times $ 3~seeds); others use $K{=}20$, $\rho {=}25$, 3~seeds. Ranked by CIFAR-100. \textbf  {Bold}: best non-Oracle.}}{20}{table.3}\protected@file@percent }
+\newlabel{tab:full}{{3}{20}{\textbf {Full 26-method accuracy ranking across 4~datasets.} CIFAR-100 reports cross-configuration mean (5~configs $\times $ 3~seeds); others use $K{=}20$, $\rho {=}25$, 3~seeds. Ranked by CIFAR-100. \textbf {Bold}: best non-Oracle}{table.3}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {I}K-Scaling on CIFAR-100}{20}{appendix.I}\protected@file@percent }
+\newlabel{app:kscaling}{{I}{20}{K-Scaling on CIFAR-100}{appendix.I}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {J}Shrinkage Coefficient on CIFAR-10}{20}{appendix.J}\protected@file@percent }
+\newlabel{app:lambda_diagnostic}{{J}{20}{Shrinkage Coefficient on CIFAR-10}{appendix.J}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {K}Similarity Weight Sensitivity}{21}{appendix.K}\protected@file@percent }
+\newlabel{app:weight_sensitivity}{{K}{21}{Similarity Weight Sensitivity}{appendix.K}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {L}Partial Fine-Tuning and Fingerprint Stability}{21}{appendix.L}\protected@file@percent }
+\newlabel{app:partial_finetune}{{L}{21}{Partial Fine-Tuning and Fingerprint Stability}{appendix.L}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {M}Concept-Count Sensitivity}{22}{appendix.M}\protected@file@percent }
+\newlabel{app:concept_count}{{M}{22}{Concept-Count Sensitivity}{appendix.M}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces \textbf  {Concept-count sensitivity} (mean final accuracy, 3~seeds). FPT matches Oracle at every $C$; the gap to FedAvg widens as $C$ grows.}}{22}{table.4}\protected@file@percent }
+\newlabel{tab:csweep}{{4}{22}{\textbf {Concept-count sensitivity} (mean final accuracy, 3~seeds). FPT matches Oracle at every $C$; the gap to FedAvg widens as $C$ grows}{table.4}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {N}Misspecified Cluster Count}{22}{appendix.N}\protected@file@percent }
+\newlabel{app:misspecified_c}{{N}{22}{Misspecified Cluster Count}{appendix.N}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces (a)~Concept-count sensitivity: FPT tracks Oracle across $C \in \{2,4,6,8\}$ while all baselines fall behind, especially at large~$C$. Inset: eigengap-discovered $\hat  C$ vs.\ true $C$. (b)~Misspecified cluster count: FPT (horizontal red line) is invariant to the given $\hat  C$, while cluster-aware baselines degrade.}}{23}{figure.4}\protected@file@percent }
+\newlabel{fig:concept_count}{{4}{23}{(a)~Concept-count sensitivity: FPT tracks Oracle across $C \in \{2,4,6,8\}$ while all baselines fall behind, especially at large~$C$. Inset: eigengap-discovered $\hat C$ vs.\ true $C$. (b)~Misspecified cluster count: FPT (horizontal red line) is invariant to the given $\hat C$, while cluster-aware baselines degrade}{figure.4}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces \textbf  {Effect of misspecified cluster count $\hat  C$} (true $C{=}4$). FPT is invariant; cluster-aware baselines degrade when $\hat  C \ne  C$.}}{23}{table.5}\protected@file@percent }
+\newlabel{tab:misspec}{{5}{23}{\textbf {Effect of misspecified cluster count $\hat C$} (true $C{=}4$). FPT is invariant; cluster-aware baselines degrade when $\hat C \ne C$}{table.5}{}}
+\gdef \@abspage@last{23}

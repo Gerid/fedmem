@@ -1,0 +1,75 @@
+=== RunPod Experiment Submission ===
+  Script:   run_cifar100_neurips_benchmark.py
+  Seeds:    [42, 43, 44]
+  FPT mode: ot
+
+  Submitted seed=42 -> 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1
+  Submitted seed=43 -> 0bf55087-a4c5-401c-bed8-9daa96796552-u1
+  Submitted seed=44 -> 05a82bb5-cc73-4d98-9a0d-11956b24e219-u1
+
+=== Waiting for 3 jobs ===
+    [0s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [10s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [21s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [32s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [42s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [53s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [63s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [74s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [84s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [95s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [105s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [116s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [127s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [138s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [148s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [159s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [169s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [180s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [191s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [201s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [212s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [222s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [233s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [243s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [254s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [264s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [275s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [286s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [296s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [307s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [318s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [328s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [339s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [350s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [360s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [371s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [381s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [392s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [402s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [413s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [423s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [434s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [444s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [455s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [465s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [476s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [486s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [497s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [507s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [518s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [529s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [539s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [550s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [560s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+    [571s] 8eaf1419-d0d9-4697-aa3e-5737349f70f3-u1: IN_PROGRESS
+  seed=42: OK (rc=0)  delay=1.1s  exec=573.3s  worker=phcycj78lc8u6q
+  seed=43: OK (rc=0)  delay=96.2s  exec=91.6s  worker=g2upswx6m6nd8a
+  seed=44: OK (rc=0)  delay=188.3s  exec=88.3s  worker=g2upswx6m6nd8a
+
+  [ledger] appended 3 rows to tmp\runpod_cost_ledger.jsonl
+  [cost]   est. total for this batch: $0.1205 (A4000 rate)
+
+Results saved to runpod_results_cifar10_ot_warmup_3.json
+
+=== Done: 3/3 seeds succeeded ===

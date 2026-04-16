@@ -35,9 +35,23 @@ sweep_*/
 *.h5
 *.hdf5
 
+# Experiment artifacts / junk
+tmp/
+runpod_*.json
+results_*.json
+neurips_*.json
+REVIEW_STATE.json
+.cifar10_cache/
+.emnist_cache/
+.fmnist_cache/
+refine-logs/
+*.swp
+%SystemDrive%/
+
 # Misc
 NeurIPS2026_*.md
 docs/PHASE3_RESULTS_AND_INSIGHTS.md
 docs/PHASE4_FAILURE_ANALYSIS_AND_TARGETED_FIX_PLAN.md
 docs/fedprotracker_theory_md_and_tex.md
 docs/neurips_theory_experiment_bridge_section.md
+tools/PaperBanana/

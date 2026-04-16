@@ -98,6 +98,7 @@ class DriftResult:
 - 测试文件位于 `tests/`，命名为 `test_<module>.py`。
 - 完整测试命令：`conda run -n base python -m pytest tests/ -v`
 - 快速校验命令：`conda run -n base python -m pytest tests/ -m "not slow" -v`
+- Research pipeline 审查：`conda run -n base python -m fedprotrack.research_review --strict`
 - 研究摘要管理命令：`conda run -n base python manage_findings.py save/list/show/promote ...`
 - 当前测试树用 `pytest --collect-only` 可收集 381 个测试；`slow` 测试可能下载 MNIST / CIFAR-100 或构建特征缓存。任何改动后都必须保持测试为绿。
 - 新增功能必须附带测试，至少覆盖正常路径、边界条件和异常输入。
@@ -113,75 +114,13 @@ class DriftResult:
 - Code directory: `/mnt/e/fedprotrack/`
 - 适合：单 seed 验证、代码调试、结果分析
 
-### Remote Server — 阿里云 ACS（正式实验，多 seed 并行）
+### Remote Server — RunPod（正式实验，多 seed 并行）
 
-**`/run-experiment` skill 必须按此配置执行远程实验。不用 SSH，用 kubectl。**
+**阿里云 ACS / kubectl / k8s/ 目录下的脚本已全部废弃，不要再用。** 远程实验统一走 RunPod；`/run-experiment` skill 内保存了 RunPod 连接配置和 API key，执行远程实验时由该 skill 驱动。
 
-**连接方式**：
-- kubectl: `export PATH=~/.npm-global/bin:$PATH && kubectl`
-- kubeconfig: `~/.kube/config`（已配置）
-
-**集群规格**：
-- 节点: ACS serverless virtual-kubelet `cn-hangzhou-i`
-- GPU: Tesla T4 16GB（按需弹出，支持多容器并行）
-- 镜像: `crpi-fq0antf4huoiu310.cn-hangzhou.personal.cr.aliyuncs.com/fedlab/fedprotracker:latest`（已缓存，拉取 < 1s）
-- 镜像凭证: K8s Secret `acr-secret`
-
-**NAS 持久化存储**（PVC `fedprotrack-nas-pvc`，已 Bound）：
-- `/workspace/nas/code/` — 最新项目代码
-- `/workspace/nas/cache/` — CIFAR-100 数据集 + ResNet 特征缓存（已持久化）
-- `/workspace/nas/results/` — 实验输出
-
-**实验执行流程（`/run-experiment` 必须遵循）**：
-
-1. **同步代码到 NAS**（改代码后必须执行）：
-   ```bash
-   bash k8s/sync-code-to-nas.sh
-   ```
-   如果 sync pod 不在运行，先启动它（见脚本内自动处理）。
-
-2. **提交实验 — 多 seed 并行**：
-   ```bash
-   bash k8s/submit-parallel-seeds.sh <script.py> <seed1> <seed2> ...
-   # 例: bash k8s/submit-parallel-seeds.sh run_omega_calibration_experiment.py 42 43 44 45 46
-   ```
-   每个 seed 一个独立 Job + 独立 T4 GPU，ACS 自动弹出容器并行执行。5 seeds 总时间 ≈ 单 seed 时间（~1-2 min）。
-
-3. **监控**：
-   ```bash
-   kubectl get jobs -l experiment=<experiment_name>
-   kubectl logs job/fpt-seed-42
-   ```
-
-4. **收集结果**：
-   ```bash
-   bash k8s/collect-results.sh <experiment_name>
-   ```
-
-**Job Pod 必须包含的 spec**（否则 ACS admission webhook 拒绝）：
-```yaml
-labels:
-  alibabacloud.com/compute-class: gpu
-  alibabacloud.com/gpu-model-series: T4
-annotations:
-  k8s.aliyun.com/eci-image-cache: "true"
-imagePullSecrets: [{ name: acr-secret }]
-resources:  # requests 必须等于 limits (Guaranteed QoS)
-  requests: { nvidia.com/gpu: 1, cpu: "4", memory: "16Gi" }
-  limits:   { nvidia.com/gpu: 1, cpu: "4", memory: "16Gi" }
-volumeMounts:
-  - { name: nas, mountPath: /workspace/nas }      # NAS 存储
-  - { name: dshm, mountPath: /dev/shm }           # PyTorch shared memory
-volumes:
-  - { name: nas, persistentVolumeClaim: { claimName: fedprotrack-nas-pvc } }
-  - { name: dshm, emptyDir: { medium: Memory, sizeLimit: 4Gi } }
-env:
-  PYTHONPATH: /workspace/nas/code:$PYTHONPATH
-```
-
-**实测性能**：镜像拉取 0.4s，Pod 启动到实验运行 ~30s，2 seeds 并行端到端 83s。
-
-**已知兼容性**：镜像 NumPy 2.4.3，`np.trapz` 已移除，用 `getattr(np, "trapezoid", None) or np.trapz`。
+- Handler 入口: `runpod/handler.py`
+- 结果落地: 仓库根目录 `runpod_*.json` / `runpod_log_*.txt`
+- 连接参数（endpoint、API key、镜像、存储卷）：见 `/run-experiment` skill 配置，不在此处重复。
 
 ---
 

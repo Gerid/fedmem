@@ -1,0 +1,77 @@
+project:
+  name: "FedProTrack Crossover Theory — NeurIPS 2026 Experiment Supplement"
+  question: "Do the theoretical extensions (noisy labels, unbalanced proportions, boundary calibration, effective dimension) hold empirically, and does the shrinkage estimator remain dominant under relaxed assumptions?"
+  status: "ACTIVE"
+  phase: "INNER_LOOP"  # Skip bootstrap, go directly to experiments
+
+literature:
+  status: "COMPLETE"  # Already done — paper is written
+  key_papers:
+    - id: "main_paper"
+      title: "When Does Concept-Level Aggregation Help? A Sharp Characterization"
+      relevance: "Our own paper. Base theorem: SNR > C-1 crossover. 108-config synthetic sweep + CIFAR-100 bridge."
+      path: "paper/main.tex"
+    - id: "extensions"
+      title: "Theoretical Extensions: Relaxing Assumptions"
+      relevance: "4 extensions: unbalanced, noisy labels, proportional high-dim, anisotropic. Unified Theorem 23."
+      path: "paper/extensions.pdf"
+  gaps:
+    - "No experiments for any of the 4 extensions"
+    - "91.7% alignment conflates stationary and non-stationary configs"
+    - "CIFAR-100 r_eff correction is post-hoc"
+    - "Shrinkage not evaluated on real data"
+
+evaluation:
+  proxy_metric: "theory_experiment_alignment_rate"
+  description: "Fraction of configurations where theoretical crossover prediction matches empirical winner (global vs concept-level)"
+  baseline_value: 0.917  # Current paper claim (108 configs, mixed stationary + non-stationary)
+  target_value: 0.95     # After boundary refinement and extension validation
+  higher_is_better: true
+
+hypotheses:
+  - id: "H1-boundary-sweep"
+    statement: "The 9/108 mismatches concentrate at SNR ≈ C-1; a boundary-focused sweep with denser SNR grid and more seeds will show finite-sample bias < 0.5 in the threshold."
+    status: "READY"
+    priority: 1
+    type: "CONFIRMATORY"
+    prediction: "Alignment rate for stationary-only configs ≥ 95%; non-stationary alignment reported separately."
+    experiment_template: "run_experiments.py (synthetic sweep framework)"
+
+  - id: "H2-noisy-labels"
+    statement: "Under symmetric label noise η, the empirical crossover threshold shifts to (C-1)/(1-ρ²) as predicted by Extension II Theorem 9."
+    status: "READY"
+    priority: 1
+    type: "CONFIRMATORY"
+    prediction: "Measured threshold within 10% of theoretical curve for η ∈ {0, 0.1, 0.2, 0.3, 0.5, 0.6}."
+    experiment_template: "NEW — needs run_noisy_label_crossover.py"
+
+  - id: "H3-shrinkage-cifar"
+    statement: "The James-Stein shrinkage estimator beats both pure FedAvg and pure Oracle on CIFAR-100 when SNR is near the crossover boundary."
+    status: "READY"
+    priority: 1
+    type: "CONFIRMATORY"
+    prediction: "Shrinkage achieves lowest MSE/highest accuracy in ≥ 60% of CIFAR-100 configs."
+    experiment_template: "run_cifar100_comparison.py (needs shrinkage method added)"
+
+  - id: "H4-unbalanced"
+    statement: "Under imbalanced concept proportions, minority concepts cross over at higher SNR ≈ (1-πj)/πj as predicted by Extension I Theorem 2."
+    status: "READY"
+    priority: 2
+    type: "CONFIRMATORY"
+    prediction: "Per-concept crossover thresholds within 15% of theoretical (1-πj)/πj for 3 imbalance settings."
+    experiment_template: "NEW — needs run_unbalanced_crossover.py"
+
+  - id: "H5-reff-prospective"
+    statement: "Effective rank r_eff estimated on held-out features correctly predicts Oracle-vs-FedAvg direction on CIFAR-100 across multiple backbones."
+    status: "READY"
+    priority: 2
+    type: "CONFIRMATORY"
+    prediction: "Prospective r_eff-based prediction matches actual winner in ≥ 5/6 CIFAR-100 settings."
+    experiment_template: "NEW — needs run_reff_prospective.py"
+
+trajectory: []
+
+outer_loop:
+  cycle_count: 0
+  last_direction: null
+  directions_history: []

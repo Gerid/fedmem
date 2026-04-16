@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-os.environ.setdefault("FEDPROTRACK_GPU_THRESHOLD", "0")
+# GPU_THRESHOLD=0 removed: linear models stay on CPU (faster for <8192 params)
 os.environ.setdefault("PYTHONUNBUFFERED", "1")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 

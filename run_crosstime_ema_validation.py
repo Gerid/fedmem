@@ -22,8 +22,7 @@ from pathlib import Path
 
 import numpy as np
 
-# Force GPU preference
-os.environ.setdefault("FEDPROTRACK_GPU_THRESHOLD", "0")
+# GPU_THRESHOLD=0 removed: linear models stay on CPU (faster for <8192 params)
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 from fedprotrack.metrics import compute_all_metrics

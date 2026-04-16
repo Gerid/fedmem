@@ -62,7 +62,7 @@ def _build_dataset_config(base_cfg: dict, seed: int) -> CIFAR100RecurrenceConfig
 
 
 def _run_task(task: dict) -> dict:
-    os.environ.setdefault("FEDPROTRACK_GPU_THRESHOLD", "0")
+    # GPU_THRESHOLD=0 removed: linear models stay on CPU (faster for <8192 params)
 
     method = task["method"]
     seed = task["seed"]

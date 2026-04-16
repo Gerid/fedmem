@@ -100,11 +100,14 @@ class ConceptFingerprint:
         n_classes: int = 2,
         decay: float = 1.0,
         feature_groups: list[tuple[int, int, float]] | tuple[tuple[int, int, float], ...] | None = None,
+        sim_weights: tuple[float, float, float] | None = None,
     ):
         self.n_features = n_features
         self.n_classes = n_classes
         self.decay = decay
         self._feature_groups = _normalize_feature_groups(n_features, feature_groups)
+        # Similarity component weights: (feat, label, class-conditional)
+        self._sim_weights = sim_weights or (0.25, 0.30, 0.45)
 
         # Running statistics (Welford's online algorithm with optional decay)
         self._count: float = 0.0
@@ -212,7 +215,8 @@ class ConceptFingerprint:
         feat_sim = self._feature_similarity(other)
         label_sim = self._label_similarity(other)
         cc_sim = self._class_conditional_similarity(other)
-        return 0.25 * feat_sim + 0.30 * label_sim + 0.45 * cc_sim
+        w_f, w_l, w_c = self._sim_weights
+        return w_f * feat_sim + w_l * label_sim + w_c * cc_sim
 
     def _compatible_feature_groups(
         self,

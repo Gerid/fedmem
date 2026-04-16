@@ -1,0 +1,112 @@
+\relax 
+\bibstyle{plainnat}
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{mcmahan2017communication}
+\citation{jothimurugesan2023federated,panchal2023flash}
+\citation{ghosh2020efficient}
+\citation{sattler2021clustered}
+\citation{deng2020adaptive}
+\citation{li2021ditto}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\newlabel{sec:intro}{{1}{1}{Introduction}{section.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {2}Problem Setting}{2}{section.2}\protected@file@percent }
+\newlabel{sec:setting}{{2}{2}{Problem Setting}{section.2}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Theory}{2}{section.3}\protected@file@percent }
+\newlabel{sec:theory}{{3}{2}{Theory}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Bias-Variance Decomposition}{2}{subsection.3.1}\protected@file@percent }
+\newlabel{prop:decomposition}{{1}{2}{Bias-Variance Decomposition}{theorem.1}{}}
+\newlabel{eq:global_risk}{{3}{2}{Bias-Variance Decomposition}{equation.3.3}{}}
+\newlabel{eq:concept_risk}{{4}{2}{Bias-Variance Decomposition}{equation.3.4}{}}
+\citation{ghosh2020efficient}
+\citation{chen2024fedccfa}
+\citation{james1961estimation,efron1973stein}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Crossover Condition}{3}{subsection.3.2}\protected@file@percent }
+\newlabel{thm:crossover}{{2}{3}{Crossover Condition}{theorem.2}{}}
+\newlabel{eq:crossover}{{5}{3}{Crossover Condition}{equation.3.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Minimax Lower Bounds}{3}{subsection.3.3}\protected@file@percent }
+\newlabel{thm:lower}{{3}{3}{Minimax Lower Bounds}{theorem.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Non-Stationary Intuition}{3}{subsection.3.4}\protected@file@percent }
+\citation{deng2020adaptive}
+\citation{li2021ditto}
+\citation{ghosh2020efficient}
+\citation{sattler2021clustered}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Adaptive Shrinkage Estimator}{4}{section.4}\protected@file@percent }
+\newlabel{sec:shrinkage}{{4}{4}{Adaptive Shrinkage Estimator}{section.4}{}}
+\newlabel{thm:shrinkage}{{5}{4}{Empirical-Bayes Shrinkage}{theorem.5}{}}
+\newlabel{eq:shrinkage}{{7}{4}{Empirical-Bayes Shrinkage}{equation.4.7}{}}
+\newlabel{eq:lambda}{{8}{4}{Empirical-Bayes Shrinkage}{equation.4.8}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Experiments}{4}{section.5}\protected@file@percent }
+\newlabel{sec:experiments}{{5}{4}{Experiments}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Synthetic Gaussian Regression}{4}{subsection.5.1}\protected@file@percent }
+\newlabel{sec:synthetic}{{5.1}{4}{Synthetic Gaussian Regression}{subsection.5.1}{}}
+\citation{deng2020adaptive}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Best method by MSE across 108 configurations (seed-averaged, 3 seeds). In this OLS regime, shrinkage dominates; IFCA and CFL, as linear-Gaussian analogues, never achieve the lowest MSE.}}{5}{table.1}\protected@file@percent }
+\newlabel{tab:main}{{1}{5}{Best method by MSE across 108 configurations (seed-averaged, 3 seeds). In this OLS regime, shrinkage dominates; IFCA and CFL, as linear-Gaussian analogues, never achieve the lowest MSE}{table.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Crossover phase diagram. The dashed line shows the theoretical boundary $\mathrm  {SNR}_{\mathrm  {concept}}= C-1$. Blue circles: Oracle wins (correct). Orange squares: FedAvg wins (correct). Red crosses: mismatches (all at the boundary).}}{5}{figure.1}\protected@file@percent }
+\newlabel{fig:phase}{{1}{5}{Crossover phase diagram. The dashed line shows the theoretical boundary $\SNR = C-1$. Blue circles: Oracle wins (correct). Orange squares: FedAvg wins (correct). Red crosses: mismatches (all at the boundary)}{figure.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Distribution of best methods across 108 configurations. Shrinkage (Proposition~\ref {thm:shrinkage}) dominates with 67 wins. IFCA and CFL never achieve the lowest MSE.}}{5}{figure.2}\protected@file@percent }
+\newlabel{fig:best}{{2}{5}{Distribution of best methods across 108 configurations. Shrinkage (Proposition~\ref {thm:shrinkage}) dominates with 67 wins. IFCA and CFL never achieve the lowest MSE}{figure.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Oracle advantage (FedAvg MSE $-$ Oracle MSE) vs $\mathrm  {SNR}_{\mathrm  {concept}}$. The advantage grows monotonically with $\mathrm  {SNR}_{\mathrm  {concept}}$, crossing zero near $\mathrm  {SNR}_{\mathrm  {concept}}= C-1$.}}{6}{figure.3}\protected@file@percent }
+\newlabel{fig:advantage}{{3}{6}{Oracle advantage (FedAvg MSE $-$ Oracle MSE) vs $\SNR $. The advantage grows monotonically with $\SNR $, crossing zero near $\SNR = C-1$}{figure.3}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Shrinkage win rate across $(K, C)$ grid. Shrinkage dominates most strongly at moderate $K/C$ ratios where the bias-variance balance is non-trivial.}}{6}{figure.4}\protected@file@percent }
+\newlabel{fig:heatmap}{{4}{6}{Shrinkage win rate across $(K, C)$ grid. Shrinkage dominates most strongly at moderate $K/C$ ratios where the bias-variance balance is non-trivial}{figure.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}CIFAR-100 Bridge}{6}{subsection.5.2}\protected@file@percent }
+\newlabel{sec:cifar}{{5.2}{6}{CIFAR-100 Bridge}{subsection.5.2}{}}
+\citation{ghosh2020efficient}
+\citation{sattler2021clustered}
+\citation{chen2024fedccfa}
+\citation{deng2020adaptive}
+\citation{li2021ditto}
+\citation{t2020personalized}
+\citation{jothimurugesan2023federated}
+\citation{panchal2023flash}
+\citation{chen2024fedccfa}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces CIFAR-100 scope test ($C{-}1=3$). SNR computed with raw $d_{\mathrm  {eff}} = 2560$ and corrected $d_{\mathrm  {eff}}^{\mathrm  {corr}} \approx 430$ (using effective rank; see Appendix~\ref {app:cifar_diag}). Under the corrected dimension, all 6 seeds match.}}{7}{table.2}\protected@file@percent }
+\newlabel{tab:cifar}{{2}{7}{CIFAR-100 scope test ($C{-}1=3$). SNR computed with raw $d_{\mathrm {eff}} = 2560$ and corrected $d_{\mathrm {eff}}^{\mathrm {corr}} \approx 430$ (using effective rank; see Appendix~\ref {app:cifar_diag}). Under the corrected dimension, all 6 seeds match}{table.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Regime boundary analysis. When estimated $\mathrm  {SNR}_{\mathrm  {concept}}$ is low (e.g., $K=8$, $\delta =0.5$), FedAvg dominates the majority of rounds. When $\mathrm  {SNR}_{\mathrm  {concept}}$ is high, Oracle dominates. The transition aligns with the theoretical boundary $\mathrm  {SNR}_{\mathrm  {concept}}= C-1$.}}{7}{figure.5}\protected@file@percent }
+\newlabel{fig:regime}{{5}{7}{Regime boundary analysis. When estimated $\SNR $ is low (e.g., $K=8$, $\delta =0.5$), FedAvg dominates the majority of rounds. When $\SNR $ is high, Oracle dominates. The transition aligns with the theoretical boundary $\SNR = C-1$}{figure.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Regime Boundary Analysis}{7}{subsection.5.3}\protected@file@percent }
+\newlabel{sec:regime}{{5.3}{7}{Regime Boundary Analysis}{subsection.5.3}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Related Work}{7}{section.6}\protected@file@percent }
+\newlabel{sec:related}{{6}{7}{Related Work}{section.6}{}}
+\citation{ghosh2020efficient}
+\citation{xu2024icml,kim2024icml}
+\citation{james1961estimation,efron1973stein}
+\bibdata{references}
+\bibcite{chen2024fedccfa}{{1}{2024}{{Chen et~al.}}{{}}}
+\bibcite{deng2020adaptive}{{2}{2020}{{Deng et~al.}}{{Deng, Kamani, and Mahdavi}}}
+\bibcite{efron1973stein}{{3}{1973}{{Efron and Morris}}{{}}}
+\bibcite{ghosh2020efficient}{{4}{2020}{{Ghosh et~al.}}{{Ghosh, Chung, Yin, and Ramchandran}}}
+\bibcite{james1961estimation}{{5}{1961}{{James and Stein}}{{}}}
+\bibcite{jothimurugesan2023federated}{{6}{2023}{{Jothimurugesan et~al.}}{{Jothimurugesan, Hsieh, Wang, Joshi, and Gibbons}}}
+\bibcite{kim2024icml}{{7}{2024}{{Kim et~al.}}{{}}}
+\bibcite{li2021ditto}{{8}{2021}{{Li et~al.}}{{Li, Hu, Beirami, and Smith}}}
+\bibcite{mcmahan2017communication}{{9}{2017}{{McMahan et~al.}}{{McMahan, Moore, Ramage, Hampson, and Arcas}}}
+\bibcite{panchal2023flash}{{10}{2023}{{Panchal et~al.}}{{Panchal, Choudhary, Mitra, Mukherjee, Sarkhel, Mitra, and Guan}}}
+\@writefile{toc}{\contentsline {section}{\numberline {7}Conclusion}{8}{section.7}\protected@file@percent }
+\newlabel{sec:conclusion}{{7}{8}{Conclusion}{section.7}{}}
+\bibcite{sattler2021clustered}{{11}{2021}{{Sattler et~al.}}{{Sattler, M{\"u}ller, and Samek}}}
+\bibcite{t2020personalized}{{12}{2020}{{T~Dinh et~al.}}{{T~Dinh, Tran, and Nguyen}}}
+\bibcite{tsybakov2009introduction}{{13}{2009}{{Tsybakov}}{{}}}
+\bibcite{xu2024icml}{{14}{2024}{{Xu et~al.}}{{}}}
+\citation{tsybakov2009introduction}
+\citation{ghosh2020efficient}
+\@writefile{toc}{\contentsline {section}{\numberline {A}Proof of Proposition~\ref {prop:decomposition}}{10}{appendix.A}\protected@file@percent }
+\newlabel{app:prop1}{{A}{10}{Proof of Proposition~\ref {prop:decomposition}}{appendix.A}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {B}Proof of Theorem~\ref {thm:lower}}{10}{appendix.B}\protected@file@percent }
+\newlabel{app:lower}{{B}{10}{Proof of Theorem~\ref {thm:lower}}{appendix.B}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {C}Extended Experimental Results}{10}{appendix.C}\protected@file@percent }
+\newlabel{app:extended}{{C}{10}{Extended Experimental Results}{appendix.C}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Extended results (selected configurations). All MSE values are seed-averaged.}}{10}{table.3}\protected@file@percent }
+\newlabel{tab:extended}{{3}{10}{Extended results (selected configurations). All MSE values are seed-averaged}{table.3}{}}
+\citation{sattler2021clustered}
+\citation{deng2020adaptive}
+\@writefile{toc}{\contentsline {section}{\numberline {D}Baseline Implementation Details}{11}{appendix.D}\protected@file@percent }
+\newlabel{app:baselines}{{D}{11}{Baseline Implementation Details}{appendix.D}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {E}CIFAR-100 Covariance Diagnostics}{11}{appendix.E}\protected@file@percent }
+\newlabel{app:cifar_diag}{{E}{11}{CIFAR-100 Covariance Diagnostics}{appendix.E}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Covariance diagnostics for frozen ResNet-18 features ($d=128$). The effective rank $r_{\mathrm  {eff}} \approx 22$ is far below the nominal dimension, explaining the SNR miscalculation when using raw~$d$.}}{11}{table.4}\protected@file@percent }
+\newlabel{tab:cifar_diag}{{4}{11}{Covariance diagnostics for frozen ResNet-18 features ($d=128$). The effective rank $r_{\mathrm {eff}} \approx 22$ is far below the nominal dimension, explaining the SNR miscalculation when using raw~$d$}{table.4}{}}
+\gdef \@abspage@last{11}

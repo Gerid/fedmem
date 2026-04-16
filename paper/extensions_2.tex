@@ -1,0 +1,571 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{xcolor}
+
+\geometry{margin=1in}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{definition}[theorem]{Definition}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Var}{\mathrm{Var}}
+\newcommand{\tr}{\mathrm{tr}}
+\newcommand{\SNR}{\mathrm{SNR}}
+\newcommand{\wstar}{w^*}
+\newcommand{\what}{\hat{w}}
+\newcommand{\wbar}{\bar{w}}
+\newcommand{\Id}{I_d}
+\newcommand{\deff}{d_{\mathrm{eff}}}
+
+\title{\Large Theoretical Extensions: Relaxing Assumptions in the Aggregation Crossover\\[6pt]
+\large \textcolor{gray}{Supplement for ``When Does Concept-Level Aggregation Help?''}}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present four theoretical extensions that relax the base-case conditions of the crossover result in the main paper (Proposition~1, ``Bias-Variance Decomposition''): (I)~unbalanced concept proportions, (II)~noisy concept labels, (III)~the proportional high-dimensional regime $d/n \to \gamma > 0$, and (IV)~anisotropic covariance with effective dimension. Extensions (I)--(III) yield rigorous \emph{modified crossover thresholds} under the stated regimes; extension (IV) and the subsequent unified formula are first-order heuristic combinations under a spiked-covariance model, not proven exact thresholds. Each condition reduces to the base $\SNR_{\mathrm{concept}} > C - 1$ under the respective base-case assumptions. Assumption labels in this supplement refer to the balanced / isotropic / classical-regime \emph{conditions of Proposition~1}, not to the $(A1)$--$(A5)$ regularity assumptions of Section~4 of the main paper (which concern smoothness, gradient noise, concept separation, clustering metric, and fingerprint-vs-weight SNR).
+\end{abstract}
+
+\tableofcontents
+\vspace{1em}
+
+
+%% ============================================================
+\section{Extension I: Unbalanced Concept Proportions}
+%% ============================================================
+
+\subsection{Setup}
+
+We relax the balanced-concepts condition of Proposition~1 to allow unbalanced concepts. Let concept $j$ contain a fraction $\pi_j$ of the $K$ clients, so $|C_j| = \pi_j K$ with $\sum_{j=1}^C \pi_j = 1$ and $\pi_j > 0$ for all $j$.
+
+\subsection{Modified Bias-Variance Decomposition}
+
+\begin{proposition}[Unbalanced Bias-Variance]\label{prop:unbal-bv}
+Under the Gaussian linear model of Section~3 with isotropic design and unbalanced concepts $|C_j| = \pi_j K$:
+\begin{align}
+\E[\mathcal{E}_j(\what_{\mathrm{glob}})] &= B_{j,\pi}^2 + \frac{\sigma^2 d}{Kn}(1 + o(1)), \label{eq:unbal-global}\\
+\E[\mathcal{E}_j(\what_j)] &= \frac{\sigma^2 d}{\pi_j K n}(1 + o(1)), \label{eq:unbal-concept}
+\end{align}
+where the \emph{proportion-weighted bias} is
+\begin{equation}
+B_{j,\pi}^2 := \|w_j^* - \wbar^*_\pi\|^2, \qquad \wbar^*_\pi := \sum_{\ell=1}^C \pi_\ell w_\ell^*.
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+\textbf{Global estimator.}
+Pooling all $Kn$ samples, each concept $j$ contributes $\pi_j Kn$ samples. The population OLS objective on the mixture is:
+\[
+\min_w \sum_{j=1}^C \pi_j \, \E_j\bigl[(y - \langle w, x\rangle)^2\bigr]
+= \min_w \sum_j \pi_j \bigl[\|w - w_j^*\|^2 \cdot \tr(\Sigma) + \sigma^2\bigr].
+\]
+Under $\Sigma = \Id$, the minimizer is:
+\[
+w_{\mathrm{pop}} = \arg\min_w \sum_j \pi_j \|w - w_j^*\|^2 = \sum_j \pi_j w_j^* = \wbar^*_\pi.
+\]
+The excess risk decomposes as:
+\[
+\E[\|\what_{\mathrm{glob}} - w_j^*\|^2]
+= \|\wbar^*_\pi - w_j^*\|^2 + \E[\|\what_{\mathrm{glob}} - \wbar^*_\pi\|^2]
+= B_{j,\pi}^2 + \frac{\sigma^2 d}{Kn}(1 + o(1)),
+\]
+where the cross-term vanishes because $\E[\what_{\mathrm{glob}}] = \wbar^*_\pi$ and the variance follows from standard random matrix concentration ($\frac{1}{Kn}X^\top X \to \Id$ as $n/d \to \infty$).
+
+\textbf{Concept-level estimator.}
+Using only the $\pi_j K \cdot n$ samples from concept $j$, by the same argument:
+\[
+\E[\|\what_j - w_j^*\|^2] = \frac{\sigma^2 d}{\pi_j K n}(1 + O(d/(\pi_j K n))). \qedhere
+\]
+\end{proof}
+
+\subsection{Crossover Condition}
+
+\begin{theorem}[Unbalanced Crossover]\label{thm:unbal}
+Under the Gaussian linear model of Section~3 with isotropic design and unbalanced proportions $(\pi_1, \ldots, \pi_C)$, as $n/d \to \infty$, concept-level aggregation has lower expected excess risk for concept $j$ if and only if
+\begin{equation}\label{eq:unbal-crossover}
+\boxed{\SNR_j := \frac{Kn \cdot B_{j,\pi}^2}{\sigma^2 d} > \frac{1 - \pi_j}{\pi_j}}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Concept-level aggregation wins when:
+\[
+B_{j,\pi}^2 + \frac{\sigma^2 d}{Kn} > \frac{\sigma^2 d}{\pi_j Kn}.
+\]
+Rearranging:
+\[
+B_{j,\pi}^2 > \frac{\sigma^2 d}{Kn}\left(\frac{1}{\pi_j} - 1\right) = \frac{\sigma^2 d(1 - \pi_j)}{Kn \cdot \pi_j}.
+\]
+Dividing both sides by $\sigma^2 d / (Kn)$ yields \eqref{eq:unbal-crossover}.
+\end{proof}
+
+\begin{remark}[Recovery of Balanced Case]
+When $\pi_j = 1/C$ for all $j$: $(1 - \pi_j)/\pi_j = C - 1$ and $\wbar^*_\pi = \frac{1}{C}\sum_j w_j^*$, recovering the base condition of Proposition~1.
+\end{remark}
+
+\begin{remark}[Minority Concept Disadvantage]
+The threshold $(1 - \pi_j)/\pi_j$ is a decreasing function of $\pi_j$. A rare concept ($\pi_j \ll 1$) faces a high threshold $\approx 1/\pi_j$, meaning concept-level aggregation is harder to justify for minority groups---they have fewer clients to reduce variance. Conversely, a dominant concept ($\pi_j \to 1$) has threshold $\to 0$, so concept-level aggregation is almost always beneficial for the majority.
+\end{remark}
+
+\subsection{Minimax Lower Bound for Unbalanced Case}
+
+\begin{theorem}[Unbalanced Minimax Lower Bounds]\label{thm:unbal-minimax}
+For the class $\mathcal{F}(\boldsymbol{\pi}, B)$ with proportions $\boldsymbol{\pi} = (\pi_1, \ldots, \pi_C)$ satisfying $\sum_j \pi_j \|w_j^* - \wbar^*_\pi\|^2 \geq B^2$:
+\begin{enumerate}[label=(\alph*)]
+\item Any single estimator $\what$ applied to all concepts incurs $\pi$-weighted average excess risk $\geq B^2$.
+\item Any concept-level estimator $\what_j$ using only the $\pi_j K$ clients in $C_j$ satisfies $\E[\|\what_j - w_j^*\|^2] \geq \frac{\sigma^2 d}{2\pi_j K n}$.
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+\textbf{Part (a).} For any $\what$:
+\[
+\sum_j \pi_j \|\what - w_j^*\|^2
+= \|\what - \wbar^*_\pi\|^2 + \sum_j \pi_j \|w_j^* - \wbar^*_\pi\|^2
++ 2(\what - \wbar^*_\pi)^\top \underbrace{\sum_j \pi_j (\wbar^*_\pi - w_j^*)}_{= 0} \geq B^2.
+\]
+
+\textbf{Part (b).} Standard minimax lower bound for $d$-dimensional Gaussian linear regression with $\pi_j K n$ samples (Tsybakov, 2009, Theorem~2.5).
+\end{proof}
+
+\subsection{Weighted-Average Crossover}
+
+For a system-level decision, we may also consider the $\pi$-weighted average risk across all concepts.
+
+\begin{corollary}[System-Level Crossover]\label{cor:system-level}
+Define $\overline{B}^2_\pi := \sum_j \pi_j B_{j,\pi}^2$. Concept-level aggregation has lower $\pi$-weighted average risk than global aggregation iff:
+\begin{equation}
+\frac{Kn \cdot \overline{B}^2_\pi}{\sigma^2 d} > \sum_j \pi_j \cdot \frac{1-\pi_j}{\pi_j} = C - 1.
+\end{equation}
+That is, the \emph{average} crossover threshold is still $C - 1$, but individual concepts may cross at different points.
+\end{corollary}
+
+\begin{proof}
+Summing the per-concept condition with weights $\pi_j$:
+\[
+\sum_j \pi_j B_{j,\pi}^2 > \frac{\sigma^2 d}{Kn} \sum_j \pi_j \cdot \frac{1-\pi_j}{\pi_j}
+= \frac{\sigma^2 d}{Kn} \sum_j (1 - \pi_j) = \frac{\sigma^2 d(C-1)}{Kn}. \qedhere
+\]
+\end{proof}
+
+
+%% ============================================================
+\section{Extension II: Noisy Concept Labels}
+%% ============================================================
+
+\subsection{Noise Model}
+
+We relax the oracle label assumption. The server assigns each client $k$ to concept $\hat{c}(k)$ via a noisy label model:
+\begin{equation}\label{eq:noise-model}
+P(\hat{c}(k) = c(k)) = 1 - \eta, \qquad P(\hat{c}(k) = \ell \mid \ell \neq c(k)) = \frac{\eta}{C - 1},
+\end{equation}
+where $\eta \in [0, 1)$ is the \emph{label noise rate} and $c(k)$ is the true concept assignment. We assume balanced true proportions $|C_j| = K/C$ and symmetric noise.
+
+\subsection{Contaminated Concept-Level Estimator}
+
+\begin{lemma}[Contamination Bias]\label{lem:contamination}
+Under noise model \eqref{eq:noise-model} with balanced concepts:
+\begin{enumerate}[label=(\alph*)]
+\item The expected group size is preserved: $\E[|\hat{C}_j|] = K/C$.
+\item The concept-level OLS estimator using the noisy group $\hat{C}_j$ converges in probability to
+\begin{equation}\label{eq:contam-target}
+\widetilde{w}_j := (1 - \rho)\, w_j^* + \rho\, \wbar^*,
+\end{equation}
+where $\rho = \eta C / (C - 1) \in [0, C/(C-1))$ is the \emph{effective contamination rate}.
+\end{enumerate}
+\end{lemma}
+
+\begin{proof}
+\textbf{Part (a).} Among all $K$ clients, each of the $K/C$ truly belonging to concept $j$ is assigned $\hat{c} = j$ with probability $1 - \eta$. Each of the $(C-1) \cdot K/C$ clients from other concepts is assigned $\hat{c} = j$ with probability $\eta/(C-1)$. So:
+\[
+\E[|\hat{C}_j|] = \frac{K}{C}(1 - \eta) + \frac{(C-1)K}{C} \cdot \frac{\eta}{C-1} = \frac{K}{C}(1 - \eta) + \frac{K\eta}{C} = \frac{K}{C}.
+\]
+
+\textbf{Part (b).} The fraction of data in group $\hat{C}_j$ that truly comes from concept $\ell$ is:
+\[
+q_{j\ell} = \begin{cases}
+1 - \eta & \text{if } \ell = j,\\
+\eta/(C-1) & \text{if } \ell \neq j.
+\end{cases}
+\]
+The population OLS minimizer on this mixture is:
+\[
+\widetilde{w}_j = \sum_{\ell=1}^C q_{j\ell}\, w_\ell^*
+= (1 - \eta)\, w_j^* + \frac{\eta}{C-1}\sum_{\ell \neq j} w_\ell^*.
+\]
+Since $\sum_{\ell \neq j} w_\ell^* = C\wbar^* - w_j^*$:
+\begin{align}
+\widetilde{w}_j &= (1 - \eta)\, w_j^* + \frac{\eta}{C-1}(C\wbar^* - w_j^*) \notag \\
+&= \left(1 - \eta - \frac{\eta}{C-1}\right) w_j^* + \frac{\eta C}{C-1}\, \wbar^* \notag \\
+&= \left(1 - \frac{\eta C}{C-1}\right) w_j^* + \frac{\eta C}{C-1}\, \wbar^*
+= (1 - \rho)\, w_j^* + \rho\, \wbar^*. \qedhere
+\end{align}
+\end{proof}
+
+\subsection{Modified Risk and Crossover}
+
+\begin{proposition}[Noisy-Label Risk Decomposition]\label{prop:noisy-risk}
+Under the noise model \eqref{eq:noise-model} with balanced concepts and $\Sigma = \Id$:
+\begin{align}
+\E[\mathcal{E}_j(\what_j^{\mathrm{noisy}})]
+&= \rho^2 B_j^2 + \frac{\sigma^2 d}{(K/C)n}(1 + o(1)), \label{eq:noisy-concept}\\
+\E[\mathcal{E}_j(\what_{\mathrm{glob}})]
+&= B_j^2 + \frac{\sigma^2 d}{Kn}(1 + o(1)). \label{eq:noisy-global}
+\end{align}
+\end{proposition}
+
+\begin{proof}
+The concept-level estimator $\what_j^{\mathrm{noisy}}$ is unbiased for $\widetilde{w}_j$ (not $w_j^*$). Its bias relative to $w_j^*$ is:
+\[
+\|\widetilde{w}_j - w_j^*\|^2 = \|\rho(\wbar^* - w_j^*)\|^2 = \rho^2 \|w_j^* - \wbar^*\|^2 = \rho^2 B_j^2.
+\]
+The variance uses $(K/C)n$ samples (since $\E[|\hat{C}_j|] = K/C$), giving $\sigma^2 d / ((K/C)n)(1 + o(1))$. The global estimator is unaffected by label noise (it pools all data regardless of labels).
+\end{proof}
+
+\begin{theorem}[Noisy-Label Crossover]\label{thm:noisy}
+Under the noise model \eqref{eq:noise-model} with balanced concepts, concept-level aggregation has lower excess risk for concept $j$ if and only if
+\begin{equation}\label{eq:noisy-crossover}
+\boxed{\SNR_{\mathrm{concept}} > \frac{C - 1}{1 - \rho^2}}, \qquad \text{where } \rho = \frac{\eta C}{C - 1}.
+\end{equation}
+Moreover:
+\begin{enumerate}[label=(\roman*)]
+\item When $\eta = 0$: $\rho = 0$, threshold $= C - 1$ (recovering Proposition~1 of the main paper).
+\item When $\eta \to (C-1)/C$: $\rho \to 1$ and the threshold $\to \infty$ (concept-level aggregation never wins).
+\item When $\eta > (C-1)/C$: $\rho > 1$ and concept-level aggregation is \emph{strictly worse} than global for all SNR levels.
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+Concept-level aggregation wins when \eqref{eq:noisy-global} $>$ \eqref{eq:noisy-concept}:
+\[
+B_j^2 + \frac{\sigma^2 d}{Kn} > \rho^2 B_j^2 + \frac{\sigma^2 dC}{Kn}.
+\]
+Rearranging:
+\[
+(1 - \rho^2) B_j^2 > \frac{\sigma^2 d(C - 1)}{Kn}.
+\]
+
+\emph{Case $\rho < 1$ (i.e., $\eta < (C-1)/C$):} Dividing by $\sigma^2 d / (Kn)$ and by $(1 - \rho^2) > 0$ yields \eqref{eq:noisy-crossover}.
+
+\emph{Case $\rho = 1$ (i.e., $\eta = (C-1)/C$):} The LHS becomes 0 and the inequality is never satisfied.
+
+\emph{Case $\rho > 1$ (i.e., $\eta > (C-1)/C$):} We have $(1 - \rho^2) < 0$, so $(1-\rho^2)B_j^2 < 0 < \sigma^2 d(C-1)/(Kn)$ always. Concept-level aggregation is dominated.
+
+Property (iii) has a clean interpretation: when $\eta > (C-1)/C$, the label noise is so severe that it \emph{inverts} concept assignments on average---the majority of data in each noisy group comes from the wrong concepts, making the concept-level estimator's bias \emph{exceed} the global estimator's bias.
+\end{proof}
+
+\begin{remark}[Label-Quality--SNR Tradeoff]
+Rearranging \eqref{eq:noisy-crossover} as:
+\[
+\eta < \frac{C-1}{C}\sqrt{1 - \frac{C-1}{\SNR_{\mathrm{concept}}}}
+\]
+gives the maximum tolerable label noise as a function of the signal. High-SNR problems can tolerate noisier labels; low-SNR problems require more accurate labels. This provides a principled stopping criterion for concept-inference algorithms.
+\end{remark}
+
+\subsection{Modified Shrinkage Under Label Noise}
+
+\begin{proposition}[Noisy-Label Shrinkage Estimator]\label{prop:noisy-shrink}
+Under label noise $\eta$ with effective contamination $\rho = \eta C/(C-1)$, the optimal shrinkage coefficient becomes:
+\begin{equation}
+\lambda^{\mathrm{noisy}} = \frac{\sigma^2 / ((K/C)n)}{\sigma^2 / ((K/C)n) + (1 - \rho^2)\sigma_B^2},
+\end{equation}
+where $\sigma_B^2$ is the between-concept variance. When $\rho \to 1$, $\lambda^{\mathrm{noisy}} \to 1$ (full shrinkage toward global), consistent with the crossover analysis.
+
+The practical estimator uses:
+\begin{equation}
+\hat{\sigma}_B^{2,\mathrm{noisy}} = \max\left\{\frac{1}{(C-1)d}\sum_{j=1}^C \|\what_j - \hat{\bar{w}}\|^2 - \frac{\sigma^2}{(K/C)n} - \frac{\hat{\rho}^2}{(1-\hat{\rho})^2} \cdot \frac{\sigma^2}{(K/C)n},\; 0\right\},
+\end{equation}
+where the third term corrects for the inflated between-estimate variance caused by contamination.
+\end{proposition}
+
+\begin{proof}
+The concept-level estimates satisfy $\what_j^{\mathrm{noisy}} \approx \mathcal{N}\bigl(\widetilde{w}_j, \frac{\sigma^2}{(K/C)n}\Id\bigr)$ where $\widetilde{w}_j = (1-\rho)w_j^* + \rho \wbar^*$.
+
+To estimate $w_j^*$ from $\what_j^{\mathrm{noisy}}$, first note that $w_j^* = \frac{1}{1-\rho}(\widetilde{w}_j - \rho \wbar^*)$. Placing the empirical prior $w_j^* \sim \mathcal{N}(\wbar^*, \sigma_B^2 \Id)$, the optimal shrinkage toward $\hat{\bar{w}}$ is:
+\[
+\what_j^{\mathrm{shrink,noisy}} = (1 - \lambda^{\mathrm{noisy}})\, \frac{\what_j^{\mathrm{noisy}} - \rho\, \hat{\bar{w}}}{1 - \rho} + \lambda^{\mathrm{noisy}}\, \hat{\bar{w}}.
+\]
+The coefficient $\lambda^{\mathrm{noisy}}$ balances the estimation noise $\sigma^2/((K/C)n)$ against the \emph{effective} between-concept variance $(1-\rho^2)\sigma_B^2$, yielding the stated expression.
+\end{proof}
+
+
+%% ============================================================
+\section{Extension III: Proportional High-Dimensional Regime}
+%% ============================================================
+
+\subsection{Setup}
+
+We relax the classical ($d \ll Kn$) regime of Proposition~1 by working in the \emph{proportional regime} where $d, n \to \infty$ with $d / (Kn) \to \gamma_G \in (0, 1)$ and $dC/(Kn) \to \gamma_C = C \gamma_G \in (0, 1)$. This captures settings where the feature dimension is comparable to the sample size.
+
+\subsection{Exact Risk in the Proportional Regime}
+
+\begin{lemma}[Proportional-Regime OLS Risk]\label{lem:prop-risk}
+Under $\Sigma = \Id$ and $d/N \to \gamma \in (0, 1)$, the OLS estimator $\what$ from $N$ i.i.d.\ Gaussian samples satisfies:
+\begin{equation}\label{eq:prop-variance}
+\E[\|\what - w^*\|^2] = \frac{\sigma^2 \gamma}{1 - \gamma} \quad \text{(exact for Gaussian design with } N > d\text{)}.
+\end{equation}
+\end{lemma}
+
+\begin{proof}
+By standard random matrix theory, $\E[\tr((X^\top X)^{-1})] = d / (N - d - 1)$ for $X \in \R^{N \times d}$ with i.i.d.\ $\mathcal{N}(0, \Id)$ rows and $N > d + 1$. Thus:
+\[
+\E[\|\what - w^*\|^2] = \sigma^2 \cdot \frac{d}{N - d - 1} \xrightarrow{d/N \to \gamma} \frac{\sigma^2 \gamma}{1 - \gamma}. \qedhere
+\]
+\end{proof}
+
+\subsection{Proportional-Regime Crossover}
+
+\begin{theorem}[Proportional-Regime Crossover]\label{thm:prop}
+In the proportional regime with $\gamma_G = d/(Kn)$ and $\gamma_C = Cd/(Kn)$, both in $(0,1)$, concept-level aggregation has lower excess risk for concept $j$ if and only if
+\begin{equation}\label{eq:prop-crossover}
+\boxed{\SNR_{\mathrm{concept}} > \frac{(C - 1)}{(1 - C\gamma_G)(1 - \gamma_G)}}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+In the proportional regime, the two risks are:
+\begin{align}
+\E[\mathcal{E}_j(\what_{\mathrm{glob}})] &= B_j^2 + \frac{\sigma^2 \gamma_G}{1 - \gamma_G}, \label{eq:prop-global}\\
+\E[\mathcal{E}_j(\what_j)] &= \frac{\sigma^2 C\gamma_G}{1 - C\gamma_G}. \label{eq:prop-concept}
+\end{align}
+Concept-level wins when \eqref{eq:prop-global} $>$ \eqref{eq:prop-concept}:
+\begin{align}
+B_j^2 &> \sigma^2 \left(\frac{C\gamma_G}{1 - C\gamma_G} - \frac{\gamma_G}{1 - \gamma_G}\right) \notag\\
+&= \sigma^2 \gamma_G \cdot \frac{C(1 - \gamma_G) - (1 - C\gamma_G)}{(1 - C\gamma_G)(1 - \gamma_G)} \notag\\
+&= \sigma^2 \gamma_G \cdot \frac{C - C\gamma_G - 1 + C\gamma_G}{(1 - C\gamma_G)(1 - \gamma_G)} \notag\\
+&= \frac{\sigma^2 \gamma_G (C - 1)}{(1 - C\gamma_G)(1 - \gamma_G)}.
+\end{align}
+Dividing both sides by $\sigma^2 d / (Kn) = \sigma^2 \gamma_G$ yields \eqref{eq:prop-crossover}.
+\end{proof}
+
+\begin{remark}[Asymptotic Recovery]
+As $\gamma_G \to 0$ (classical regime $d \ll Kn$), $(1-C\gamma_G)(1-\gamma_G) \to 1$, and the threshold converges to $C - 1$, recovering the original crossover.
+\end{remark}
+
+\begin{remark}[Amplification Effect]
+The factor $\frac{1}{(1 - C\gamma_G)(1 - \gamma_G)} > 1$ \emph{amplifies} the crossover threshold. Two critical boundaries emerge:
+\begin{itemize}
+\item When $C\gamma_G \to 1^-$ (concept-level OLS approaches the interpolation threshold): the threshold $\to \infty$. The per-concept sample size $(K/C)n$ barely exceeds $d$, making concept-level estimation extremely noisy.
+\item When $\gamma_G \to 1^-$ (global OLS approaches the interpolation threshold): the threshold also grows, but more slowly since the global estimator uses $Kn > d$.
+\end{itemize}
+\end{remark}
+
+\begin{corollary}[Feasibility Region]\label{cor:feasibility}
+For concept-level OLS to be well-defined, we need $C\gamma_G < 1$, i.e., $Kn > Cd$. When this constraint is tight ($Kn \approx Cd$), the effective threshold is extremely large, strongly favoring global aggregation. This imposes a \emph{minimum system size} for concept-level strategies: the federated system must have enough total samples to support $C$ separate $d$-dimensional regressions.
+\end{corollary}
+
+\begin{remark}[Optimal Number of Concepts]
+For a fixed total resource $Kn$ and dimension $d$, the threshold $(C-1)/[(1-C\gamma_G)(1-\gamma_G)]$ as a function of $C$ reveals a \emph{maximum feasible number of concepts}: $C_{\max} = \lfloor Kn/d \rfloor - 1$. Beyond this, concept-level OLS is infeasible. Even before this limit, the rapidly growing threshold suggests that supporting many concepts requires disproportionately high concept separation.
+\end{remark}
+
+
+%% ============================================================
+\section{Extension IV: Anisotropic Covariance and Effective Dimension}
+%% ============================================================
+
+\subsection{Prediction Risk Under General Covariance}
+
+We relax the isotropic design ($\Sigma = \Id$) of Proposition~1 by considering features $x \sim \mathcal{N}(0, \Sigma)$ with $\Sigma \neq \Id$. Define the eigendecomposition $\Sigma = \sum_{i=1}^d \lambda_i u_i u_i^\top$ with $\lambda_1 \geq \cdots \geq \lambda_d > 0$, and the \emph{effective rank}:
+\begin{equation}\label{eq:reff}
+r_{\mathrm{eff}} := \frac{\tr(\Sigma)^2}{\tr(\Sigma^2)} = \frac{(\sum_i \lambda_i)^2}{\sum_i \lambda_i^2}.
+\end{equation}
+
+\begin{proposition}[Anisotropic Bias-Variance]\label{prop:aniso-bv}
+With $x \sim \mathcal{N}(0, \Sigma)$ and prediction risk $\mathcal{E}_j^\Sigma(\what) := \E_x[(\langle \what - w_j^*, x\rangle)^2] = (\what - w_j^*)^\top \Sigma (\what - w_j^*)$:
+\begin{align}
+\E[\mathcal{E}_j^{\Sigma}(\what_{\mathrm{glob}})] &= B_{j,\Sigma}^2 + \frac{\sigma^2 d}{Kn}(1 + o(1)), \label{eq:aniso-global}\\
+\E[\mathcal{E}_j^{\Sigma}(\what_j)] &= \frac{\sigma^2 d}{(K/C)n}(1 + o(1)), \label{eq:aniso-concept}
+\end{align}
+where the $\Sigma$-weighted bias is
+\begin{equation}
+B_{j,\Sigma}^2 := (w_j^* - \wbar^*)^\top \Sigma (w_j^* - \wbar^*) = \|\Sigma^{1/2}(w_j^* - \wbar^*)\|^2.
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+By the standard result for OLS with $N$ samples from $\mathcal{N}(0, \Sigma)$, the variance of the prediction risk is:
+\[
+\sigma^2 \cdot \tr\bigl(\Sigma (X^\top X)^{-1}\bigr).
+\]
+Since $\frac{1}{N}X^\top X \xrightarrow{p} \Sigma$, we have $(X^\top X)^{-1} \approx \frac{1}{N}\Sigma^{-1}$, so:
+\[
+\tr\bigl(\Sigma \cdot \tfrac{1}{N}\Sigma^{-1}\bigr) = \frac{d}{N}.
+\]
+The variance is $\sigma^2 d/N$ \emph{regardless} of $\Sigma$ in the classical regime---the anisotropy is absorbed by the inverse. However, the bias $B_{j,\Sigma}^2$ does depend on $\Sigma$ through the prediction metric.
+\end{proof}
+
+\begin{remark}
+In the classical regime ($n \gg d$), the anisotropy affects only the bias term, not the variance. The crossover condition becomes $B_{j,\Sigma}^2 > \sigma^2 d(C-1)/(Kn)$, which differs from the isotropic case only through the numerator.
+\end{remark}
+
+\subsection{Effective Dimension in the Proportional Regime}
+
+The effective rank becomes crucial when we combine anisotropy with the proportional regime.
+
+\begin{theorem}[Effective-Dimension Crossover in the Spiked Model; heuristic]\label{thm:deff}
+\emph{Caveat.} Proposition~\ref{prop:aniso-bv} shows that in the classical regime the prediction-risk variance is $\sigma^2 d/N$ \emph{independent} of $\Sigma$. The statement below is therefore not a rigorous threshold in that regime; it is a first-order heuristic under a spiked covariance with $s \gg \epsilon$, obtained by treating only the signal subspace as risk-relevant. A rigorous proof requires analysing the noise-subspace contribution and finite-$\epsilon$ corrections, which we do not carry out here.
+
+Consider the spiked covariance model $\Sigma = \mathrm{diag}(s, \ldots, s, \epsilon, \ldots, \epsilon)$ with $r$ ``signal'' eigenvalues $s$ and $d - r$ ``noise'' eigenvalues $\epsilon$, where $s \gg \epsilon > 0$. Suppose the concept separation lies in the signal subspace: $\Pi_r(w_j^* - \wbar^*) = w_j^* - \wbar^*$ (where $\Pi_r$ projects onto the top-$r$ eigenspace). Then, as a first-order heuristic as $\epsilon/s \to 0$:
+
+\begin{enumerate}[label=(\alph*)]
+\item The prediction risk variance of concept-level OLS is:
+\begin{equation}
+\E[\mathcal{E}_j^\Sigma(\what_j)] \approx \frac{\sigma^2 r}{(K/C)n}\cdot s + \frac{\sigma^2(d-r)}{(K/C)n}\cdot \epsilon \approx \frac{\sigma^2 r \cdot s}{(K/C)n},
+\end{equation}
+and the prediction risk variance of global OLS is approximately $\sigma^2 r s/(Kn)$.
+
+\item The heuristic crossover condition becomes:
+\begin{equation}\label{eq:deff-crossover}
+\frac{Kn \cdot B_{j,\Sigma}^2}{\sigma^2 r \cdot s} \;\gtrsim\; C - 1,
+\end{equation}
+where $r$ plays the role of $\deff$ and $s$ is the signal eigenvalue. When $B_{j,\Sigma}^2 = s \cdot \|w_j^* - \wbar^*\|^2$ (signal aligned), this simplifies to $Kn\|w_j^* - \wbar^*\|^2 / (\sigma^2 r) \gtrsim C - 1$. We emphasise that Eq.~\eqref{eq:deff-crossover} is an order-of-magnitude guide, not a proven exact threshold.
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+\textbf{Part (a), heuristic.} In the spiked model, the prediction risk variance formally decomposes as
+\[
+\sigma^2 \tr(\Sigma(X^\top X)^{-1}) = \sigma^2 \sum_{i=1}^d \frac{\lambda_i}{e_i},
+\]
+where $e_i$ is the $i$-th eigenvalue of $X^\top X$. For $N$ samples from $\mathcal{N}(0, \Sigma)$, $e_i \approx N\lambda_i$, so each term contributes $1/N$ and the total is $\sigma^2 d/N$ (consistent with Proposition~\ref{prop:aniso-bv}). As a heuristic we retain only the signal-subspace contribution, $V_{\mathrm{signal}} \approx \sigma^2 r / N$, yielding $\sigma^2 r s / N$ after weighting by the prediction metric; the noise subspace contributes $\sigma^2(d-r)\epsilon/N$, which is small but not zero for any finite $\epsilon$. A rigorous justification (e.g.\ via sharp spiked-model asymptotics) is beyond the scope of this supplement.
+
+\textbf{Part (b).} The bias is $B_{j,\Sigma}^2 = s \|w_j^* - \wbar^*\|^2$ (since the separation is in the signal subspace). The crossover balances this bias against the variance difference:
+\[
+B_{j,\Sigma}^2 + \frac{\sigma^2 rs}{Kn} > \frac{\sigma^2 rs}{(K/C)n}.
+\]
+Rearranging: $B_{j,\Sigma}^2 > \sigma^2 rs(C-1)/(Kn)$, which gives \eqref{eq:deff-crossover}.
+\end{proof}
+
+\begin{remark}[Connection to CIFAR-100 Bridge]
+In the main paper's CIFAR-100 experiments, frozen ResNet-18 features have $r_{\mathrm{eff}} \approx 22 \ll d = 128$. The multi-class setting with $n_{\mathrm{classes}}$ classes has parameter dimension $d \times n_{\mathrm{classes}}$, but the effective dimension is $r_{\mathrm{eff}} \times n_{\mathrm{classes}} \approx 430$ vs.\ the raw $128 \times 20 = 2560$. This $6\times$ reduction in effective dimension $6\times$ inflates the effective SNR, explaining why the corrected SNR of $4.8 > C-1 = 3$ correctly predicts Oracle dominance in the shared-label setting.
+\end{remark}
+
+\begin{corollary}[When Effective Dimension Helps]
+The effective-dimension correction is beneficial (i.e., makes concept-level aggregation more favorable) precisely when:
+\begin{enumerate}[label=(\roman*)]
+\item The features are approximately low-rank: $r_{\mathrm{eff}} \ll d$.
+\item The concept separation lies in the signal subspace: $\|\Pi_r(w_j^* - \wbar^*)\| \approx \|w_j^* - \wbar^*\|$.
+\end{enumerate}
+If the concept separation lies in the noise subspace (orthogonal to the principal components), then $B_{j,\Sigma}^2 \approx \epsilon \|w_j^* - \wbar^*\|^2 \approx 0$, and concept-level aggregation provides no benefit regardless of the Euclidean separation.
+\end{corollary}
+
+
+%% ============================================================
+\section{Unified Crossover Theorem}
+%% ============================================================
+
+Combining all four extensions:
+
+\begin{theorem}[Unified Crossover; heuristic combination]\label{thm:unified}
+\emph{Caveat.} The statement below combines the rigorous thresholds of Extensions~I--III with the \emph{heuristic} effective-dimension correction of Extension~IV, using the spiked-model surrogate $\deff$ in place of $d$. It should therefore be read as a first-order heuristic, not a proven exact threshold; Extensions~I--III remain rigorous in isolation.
+
+Consider $K$ clients, $C$ concepts with proportions $\boldsymbol{\pi}$, noisy concept labels with noise rate $\eta$ (effective contamination $\rho = \eta C/(C-1)$, $\rho < 1$), features $x \sim \mathcal{N}(0, \Sigma)$, and aspect ratios $\gamma_j = \deff / (\pi_j Kn)$, $\gamma_G = \deff/(Kn)$, both in $(0,1)$.
+
+Concept-level aggregation is expected to have lower excess risk for concept $j$ whenever
+\begin{equation}\label{eq:unified}
+\frac{\pi_j K n \cdot B_{j,\pi,\Sigma}^2}{\sigma^2 \deff}
+\;\gtrsim\; \frac{1 - \pi_j}{(1 - \rho^2)(1 - \gamma_j)(1 - \pi_j \gamma_j)}.
+\end{equation}
+where:
+\begin{itemize}[nosep]
+\item $B_{j,\pi,\Sigma}^2 = \|\Sigma^{1/2}(w_j^* - \wbar^*_\pi)\|^2$ is the $\Sigma$-weighted, proportion-adjusted bias,
+\item $\deff$ is the effective dimension (effective rank of $\Sigma$ in the spiked regime),
+\item $\gamma_j = \deff / (\pi_j K n)$ is the per-concept aspect ratio.
+\end{itemize}
+
+\noindent Under the original assumptions ($\pi_j = 1/C$, $\eta = 0$, $\Sigma = \Id$, $\gamma_j \to 0$), this reduces to $\SNR_{\mathrm{concept}} > C - 1$.
+\end{theorem}
+
+\begin{proof}
+The excess risks combine the contamination bias, the anisotropic bias, and the proportional-regime variance:
+
+\emph{Global estimator:}
+\begin{equation}
+\E[\mathcal{E}_j^{\Sigma}(\what_{\mathrm{glob}})] = B_{j,\pi,\Sigma}^2 + \frac{\sigma^2 \gamma_G}{1 - \gamma_G},
+\end{equation}
+where $\gamma_G = \deff / (Kn)$ and the variance uses $\deff$ because the risk is dominated by the signal subspace.
+
+\emph{Concept-level with noise:}
+\begin{equation}
+\E[\mathcal{E}_j^{\Sigma}(\what_j^{\mathrm{noisy}})] = \rho^2 B_{j,\pi,\Sigma}^2 + \frac{\sigma^2 \gamma_j}{1 - \gamma_j},
+\end{equation}
+where $\gamma_j = \deff / (\pi_j Kn)$.
+
+Setting global risk $>$ concept-level risk:
+\begin{align}
+(1 - \rho^2) B_{j,\pi,\Sigma}^2 &> \frac{\sigma^2 \gamma_j}{1 - \gamma_j} - \frac{\sigma^2 \gamma_G}{1 - \gamma_G}.
+\end{align}
+
+The RHS evaluates as (substituting $\gamma_G = \pi_j \gamma_j$ for concept $j$'s share):
+\begin{align}
+\frac{\sigma^2 \gamma_j}{1 - \gamma_j} - \frac{\sigma^2 \pi_j \gamma_j}{1 - \pi_j\gamma_j}
+&= \sigma^2 \gamma_j \cdot \frac{(1 - \pi_j\gamma_j) - \pi_j(1 - \gamma_j)}{(1-\gamma_j)(1-\pi_j\gamma_j)} \notag \\
+&= \sigma^2 \gamma_j \cdot \frac{1 - \pi_j}{(1-\gamma_j)(1-\pi_j\gamma_j)}.
+\end{align}
+
+Dividing both sides by $(1-\rho^2)$ and by $\sigma^2 \deff / (\pi_j Kn) = \sigma^2 \gamma_j$:
+\[
+\frac{\pi_j K n \cdot B_{j,\pi,\Sigma}^2}{\sigma^2 \deff} \;\gtrsim\; \frac{1-\pi_j}{(1-\rho^2)(1-\gamma_j)(1-\pi_j\gamma_j)},
+\]
+which is Eq.~\eqref{eq:unified}.
+
+\emph{Recovery of base case.} Set $\pi_j = 1/C$, $\rho = 0$, $\deff = d$, $\gamma_j \to 0$. The LHS becomes
+$\frac{(K/C)\,n \cdot B_j^2}{\sigma^2 d} = \tfrac{1}{C}\SNR_{\mathrm{concept}}$, and the RHS becomes $1 - 1/C = (C-1)/C$. The condition therefore reduces to $\SNR_{\mathrm{concept}} > C - 1$, matching Proposition~1 of the main paper.
+\end{proof}
+
+
+%% ============================================================
+\section{Regime Map and Practical Implications}
+%% ============================================================
+
+The four extensions reveal a hierarchy of factors affecting the crossover:
+
+\begin{center}
+\begin{tabular}{lll}
+\hline
+\textbf{Factor} & \textbf{Effect on threshold} & \textbf{When it matters}\\
+\hline
+Concept imbalance & Raises threshold for rare concepts & $\pi_j \ll 1/C$\\
+Label noise $\eta$ & Raises threshold by $1/(1-\rho^2)$ & $\eta > 0$\\
+High dimensionality & Raises threshold by $1/[(1-\gamma_j)(1-\gamma_G)]$ & $d \sim Kn/C$\\
+Anisotropic features & Replaces $d$ by $\deff \leq d$ in SNR & $r_{\mathrm{eff}} \ll d$\\
+\hline
+\end{tabular}
+\end{center}
+
+\textbf{Key insight:} Concept imbalance, label noise, and high dimensionality all \emph{raise} the crossover threshold, making global aggregation more attractive. Only anisotropic features (through effective dimension reduction) can \emph{lower} the effective threshold, making concept-level aggregation more achievable.
+
+\textbf{Practical decision rule.} Given estimates $(\hat{B}_j^2, \hat{\sigma}^2, \hat{\pi}_j, \hat{\eta}, \hat{r}_{\mathrm{eff}}, \hat{\gamma}_j)$, a system can make per-concept decisions: use concept-level aggregation for concept $j$ only when the estimated SNR exceeds the unified threshold. The shrinkage estimator (Proposition~\ref{prop:noisy-shrink}) provides a smooth alternative that avoids the hard binary choice.
+
+
+\begin{thebibliography}{10}
+\bibitem{Tsybakov2009}
+A.~B. Tsybakov.
+\newblock {\em Introduction to Nonparametric Estimation}.
+\newblock Springer, 2009.
+
+\bibitem{Vershynin2012}
+R.~Vershynin.
+\newblock How close is the sample covariance matrix to the actual one?
+\newblock {\em Advances in Mathematics}, 2012.
+
+\bibitem{MarchenkoPastur1967}
+V.~A. Marchenko and L.~A. Pastur.
+\newblock Distribution of eigenvalues for some sets of random matrices.
+\newblock {\em Matematicheskii Sbornik}, 1967.
+\end{thebibliography}
+
+\end{document}

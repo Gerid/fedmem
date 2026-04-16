@@ -1,0 +1,56 @@
+=== RunPod Experiment Submission ===
+  Script:   run_cifar100_neurips_benchmark.py
+  Seeds:    [42, 43, 44]
+  FPT mode: ot
+
+  Submitted seed=42 -> f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2
+  Submitted seed=43 -> 626a1104-ebf7-4459-9bc8-17b9d75d7991-u2
+  Submitted seed=44 -> e0a39866-222c-4f87-9a07-e9b32223d549-u2
+
+=== Waiting for 3 jobs ===
+    [0s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_QUEUE
+    [11s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_QUEUE
+    [21s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_QUEUE
+    [32s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_QUEUE
+    [42s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_QUEUE
+    [53s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_QUEUE
+    [63s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_QUEUE
+    [74s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_QUEUE
+    [84s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_QUEUE
+    [95s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_PROGRESS
+    [106s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_PROGRESS
+    [117s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_PROGRESS
+    [127s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_PROGRESS
+    [138s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_PROGRESS
+    [149s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_PROGRESS
+    [159s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_PROGRESS
+    [170s] f268c7c7-66e0-4f40-b4e6-0658ed68cf1f-u2: IN_PROGRESS
+  seed=42: OK (rc=0)  delay=93.5s  exec=88.0s  worker=4ulacxoje7gone
+    [0s] 626a1104-ebf7-4459-9bc8-17b9d75d7991-u2: IN_PROGRESS
+    [11s] 626a1104-ebf7-4459-9bc8-17b9d75d7991-u2: IN_PROGRESS
+    [21s] 626a1104-ebf7-4459-9bc8-17b9d75d7991-u2: IN_PROGRESS
+    [32s] 626a1104-ebf7-4459-9bc8-17b9d75d7991-u2: IN_PROGRESS
+    [42s] 626a1104-ebf7-4459-9bc8-17b9d75d7991-u2: IN_PROGRESS
+    [53s] 626a1104-ebf7-4459-9bc8-17b9d75d7991-u2: IN_PROGRESS
+    [63s] 626a1104-ebf7-4459-9bc8-17b9d75d7991-u2: IN_PROGRESS
+    [74s] 626a1104-ebf7-4459-9bc8-17b9d75d7991-u2: IN_PROGRESS
+    [84s] 626a1104-ebf7-4459-9bc8-17b9d75d7991-u2: IN_PROGRESS
+  seed=43: OK (rc=0)  delay=182.0s  exec=89.1s  worker=4ulacxoje7gone
+    [0s] e0a39866-222c-4f87-9a07-e9b32223d549-u2: IN_QUEUE
+    [11s] e0a39866-222c-4f87-9a07-e9b32223d549-u2: IN_PROGRESS
+    [21s] e0a39866-222c-4f87-9a07-e9b32223d549-u2: IN_PROGRESS
+    [32s] e0a39866-222c-4f87-9a07-e9b32223d549-u2: IN_PROGRESS
+    [42s] e0a39866-222c-4f87-9a07-e9b32223d549-u2: IN_PROGRESS
+    [53s] e0a39866-222c-4f87-9a07-e9b32223d549-u2: IN_PROGRESS
+    [63s] e0a39866-222c-4f87-9a07-e9b32223d549-u2: IN_PROGRESS
+    [74s] e0a39866-222c-4f87-9a07-e9b32223d549-u2: IN_PROGRESS
+    [84s] e0a39866-222c-4f87-9a07-e9b32223d549-u2: IN_PROGRESS
+    [95s] e0a39866-222c-4f87-9a07-e9b32223d549-u2: IN_PROGRESS
+  seed=44: OK (rc=0)  delay=277.5s  exec=95.6s  worker=g2upswx6m6nd8a
+
+  [ledger] appended 3 rows to tmp\runpod_cost_ledger.jsonl
+  [cost]   est. total for this batch: $0.0436 (A4000 rate)
+
+Results saved to runpod_results_cifar10_ot_warmup_5.json
+
+=== Done: 3/3 seeds succeeded ===

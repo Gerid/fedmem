@@ -50,6 +50,7 @@ markers = [
 
 [project.scripts]
 fedprotrack = "fedprotrack.cli:main"
+fedprotrack-research-review = "fedprotrack.research_review:main"
 
 [tool.fedprotrack]
 baseline_sync_note = "Oracle now means true-concept federated aggregation; FeSEM aliases IFCA and should be deduplicated in smoke comparisons; CIFAR smoke supports FedProTrack base/auto/calibrated/hybrid/update-ot/labelwise/hybrid-labelwise/hybrid-proto/hybrid-proto-early/hybrid-proto-firstagg/hybrid-proto-subagg modes, where calibrated uses fingerprint-similarity quantiles, hybrid mixes lightweight model-signature similarity, update-ot mixes lightweight OT over projected classifier rows, labelwise mixes label-wise batch-prototype-to-classifier-row OT routing, hybrid-labelwise combines global model-signature and label-wise prototype routing into Phase A, hybrid-proto adds prototype-aware post-aggregation classifier alignment, hybrid-proto-early strengthens that prototype alignment only in the earliest federation round before reverting to the steady-state mix, hybrid-proto-firstagg pre-aligns client models to concept prototypes before the earliest aggregation round, hybrid-proto-subagg tries subgroup-aware prototype pre-alignment before collapsing back to one concept aggregate, and the smoke table also includes FedAvg-FPTTrain as a same-local-training fairness control."

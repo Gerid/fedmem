@@ -592,7 +592,9 @@ def _run_single_seed(
     list[dict]
         One dict per method with metrics and metadata.
     """
-    os.environ.setdefault("FEDPROTRACK_GPU_THRESHOLD", "0")
+    # GPU_THRESHOLD removed: 1290-param linear models run faster on CPU
+    # (avoids CUDA kernel launch + data transfer overhead).
+    # CNN models (>8192 params) still auto-route to GPU via device.py.
 
     dispatch = _DATASET_DISPATCH[dataset_name]
     ConfigCls = dispatch["config_cls"]
@@ -612,6 +614,18 @@ def _run_single_seed(
     # Dirichlet non-IID control (only CIFAR-100 currently supports it)
     if dirichlet_alpha is not None and dataset_name == "cifar100":
         cfg_kwargs["dirichlet_alpha"] = dirichlet_alpha
+    # Label-space concept-drift controls (CIFAR-100 only). These are
+    # read from module-level overrides set by the argparse main().
+    if dataset_name == "cifar100":
+        _ls = globals().get("_LABEL_SPLIT_OVERRIDE", None)
+        _lp = globals().get("_LABEL_PERMUTATION_OVERRIDE", None)
+        _lpt = globals().get("_LABEL_PERMUTATION_TYPE_OVERRIDE", None)
+        if _ls is not None:
+            cfg_kwargs["label_split"] = _ls
+        if _lp is not None:
+            cfg_kwargs["label_permutation"] = bool(_lp)
+        if _lpt is not None:
+            cfg_kwargs["label_permutation_type"] = _lpt
 
     dataset_cfg = ConfigCls(**cfg_kwargs)
 
@@ -1023,6 +1037,19 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--fpt-lr", type=float, default=None, help="FedProTrack lr (default: same as --lr)")
     parser.add_argument("--fpt-epochs", type=int, default=None, help="FedProTrack epochs (default: same as --n-epochs)")
+    parser.add_argument(
+        "--drct-warmup-rounds", type=int, default=0,
+        help=(
+            "Force λ̂=1 (pure FedAvg) for the first W federation rounds before "
+            "enabling empirical-Bayes shrinkage. Mitigates noisy early σ_B² on "
+            "low-SNR datasets such as CIFAR-10 (default: 0, no warmup)."
+        ),
+    )
+    parser.add_argument("--drct-snr-gate", action="store_true",
+                        help="Enable SNR-gated shrinkage (skip when σ_B²/(σ²·d_eff/n̄) < threshold).")
+    parser.add_argument("--drct-snr-threshold", type=float, default=1.0)
+    parser.add_argument("--drct-sigma-ema-beta", type=float, default=0.0,
+                        help="EMA factor for σ², σ_B² smoothing across rounds (0=off).")
 
     # -- Federation --
     parser.add_argument("--federation-every", type=int, default=1, help="Federation cadence (default: 1)")
@@ -1044,6 +1071,24 @@ def _parse_args() -> argparse.Namespace:
         "--dirichlet-alpha", type=float, default=None,
         help="Dirichlet concentration for non-IID label distribution "
              "(e.g. 0.01, 0.1, 0.5, 1.0). None = balanced (default).",
+    )
+    parser.add_argument(
+        "--label-split", default=None,
+        choices=["none", "shared", "disjoint", "overlap"],
+        help="CIFAR-100 label split mode: 'none' shared labels, "
+             "'disjoint' non-overlapping class subsets per concept, "
+             "'overlap' sliding window. Default: keep config default.",
+    )
+    parser.add_argument(
+        "--label-permutation", action="store_true",
+        help="Enable per-concept label permutation (FedDrift-style). "
+             "Requires --label-split=none.",
+    )
+    parser.add_argument(
+        "--label-permutation-type", default="pairwise_swap",
+        choices=["pairwise_swap", "full_permutation"],
+        help="Permutation type: 'pairwise_swap' swaps one pair per concept "
+             "(mirrors FedDrift MNIST-4); 'full_permutation' random full perm.",
     )
 
     # -- Presets --
@@ -1081,23 +1126,6 @@ def _parse_args() -> argparse.Namespace:
         help="Eigengap heuristic for OT cluster count. 'last_significant' (default) "
              "is the plateau-noise-adjusted last-significant-gap heuristic (fix 1a); "
              "'argmax' recovers the classical pre-fix heuristic (ablation)."
-    )
-    parser.add_argument(
-        "--drct-warmup-rounds", type=int, default=0,
-        help="Force λ̂=1 (pure FedAvg) for the first W federation rounds "
-             "(default: 0, no warmup)."
-    )
-    parser.add_argument(
-        "--drct-snr-gate", action="store_true",
-        help="Enable SNR-gated shrinkage (skip when σ_B²/(σ²·d_eff/n̄) < threshold)."
-    )
-    parser.add_argument(
-        "--drct-snr-threshold", type=float, default=1.0,
-        help="SNR threshold below which shrinkage is gated off (default: 1.0)."
-    )
-    parser.add_argument(
-        "--drct-sigma-ema-beta", type=float, default=0.0,
-        help="EMA factor for σ², σ_B² smoothing across rounds (0=off, default: 0)."
     )
 
     return parser.parse_args()
@@ -1249,6 +1277,13 @@ def main() -> None:
         args.fpt_lr = args.lr
     if args.fpt_epochs is None:
         args.fpt_epochs = args.n_epochs
+
+    # Pass label-space controls via module-level globals consumed in
+    # _run_single (CIFAR-100 only).
+    global _LABEL_SPLIT_OVERRIDE, _LABEL_PERMUTATION_OVERRIDE, _LABEL_PERMUTATION_TYPE_OVERRIDE
+    _LABEL_SPLIT_OVERRIDE = args.label_split
+    _LABEL_PERMUTATION_OVERRIDE = args.label_permutation
+    _LABEL_PERMUTATION_TYPE_OVERRIDE = args.label_permutation_type
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

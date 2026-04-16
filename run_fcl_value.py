@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-os.environ.setdefault("FEDPROTRACK_GPU_THRESHOLD", "0")
+# GPU_THRESHOLD=0 removed: linear models stay on CPU (faster for <8192 params)
 
 from fedprotrack.baselines.runners import run_cfl_full, MethodResult
 from fedprotrack.experiment.baselines import run_fedavg_baseline

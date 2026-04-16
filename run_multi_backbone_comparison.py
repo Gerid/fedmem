@@ -137,6 +137,11 @@ def _run_one_backbone(
                 acc = float(result.accuracy_matrix[:, -1].mean())
                 lam_iso = getattr(result, "lambda_iso", None)
                 lam_aniso = getattr(result, "lambda_aniso", None)
+            elif hasattr(result, "accuracy_matrix"):
+                # ExperimentResult from FedAvg/Oracle baselines
+                acc = float(result.accuracy_matrix[:, -1].mean())
+                lam_iso = None
+                lam_aniso = None
             elif isinstance(result, np.ndarray):
                 acc = float(result[:, -1].mean()) if result.ndim == 2 else float(result)
                 lam_iso = None

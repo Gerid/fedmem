@@ -32,10 +32,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 EXCLUDE_DIRS = {
     ".git", "__pycache__", ".cifar100_cache", ".feature_cache",
-    ".mnist_cache", ".tmp_pytest", ".pytest_cache", ".claude",
+    ".mnist_cache", ".cifar10_cache", ".fmow_cache", ".cache",
+    ".tmp_pytest", ".pytest_cache", ".claude",
     "tmp", ".tmp", "node_modules", "runpod_results",
+    "paper", "outputs", "cowork", "refine-logs",
+    "results", "results_neurips_benchmark",
+    "results_phase3_v2_smoke", "results_phase3_v2_targeted_sine",
+    "results_phase3_v3_sine_final",
 }
-EXCLUDE_EXTENSIONS = {".pyc", ".pyo", ".egg-info"}
+EXCLUDE_EXTENSIONS = {".pyc", ".pyo", ".egg-info", ".csv", ".png", ".pdf", ".jpg"}
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 
 
 def get_s3_client():
@@ -59,7 +65,16 @@ def should_include(path: Path) -> bool:
     for part in parts:
         if part in EXCLUDE_DIRS:
             return False
+        # Exclude results_* dirs
+        if part.startswith("results_"):
+            return False
     if path.suffix in EXCLUDE_EXTENSIONS:
+        return False
+    # Skip large files
+    try:
+        if path.stat().st_size > MAX_FILE_SIZE:
+            return False
+    except OSError:
         return False
     return True
 

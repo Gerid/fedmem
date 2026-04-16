@@ -178,6 +178,10 @@ class TwoPhaseConfig:
     key_style_weight: float = 0.25
     key_semantic_weight: float = 0.30
     key_prototype_weight: float = 0.45
+    # Fingerprint similarity weights (feat, label, class-conditional)
+    # Used by ConceptFingerprint.similarity() for Phase A concept matching.
+    # None = use defaults (0.25, 0.30, 0.45).
+    fingerprint_sim_weights: tuple[float, float, float] | None = None
     global_shared_aggregation: bool = False
     entropy_freeze_threshold: float | None = None
     adaptive_addressing: bool = False
@@ -1106,9 +1110,10 @@ class TwoPhaseFedProTrack:
         # early σ_B² estimates cannot pull concept models apart before
         # between-concept structure is resolved.
         if self._round <= self.config.drct_warmup_rounds:
-            self.drct_lambda_log.append(
-                {"round": self._round, "lambda_mean": 1.0, "warmup": True}
-            )
+            if hasattr(self, "drct_lambda_log"):
+                self.drct_lambda_log.append(
+                    {"round": self._round, "lambda_mean": 1.0, "warmup": True}
+                )
             return {
                 cid: {k: global_fedavg[k].copy() for k in agg}
                 for cid, agg in aggregated.items()
@@ -1153,25 +1158,30 @@ class TwoPhaseFedProTrack:
             else:
                 self._drct_sigma2_ema = beta * self._drct_sigma2_ema + (1.0 - beta) * sigma2
                 self._drct_sigma_B2_ema = beta * self._drct_sigma_B2_ema + (1.0 - beta) * sigma_B2
-            sigma2 = self._drct_sigma2_ema
-            sigma_B2 = self._drct_sigma_B2_ema
+            sigma2_eff = self._drct_sigma2_ema
+            sigma_B2_eff = self._drct_sigma_B2_ema
+        else:
+            sigma2_eff = sigma2
+            sigma_B2_eff = sigma_B2
 
         # SNR gate: if between-concept signal is dominated by within-concept
         # noise, the Stein estimate is unreliable — fall back to λ=0 (trust
         # clustering) rather than the default λ→1 (collapse to FedAvg).
+        snr_gate_triggered = False
         if self.config.drct_snr_gate:
             n_bar = np.mean([
                 float(len(concept_groups.get(cid, [])))
                 for cid in aggregated
             ]) if aggregated else 1.0
-            within_term = sigma2 * d_eff / max(n_bar, 1.0)
-            snr = sigma_B2 / within_term if within_term > 1e-30 else 0.0
+            within_term = sigma2_eff * d_eff / max(n_bar, 1.0)
+            snr = sigma_B2_eff / within_term if within_term > 1e-30 else 0.0
             if snr < float(self.config.drct_snr_threshold):
+                snr_gate_triggered = True
                 self.drct_lambda_log.append({
                     "round": self._round,
                     "n_concepts": len(aggregated),
-                    "sigma2": sigma2,
-                    "sigma_B2": sigma_B2,
+                    "sigma2": sigma2_eff,
+                    "sigma_B2": sigma_B2_eff,
                     "d_eff": d_eff,
                     "snr": snr,
                     "snr_gate": True,
@@ -1179,6 +1189,9 @@ class TwoPhaseFedProTrack:
                 })
                 return {cid: {k: v.copy() for k, v in agg.items()}
                         for cid, agg in aggregated.items()}
+
+        sigma2 = sigma2_eff
+        sigma_B2 = sigma_B2_eff
 
         # Per-concept shrinkage
         result: dict[int, dict[str, np.ndarray]] = {}
@@ -1199,6 +1212,7 @@ class TwoPhaseFedProTrack:
                 for key in agg
             }
 
+        # Log diagnostics for this round
         lam_values = list(per_concept_lambdas.values())
         self.drct_lambda_log.append({
             "round": self._round,
@@ -1208,6 +1222,8 @@ class TwoPhaseFedProTrack:
             "d_eff": d_eff,
             "lambda_mean": float(np.mean(lam_values)) if lam_values else 0.0,
             "lambda_std": float(np.std(lam_values)) if lam_values else 0.0,
+            "lambda_min": float(np.min(lam_values)) if lam_values else 0.0,
+            "lambda_max": float(np.max(lam_values)) if lam_values else 0.0,
             "per_concept": dict(per_concept_lambdas),
         })
         return result

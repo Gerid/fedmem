@@ -1,0 +1,92 @@
+\begin{thebibliography}{14}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Chen et~al.(2024)]{chen2024fedccfa}
+Hong-You Chen et~al.
+\newblock Addressing concept shift in online federated learning.
+\newblock In \emph{NeurIPS}, 2024.
+
+\bibitem[Deng et~al.(2020)Deng, Kamani, and Mahdavi]{deng2020adaptive}
+Yuyang Deng, Mohammad~Mahdi Kamani, and Mehrdad Mahdavi.
+\newblock Adaptive personalized federated learning.
+\newblock \emph{arXiv preprint arXiv:2003.13461}, 2020.
+
+\bibitem[Efron and Morris(1973)]{efron1973stein}
+Bradley Efron and Carl Morris.
+\newblock Stein's estimation rule and its competitors---an empirical {B}ayes
+  approach.
+\newblock \emph{Journal of the American Statistical Association}, 68\penalty0
+  (341):\penalty0 117--130, 1973.
+
+\bibitem[Ghosh et~al.(2020)Ghosh, Chung, Yin, and
+  Ramchandran]{ghosh2020efficient}
+Avishek Ghosh, Jichan Chung, Dong Yin, and Kannan Ramchandran.
+\newblock An efficient framework for clustered federated learning.
+\newblock In \emph{NeurIPS}, 2020.
+
+\bibitem[James and Stein(1961)]{james1961estimation}
+William James and Charles Stein.
+\newblock Estimation with quadratic loss.
+\newblock \emph{Proceedings of the Fourth Berkeley Symposium on Mathematical
+  Statistics and Probability}, 1:\penalty0 361--379, 1961.
+
+\bibitem[Jothimurugesan et~al.(2023)Jothimurugesan, Hsieh, Wang, Joshi, and
+  Gibbons]{jothimurugesan2023federated}
+Ellango Jothimurugesan, Kevin Hsieh, Jianyu Wang, Gauri Joshi, and Phillip~B
+  Gibbons.
+\newblock Federated learning under distributed concept drift.
+\newblock In \emph{AISTATS}, 2023.
+
+\bibitem[Kim et~al.(2024)]{kim2024icml}
+Yoojin Kim et~al.
+\newblock Communication-efficient personalized federated learning for
+  speech-to-intent classification.
+\newblock In \emph{ICML}, 2024.
+
+\bibitem[Li et~al.(2021)Li, Hu, Beirami, and Smith]{li2021ditto}
+Tian Li, Shengyuan Hu, Ahmad Beirami, and Virginia Smith.
+\newblock Ditto: Fair and robust federated learning through personalization.
+\newblock In \emph{ICML}, 2021.
+
+\bibitem[McMahan et~al.(2017)McMahan, Moore, Ramage, Hampson, and
+  Arcas]{mcmahan2017communication}
+Brendan McMahan, Eider Moore, Daniel Ramage, Seth Hampson, and Blaise
+  Ag{\"u}era~y Arcas.
+\newblock Communication-efficient learning of deep networks from decentralized
+  data.
+\newblock In \emph{AISTATS}, 2017.
+
+\bibitem[Panchal et~al.(2023)Panchal, Choudhary, Mitra, Mukherjee, Sarkhel,
+  Mitra, and Guan]{panchal2023flash}
+Kunjal Panchal, Sunav Choudhary, Subrata Mitra, Koyel Mukherjee, Somdeb
+  Sarkhel, Saayan Mitra, and Hui Guan.
+\newblock Flash: Concept drift adaptation in federated learning.
+\newblock In \emph{ICML}, 2023.
+
+\bibitem[Sattler et~al.(2021)Sattler, M{\"u}ller, and
+  Samek]{sattler2021clustered}
+Felix Sattler, Klaus-Robert M{\"u}ller, and Wojciech Samek.
+\newblock Clustered federated learning: Model-agnostic distributed multitask
+  optimization under privacy constraints.
+\newblock \emph{IEEE TNNLS}, 2021.
+
+\bibitem[T~Dinh et~al.(2020)T~Dinh, Tran, and Nguyen]{t2020personalized}
+Canh T~Dinh, Nguyen Tran, and Josh Nguyen.
+\newblock Personalized federated learning with {M}oreau envelopes.
+\newblock In \emph{NeurIPS}, 2020.
+
+\bibitem[Tsybakov(2009)]{tsybakov2009introduction}
+Alexandre~B Tsybakov.
+\newblock \emph{Introduction to Nonparametric Estimation}.
+\newblock Springer, 2009.
+
+\bibitem[Xu et~al.(2024)]{xu2024icml}
+Rui Xu et~al.
+\newblock Personalized federated learning with inferred collaboration graphs.
+\newblock In \emph{ICML}, 2024.
+
+\end{thebibliography}

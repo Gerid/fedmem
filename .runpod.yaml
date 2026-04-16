@@ -1,0 +1,59 @@
+# RunPod workload routing config for FedProTrack.
+# Read by ~/.runpod/smart_submit.py to auto-select GPU tier.
+
+project: fedprotrack
+volume_id: "7kga5cg276"
+
+endpoints:
+  light:
+    id: "ewt09p168i0ll2"
+    workers_max: 6
+  heavy:
+    id: "tn6fp97l3vxpz1"
+    workers_max: 4
+
+# Workload classification rules (evaluated top-to-bottom, first match wins).
+# Each rule has:
+#   match:  conditions on script name and/or CLI args
+#   tier:   "light" or "heavy"
+#   reason: human-readable explanation (logged to cost ledger)
+rules:
+  # CNN / end-to-end training → heavy
+  - match:
+      script_glob: "run_emnist*"
+    tier: heavy
+    reason: "EMNIST end-to-end CNN training needs GPU compute"
+
+  - match:
+      args_contain: "--model-type small_cnn"
+    tier: heavy
+    reason: "CNN model type requires GPU acceleration"
+
+  - match:
+      args_contain: "--model-type cnn"
+    tier: heavy
+    reason: "CNN model type requires GPU acceleration"
+
+  # fMoW with raw images (not frozen features) → heavy
+  - match:
+      script_glob: "*fmow*"
+      args_contain: "--raw-images"
+    tier: heavy
+    reason: "fMoW raw image processing is GPU-bound"
+
+  # Large-scale runs (K>=100 or T>=500) → heavy
+  - match:
+      args_contain: "--preset large"
+    tier: heavy
+    reason: "Large preset has high compute requirements"
+
+  - match:
+      args_contain: "--preset full"
+    tier: heavy
+    reason: "Full preset includes large-scale configuration"
+
+  # Everything else → light (linear on frozen features)
+  - match:
+      default: true
+    tier: light
+    reason: "Default: linear-on-features workload, CPU-bound"

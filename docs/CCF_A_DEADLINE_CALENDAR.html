@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>CCF-A 会议截稿日历</title>
+<style>
+  body { font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; max-width: 1200px; margin: 40px auto; padding: 0 20px; background: #f8f9fa; color: #333; }
+  h1 { color: #1a73e8; border-bottom: 3px solid #1a73e8; padding-bottom: 10px; }
+  h2 { color: #333; margin-top: 40px; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0 30px; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
+  th { background: #1a73e8; color: #fff; padding: 12px 14px; text-align: left; font-weight: 600; }
+  td { padding: 10px 14px; border-bottom: 1px solid #e8eaed; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover { background: #f1f6ff; }
+  .urgent { background: #fff3e0; }
+  .urgent td { font-weight: 600; }
+  .best { color: #0d652d; font-weight: 700; }
+  .high { color: #e37400; font-weight: 600; }
+  .deadline { color: #d93025; font-weight: 700; }
+  .abstract { color: #e37400; font-weight: 600; }
+  .recommend { background: #e8f5e9; padding: 16px 20px; border-radius: 8px; border-left: 4px solid #34a853; margin: 20px 0; font-size: 16px; }
+  .note { color: #5f6368; font-size: 14px; margin: 8px 0 20px; }
+  .passed { text-decoration: line-through; color: #999; }
+  a { color: #1a73e8; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .links { column-count: 2; margin-top: 10px; }
+  .links a { display: block; padding: 3px 0; font-size: 14px; }
+  .countdown { font-size: 12px; color: #5f6368; }
+</style>
+<script>
+function updateCountdowns() {
+  document.querySelectorAll('[data-date]').forEach(el => {
+    const d = new Date(el.dataset.date);
+    const now = new Date();
+    const diff = Math.ceil((d - now) / (1000*60*60*24));
+    const span = el.querySelector('.countdown');
+    if (!span) return;
+    if (diff > 0) span.textContent = `(${diff}天后)`;
+    else if (diff === 0) span.textContent = '(今天!)';
+    else span.textContent = '(已过)';
+  });
+}
+window.onload = updateCountdowns;
+</script>
+</head>
+<body>
+<h1>CCF-A 会议截稿日历 <span style="font-size:14px;color:#5f6368">2026-04-12 更新</span></h1>
+
+<h2>一、尚未截止的 CCF-A 会议</h2>
+<table>
+<tr><th>#</th><th>摘要截止</th><th>全文截止</th><th>会议</th><th>领域</th><th>会议时间</th><th>地点</th></tr>
+<tr data-date="2026-04-23"><td>1</td><td class="abstract">4/16 <span class="countdown"></span></td><td class="deadline">4/23 <span class="countdown"></span></td><td><b>NSDI '27</b> (Spring)</td><td>网络/系统</td><td>2027.5.11-13</td><td>Providence, RI</td></tr>
+<tr data-date="2026-04-29"><td>2</td><td class="abstract">4/22</td><td class="deadline">4/29 <span class="countdown"></span></td><td><b>ACM CCS 2026</b> (Cycle 2)</td><td>安全</td><td>2026.11.15-19</td><td>海牙</td></tr>
+<tr class="urgent" data-date="2026-05-06"><td>3</td><td class="abstract">5/4</td><td class="deadline">5/6 <span class="countdown"></span></td><td><b>NeurIPS 2026</b> &#11088;</td><td>AI/ML</td><td>2026.12.6-12</td><td>悉尼</td></tr>
+<tr data-date="2026-05-06"><td>4</td><td>— (单截止)</td><td class="deadline">5/6 <span class="countdown"></span></td><td><b>NDSS 2027</b> (Summer Cycle)</td><td>安全</td><td>2027.2.23-27</td><td>圣迭戈</td></tr>
+<tr data-date="2026-05-25"><td>5</td><td>5/25 (ARR 投稿)</td><td class="deadline">8/2 (commitment)</td><td><b>EMNLP 2026</b></td><td>NLP</td><td>2026.10.24-29</td><td>布达佩斯</td></tr>
+<tr data-date="2026-06-05"><td>6</td><td class="abstract">5/29</td><td>6/5 <span class="countdown"></span></td><td><b>IEEE S&amp;P 2027</b> (Cycle 1)</td><td>安全</td><td>2027.5.18-21</td><td>旧金山</td></tr>
+<tr data-date="2026-06-30"><td>7</td><td class="abstract">6/23</td><td>6/30 <span class="countdown"></span></td><td><b>ICSE 2027</b> (Research Track)</td><td>软件工程</td><td>2027.4.25-5.1</td><td>都柏林</td></tr>
+<tr data-date="2026-07-17"><td>8</td><td class="abstract">7/10</td><td>7/17 <span class="countdown"></span></td><td><b>SIGMOD 2027</b> (Round 3)</td><td>数据库</td><td>2027.6.13-19</td><td>Huntington Beach</td></tr>
+<tr data-date="2026-07-24"><td>9</td><td class="abstract">7/17</td><td>7/24 <span class="countdown"></span></td><td><b>INFOCOM 2027</b></td><td>网络</td><td>2027.5.17-20</td><td>檀香山</td></tr>
+<tr data-date="2026-08-01"><td>10</td><td class="abstract">7/25</td><td>8/1 <span class="countdown"></span></td><td><b>AAAI 2027</b></td><td>AI</td><td>2027.2.16-23</td><td>蒙特利尔</td></tr>
+<tr data-date="2026-08-19"><td>11</td><td>— (单截止)</td><td>8/19 <span class="countdown"></span></td><td><b>NDSS 2027</b> (Fall Cycle)</td><td>安全</td><td>2027.2.23-27</td><td>圣迭戈</td></tr>
+<tr data-date="2026-08-25"><td>12</td><td class="abstract">8/18</td><td>8/25 <span class="countdown"></span></td><td><b>USENIX Security '27</b> (Cycle 1)</td><td>安全</td><td>2027.8.11-13</td><td>丹佛</td></tr>
+<tr data-date="2026-09-09"><td>13</td><td>— (单截止)</td><td>9/9 <span class="countdown"></span></td><td><b>ASPLOS 2027</b> (September Cycle)</td><td>体系结构</td><td>2027.4.11-15</td><td>克里特岛</td></tr>
+<tr data-date="2026-09-16"><td>14</td><td>— (单截止)</td><td>9/16 <span class="countdown"></span></td><td><b>FAST '27</b></td><td>存储/系统</td><td>2027.2.23-25</td><td>Renton, WA</td></tr>
+<tr data-date="2026-09-24"><td>15</td><td>~9/24</td><td>~9/24 <span class="countdown"></span></td><td><b>ICLR 2027</b> (参照ICLR 2026)</td><td>AI/ML</td><td>2027春</td><td>TBD</td></tr>
+<tr data-date="2026-09-17"><td>16</td><td class="abstract">9/10</td><td>9/17 <span class="countdown"></span></td><td><b>NSDI '27</b> (Fall)</td><td>网络/系统</td><td>2027.5.11-13</td><td>Providence, RI</td></tr>
+<tr data-date="2026-10-09"><td>17</td><td>— (单截止)</td><td>10/9 <span class="countdown"></span></td><td><b>FSE 2027</b> (Research Track)</td><td>软件工程</td><td>2027.7.12-16</td><td>深圳</td></tr>
+<tr data-date="2026-10-17"><td>18</td><td class="abstract">10/10</td><td>10/17 <span class="countdown"></span></td><td><b>SIGMOD 2027</b> (Round 4)</td><td>数据库</td><td>2027.6.13-19</td><td>Huntington Beach</td></tr>
+<tr data-date="2026-10-23"><td>19</td><td>~10/23</td><td>~10/23 <span class="countdown"></span></td><td><b>ICSE 2027</b> (SEIS)</td><td>软件工程</td><td>2027.4-5</td><td>都柏林</td></tr>
+<tr data-date="2026-11-13"><td>20</td><td class="abstract">11/6</td><td>11/13 <span class="countdown"></span></td><td><b>IEEE S&amp;P 2027</b> (Cycle 2)</td><td>安全</td><td>2027.5.18-21</td><td>旧金山</td></tr>
+<tr data-date="2026-11-15"><td>21</td><td>~11月</td><td>~11月 <span class="countdown"></span></td><td><b>CVPR 2027</b> (参照CVPR 2026)</td><td>CV</td><td>2027.6.19-26</td><td>TBD</td></tr>
+<tr data-date="2027-01-26"><td>22</td><td class="abstract">1/19 '27</td><td>1/26 '27 <span class="countdown"></span></td><td><b>USENIX Security '27</b> (Cycle 2)</td><td>安全</td><td>2027.8.11-13</td><td>丹佛</td></tr>
+<tr><td>23</td><td>滚动月投</td><td>滚动月投</td><td><b>VLDB 2027</b></td><td>数据库</td><td>2027.8.23-27</td><td>雅典</td></tr>
+</table>
+<p class="note">标注 "~" 的日期为根据往年推算，官方尚未公布。VLDB 为每月滚动截稿。"—" 表示无单独摘要截止日期。对采用 ARR 的 NLP 会议，前一列记录 ARR 投稿截止，后一列记录 conference commitment 截止。</p>
+
+<h2>二、已截止的 CCF-A 会议</h2>
+<table>
+<tr><th>会议</th><th>摘要截止</th><th>全文截止</th><th>下一轮预计</th></tr>
+<tr><td>ASPLOS 2027 (April Cycle)</td><td>—</td><td class="passed">4/15</td><td>September Cycle: 9/9 全文</td></tr>
+<tr><td>SIGMOD 2027 (Round 2)</td><td class="passed">4/10</td><td class="passed">4/17</td><td>Round 3: 7/10 摘要, 7/17 全文</td></tr>
+<tr><td>MICRO 2026</td><td>—</td><td class="passed">4/7</td><td>MICRO 2027 ~2027.4</td></tr>
+<tr><td>ACM MM 2026</td><td class="passed">3/25</td><td class="passed">4/1</td><td>ACM MM 2027 ~2027.3</td></tr>
+<tr><td>ACL 2026</td><td class="passed">1/5 (ARR)</td><td class="passed">3/14 (commitment)</td><td>ACL 2027 ~2027.1 (会议 7/2-7 圣迭戈)</td></tr>
+<tr><td>FOCS 2026</td><td>—</td><td class="passed">4/1</td><td>FOCS 2027 ~2027.4</td></tr>
+<tr><td>SC 2026</td><td>—</td><td class="passed">4/8</td><td>SC 2027 ~2027.4</td></tr>
+<tr><td>ASE 2026</td><td>—</td><td class="passed">已过</td><td>ASE 2027 ~2027.5 (会议 10/12-16 慕尼黑)</td></tr>
+<tr><td>ICML 2026</td><td>—</td><td class="passed">1/28</td><td>ICML 2027 ~2027.1</td></tr>
+<tr><td>IJCAI 2026</td><td class="passed">1/12</td><td class="passed">1/19</td><td>IJCAI 2027 ~2027.1 (会议 8/15-21 Bremen)</td></tr>
+<tr><td>KDD 2026 (Cycle 2)</td><td>—</td><td class="passed">3/6</td><td>KDD 2027 ~2027.2 (会议 8/9-13 济州岛)</td></tr>
+<tr><td>ECCV 2026</td><td>—</td><td class="passed">2/26</td><td>ECCV 双年 2028</td></tr>
+<tr><td>CVPR 2026</td><td>—</td><td class="passed">11/13/2025</td><td>CVPR 2027 ~2026.11</td></tr>
+<tr><td>ICCV 2027</td><td>—</td><td>TBD (~2027.3)</td><td>双年，2027 举办</td></tr>
+<tr><td>SIGCOMM 2026</td><td>—</td><td class="passed">2/7</td><td>SIGCOMM 2027 ~2027.2</td></tr>
+<tr><td>MobiCom 2026</td><td>—</td><td class="passed">9/4/2025</td><td>MobiCom 2027 ~2027.3?</td></tr>
+<tr><td>OSDI 2026</td><td>—</td><td class="passed">12/11/2025</td><td>OSDI 双年 2028</td></tr>
+<tr><td>SOSP 2026</td><td>—</td><td class="passed">已过</td><td>SOSP 双年 2027 TBD (会议 9/29-10/2 布拉格)</td></tr>
+<tr><td>CHI 2026</td><td>—</td><td class="passed">9/11/2025</td><td>CHI 2027 ~2026.9</td></tr>
+<tr><td>DAC 2026</td><td>—</td><td class="passed">11/19/2025</td><td>DAC 2027 ~2026.11</td></tr>
+<tr><td>CRYPTO 2026</td><td>—</td><td class="passed">已过</td><td>CRYPTO 2027 ~2027.2</td></tr>
+<tr><td>Eurocrypt 2026</td><td>—</td><td class="passed">10/2/2025</td><td>Eurocrypt 2027 ~2026.10</td></tr>
+<tr><td>STOC 2026</td><td>—</td><td class="passed">11/4/2025</td><td>STOC 2027 ~2026.11</td></tr>
+<tr><td>HPCA / ISCA / MICRO</td><td>—</td><td class="passed">已过或TBD</td><td>见体系结构年历</td></tr>
+</table>
+
+<h2>三、FedProTrack 论文适配度速查</h2>
+<table>
+<tr><th>会议</th><th>摘要 &rarr; 全文</th><th>内容匹配</th><th>中稿难度</th><th>建议</th></tr>
+<tr><td><b>NeurIPS 2026</b></td><td class="deadline">5/4 &rarr; 5/6 (24天后)</td><td class="best">最佳</td><td>~25%</td><td>首选目标</td></tr>
+<tr><td><b>AAAI 2027</b></td><td>7/25 &rarr; 8/1</td><td class="high">高</td><td>~24%</td><td>稳妥备选，审稿理论素养略逊</td></tr>
+<tr><td><b>ICLR 2027</b></td><td>~9/24</td><td class="best">最佳</td><td>~32%</td><td>中稿率最高的 plan B</td></tr>
+<tr><td><b>ICML 2027</b></td><td>~2027.1</td><td class="best">最佳</td><td>~26%</td><td>远期首选，可大幅补充实验</td></tr>
+<tr><td><b>IJCAI 2027</b></td><td>~2027.1</td><td class="high">高</td><td>~24%</td><td>与 AAAI 同级备选</td></tr>
+</table>
+
+<div class="recommend">
+  <b>推荐投稿路线：</b> NeurIPS 2026 (5/6) &rarr; 若拒 &rarr; ICLR 2027 (~9/24) &rarr; 若拒 &rarr; ICML 2027 (~2027.1)
+</div>
+
+<h2>参考链接</h2>
+<div class="links">
+<a href="https://ccfddl.com/" target="_blank">CCF Deadlines 在线查询</a>
+<a href="https://aideadlin.es/" target="_blank">AI Conference Deadlines</a>
+<a href="https://neurips.cc/Conferences/2026/Dates" target="_blank">NeurIPS 2026</a>
+<a href="https://iclr.cc/Conferences/2026/Dates" target="_blank">ICLR 2026</a>
+<a href="https://icml.cc/Conferences/2026/Dates" target="_blank">ICML 2026</a>
+<a href="https://2027.sigmod.org/calls_papers_important_dates.shtml" target="_blank">SIGMOD 2027 Important Dates</a>
+<a href="https://www.ndss-symposium.org/ndss2027/submissions/call-for-papers/" target="_blank">NDSS 2027 CFP</a>
+<a href="https://www.usenix.org/conference/usenixsecurity27" target="_blank">USENIX Security '27</a>
+<a href="https://www.sigsac.org/ccs/CCS2026/call-for/call-for-papers.html" target="_blank">ACM CCS 2026</a>
+<a href="https://conf.researchr.org/dates/icse-2027" target="_blank">ICSE 2027</a>
+<a href="https://2026.emnlp.org/calls/main_conference_papers/" target="_blank">EMNLP 2026</a>
+<a href="https://www.ccf.org.cn/Academic_Evaluation/By_category/" target="_blank">CCF 推荐目录</a>
+</div>
+
+</body>
+</html>

@@ -48,11 +48,14 @@ class LeNetBN(nn.Module):
         self.fc2 = nn.Linear(256, n_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.fc2(self.features(x))
+
+    def features(self, x: torch.Tensor) -> torch.Tensor:
+        """Pre-logit 256-d feature representation (for FPT fingerprints)."""
         x = self.pool(F.relu(self.bn1(self.conv1(x))))   # 28 -> 14
         x = self.pool(F.relu(self.bn2(self.conv2(x))))   # 14 -> 7
         x = x.reshape(x.size(0), -1)                      # 64*7*7 = 3136
-        x = F.relu(self.fc1(x))
-        return self.fc2(x)
+        return F.relu(self.fc1(x))
 
     def body_params(self) -> dict[str, torch.Tensor]:
         """Conv layers + BN (shared body for FedPer)."""
@@ -589,6 +592,119 @@ def run_fedper(
 
 
 # ---------------------------------------------------------------------------
+# FedProTrack-OT (spectral concept discovery + recurrence memory)
+# ---------------------------------------------------------------------------
+
+
+def _extract_features(model: nn.Module, X: np.ndarray, batch_size: int = 256) -> np.ndarray:
+    """Run ``model.features(x)`` over X and return a (N, 256) numpy array."""
+    model.eval()
+    model.to(DEVICE)
+    outs: list[np.ndarray] = []
+    with torch.no_grad():
+        for start in range(0, len(X), batch_size):
+            xb = torch.from_numpy(X[start:start + batch_size]).float().to(DEVICE)
+            feats = model.features(xb)
+            outs.append(feats.detach().cpu().numpy())
+    return np.concatenate(outs, axis=0)
+
+
+def run_fedprotrack_ot(
+    data: dict, concept_matrix: np.ndarray, info: dict,
+    n_epochs: int = 3, lr: float = 0.01, federation_every: int = 2,
+) -> np.ndarray:
+    """FedProTrack-OT: spectral concept discovery on model-feature fingerprints
+    + recurrence-aware ConceptMemory + within-concept model averaging.
+
+    The "OT" label refers to the Wasserstein interpretation: for Gaussian
+    mixtures with shared covariance, Euclidean distance on class-conditional
+    mean fingerprints ≈ W₂, so spectral clustering on the fingerprint graph
+    approximates an optimal-transport-based partition.
+    """
+    from fedprotrack.concept_tracker.fingerprint import ConceptFingerprint
+    from fedprotrack.posterior.ot_concept_discovery import (
+        ConceptMemory,
+        spectral_concept_discovery,
+    )
+
+    K, T, C, n_classes = info["K"], info["T"], info["C"], info["n_classes"]
+    global_model = LeNetBN(n_classes=n_classes).to(DEVICE)
+    concept_models: dict[int, dict[str, torch.Tensor]] = {}
+    client_concept_id: dict[int, int] = {}  # k -> persistent concept ID
+    memory = ConceptMemory(match_threshold=0.7)
+    acc_matrix = np.zeros((K, T))
+    # feature dim probed lazily from first use
+    feat_dim: int | None = None
+
+    for t in range(T):
+        local_sds: dict[int, dict[str, torch.Tensor]] = {}
+        local_fps: dict[int, "ConceptFingerprint"] = {}
+
+        for k in range(K):
+            # Initialise from assigned persistent concept (if any) else global
+            cid_prev = client_concept_id.get(k, -1)
+            if cid_prev >= 0 and cid_prev in concept_models:
+                init_sd = copy.deepcopy(concept_models[cid_prev])
+            else:
+                init_sd = copy.deepcopy(global_model.state_dict())
+
+            model = LeNetBN(n_classes=n_classes).to(DEVICE)
+            model.load_state_dict(init_sd)
+            X, y = data[(k, t)]
+            n = len(y)
+            mid = n // 2
+            train_model(model, X[:mid], y[:mid], n_epochs=n_epochs, lr=lr)
+            acc_matrix[k, t] = evaluate_model(model, X[mid:], y[mid:])
+
+            # Build client fingerprint from pre-logit features of its train half
+            feats = _extract_features(model, X[:mid])
+            if feat_dim is None:
+                feat_dim = feats.shape[1]
+            fp = ConceptFingerprint(n_features=feat_dim, n_classes=n_classes)
+            fp.update(feats, y[:mid])
+            local_fps[k] = fp
+
+            local_sds[k] = {name: v.cpu() for name, v in model.state_dict().items()}
+
+        if (t + 1) % federation_every == 0:
+            # 1. Spectral concept discovery on client fingerprints
+            n_found, assignments = spectral_concept_discovery(
+                local_fps, max_concepts=max(C * 2, 4), min_concepts=1,
+            )
+
+            # 2. Compute cluster centroids in fingerprint vector space
+            vecs = {k: local_fps[k].to_vector() for k in local_fps}
+            cluster_centroids: dict[int, np.ndarray] = {}
+            for cl in range(n_found):
+                members = [k for k, cc in assignments.items() if cc == cl]
+                if members:
+                    cluster_centroids[cl] = np.mean(
+                        [vecs[k] for k in members], axis=0
+                    )
+
+            # 3. Match to persistent memory (recurrence re-id)
+            cluster_to_persistent = memory.match_and_update(cluster_centroids)
+
+            # 4. Re-group client state_dicts by persistent concept ID
+            persistent_groups: dict[int, list[dict]] = defaultdict(list)
+            for k_id, cl in assignments.items():
+                pid = cluster_to_persistent[cl]
+                client_concept_id[k_id] = pid
+                persistent_groups[pid].append(local_sds[k_id])
+
+            # 5. Update concept models via within-group averaging
+            for pid, sds in persistent_groups.items():
+                concept_models[pid] = average_state_dicts(sds)
+
+            # 6. Maintain a global fallback
+            all_sds = list(local_sds.values())
+            if all_sds:
+                global_model.load_state_dict(average_state_dicts(all_sds))
+
+    return acc_matrix
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -600,6 +716,7 @@ _METHODS = {
     "Shrinkage": run_shrinkage,
     "FedBN": run_fedbn,
     "FedPer": run_fedper,
+    "FedProTrack-OT": run_fedprotrack_ot,
 }
 
 

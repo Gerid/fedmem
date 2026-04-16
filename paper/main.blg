@@ -1,0 +1,49 @@
+This is BibTeX, Version 0.99d (TeX Live 2024)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: main.aux
+The style file: plainnat.bst
+Database file #1: references.bib
+Warning--can't use both volume and number fields in long2023multi
+Warning--empty booktitle in villani2009optimal
+You've used 45 entries,
+            2773 wiz_defined-function locations,
+            794 strings with 12739 characters,
+and the built_in function-call counts, 23851 in all, are:
+= -- 1865
+> -- 1964
+< -- 10
++ -- 659
+- -- 612
+* -- 2065
+:= -- 3751
+add.period$ -- 136
+call.type$ -- 45
+change.case$ -- 339
+chr.to.int$ -- 43
+cite$ -- 92
+duplicate$ -- 1021
+empty$ -- 1766
+format.name$ -- 667
+if$ -- 4895
+int.to.chr$ -- 3
+int.to.str$ -- 1
+missing$ -- 44
+newline$ -- 234
+num.names$ -- 180
+pop$ -- 768
+preamble$ -- 1
+purify$ -- 293
+quote$ -- 0
+skip$ -- 764
+stack$ -- 0
+substring$ -- 331
+swap$ -- 86
+text.length$ -- 2
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 495
+warning$ -- 2
+while$ -- 155
+width$ -- 0
+write$ -- 562
+(There were 2 warnings)

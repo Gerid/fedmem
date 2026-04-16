@@ -39,9 +39,9 @@
 % ABSTRACT — Farquhar 5-sentence formula
 % =====================================================================
 \begin{abstract}
-We introduce a \emph{protocol ordering} perspective for clustered federated learning under concept drift: the choice of \emph{when} in the federation round to cluster clients---before or after local training---provably determines clustering quality in the concept-recurrence regime.
+We introduce a \emph{protocol ordering} perspective for clustered federated learning under concept drift: the choice of \emph{when} in the federation round to cluster clients---before or after local training---determines clustering quality in the concept-recurrence regime.
 Existing methods cluster in weight space \emph{after} training, but under recurrence, stale model initializations contaminate the clustering signal, producing an empirically observed clustering-error floor $\eta \ge 0.30$ that no post-training algorithm in our benchmark breaches when concept separation is meaningful (Oracle gap $> 4$pp).
-We prove that stale model initialisations inflate Scheme~A clustering error by an amount proportional to concept-switching variance, and show---both theoretically (via a $d/L$ SNR advantage) and empirically---that data fingerprints achieve strictly lower error.
+We formalise this in a one-step linearised Gaussian model: stale model initialisations inflate Scheme~A clustering error to first order in concept-switching variance, and a $d/L_{\mathrm{cls}}$ SNR calculation suggests---consistent with our empirical observation of a $200\times$ gap---that data fingerprints achieve lower error.
 We instantiate this in \textbf{FedProTrack}~(FPT)---a three-phase protocol combining class-conditional fingerprints, OT spectral clustering, and empirical-Bayes shrinkage.
 Across 4~datasets (including natural temporal drift), 26~baselines from 7~method families, and 60+ experimental runs, FPT achieves accuracy within 0.3pp of Oracle on CIFAR-100 and $+6.9$pp above the best existing baseline on fMoW, while all cluster-after-train methods rank below FedAvg on every dataset where the Oracle gap exceeds 4pp.
 \end{abstract}
@@ -185,7 +185,7 @@ The key implication is that \emph{reducing~$\eta$ is the primary lever} for conc
 \section{Method: FedProTrack}
 \label{sec:method}
 
-We first establish \emph{why} clustering before training is provably better (\S\ref{sec:protocol_ordering}), then describe FPT's four modules (Figure~\ref{fig:pipeline}): fingerprint extraction (\S\ref{sec:fingerprint}), concept discovery (\S\ref{sec:discovery}), concept-matched training (\S\ref{sec:matched_train}), and adaptive shrinkage (\S\ref{sec:shrinkage}).
+We first establish \emph{why} clustering before training is advantageous---through a formal analysis in a one-step linearised Gaussian model and corroborating empirical evidence---in \S\ref{sec:protocol_ordering}, then describe FPT's four modules (Figure~\ref{fig:pipeline}): fingerprint extraction (\S\ref{sec:fingerprint}), concept discovery (\S\ref{sec:discovery}), concept-matched training (\S\ref{sec:matched_train}), and adaptive shrinkage (\S\ref{sec:shrinkage}).
 
 \subsection{Theoretical Foundation: Protocol Ordering}
 \label{sec:protocol_ordering}
@@ -216,7 +216,7 @@ We state the regularity conditions:
 
 \begin{theorem}[Stale-Initialisation Amplification]
 \label{thm:protocol}
-Let $\eta_A$ be the clustering error of Scheme~A and $\eta_A^{(\mathrm{clean})}$ the error of Scheme~A with Oracle-provided correct initialisation (i.e., $\V(w^{(\mathrm{init})}) = 0$). Assume (A1--A4) and the one-step linearised Gaussian regime of Lemma~\ref{lem:info_indirectness} (single local SGD step, frozen backbone, linear head). Then:
+Let $\eta_A$ be the clustering error of Scheme~A and $\eta_A^{(\mathrm{clean})}$ the error of Scheme~A with Oracle-provided correct initialisation (i.e., $\V(w^{(\mathrm{init})}) = 0$). Assume (A1--A4), a single local SGD step under the Gaussian linear model of Lemma~\ref{lem:info_indirectness} (frozen backbone, linear head), and that the stale-initialisation perturbation appears in the clustering input as approximately isotropic additive variance $\V(w^{(\mathrm{init})})$ (a pairwise / one-vs-rest reduction to the two-class setting of Lemma~\ref{lem:gaussian_clustering}, with inter-concept separation given by (A3)). Then, to first order in $\V(w^{(\mathrm{init})})$:
 \begin{equation}
 \eta_A \;\ge\; \eta_A^{(\mathrm{clean})} \;+\; \kappa \cdot \V(w^{(\mathrm{init})}),
 \label{eq:amplification}
@@ -229,7 +229,7 @@ If additionally (A5) holds---i.e., $\eta_C \le \eta_A^{(\mathrm{clean})}$---then
 \end{equation}
 \end{theorem}
 
-Inequality~(\ref{eq:amplification}) states that, within the one-step linearised regime, stale initialisation inflates Scheme~A clustering error by $\ge \kappa \cdot \V$. Inequality~(\ref{eq:protocol}) additionally invokes (A5); the $d/L_{\mathrm{cls}}$ SNR calculation of Lemma~\ref{lem:info_indirectness} gives theoretical support for (A5), which we verify empirically ($\eta_A^{(\mathrm{clean})} = 0.40$ vs.\ $\eta_C = 0.002$ on CIFAR-100; Appendix~\ref{app:clean_eta}).
+Inequality~(\ref{eq:amplification}) is a first-order statement within the one-step linearised regime: stale initialisation inflates Scheme~A clustering error by $\ge \kappa \cdot \V$, with higher-order corrections in $\V$. Inequality~(\ref{eq:protocol}) additionally invokes (A5); the $d/L_{\mathrm{cls}}$ SNR calculation of Lemma~\ref{lem:info_indirectness} gives theoretical support for (A5), which we verify empirically ($\eta_A^{(\mathrm{clean})} = 0.40$ vs.\ $\eta_C = 0.002$ on CIFAR-100; Appendix~\ref{app:clean_eta}).
 
 \textbf{Proof sketch.}
 By $L$-smoothness (A1) and Taylor expansion, $\Delta_k$ decomposes into a concept signal, a Hessian-scaled stale-init bias $\alpha H_k (w_k^{(\mathrm{init})} - \wbar_{c(k,t)}^{(t-1)})$ with $\|H_k\| \le L$, and higher-order terms.
@@ -253,10 +253,10 @@ Under the balanced Gaussian model, combining~(\ref{eq:protocol}) with Corollary~
 Each client $k$ computes a \emph{fingerprint} $\phi_k \in \R^p$ from its local data \emph{without any model training}.
 The fingerprint concatenates three statistics that jointly capture the data distribution:
 \begin{equation}
-\phi_k = \bigl[\underbrace{\bar x_k}_{\text{global mean}},\; \underbrace{h_k}_{\text{label dist.}},\; \underbrace{\bar x_{k,1}, \ldots, \bar x_{k,L}}_{\text{class-conditional means}}\bigr],
+\phi_k = \bigl[\underbrace{\bar x_k}_{\text{global mean}},\; \underbrace{h_k}_{\text{label dist.}},\; \underbrace{\bar x_{k,1}, \ldots, \bar x_{k,L_{\mathrm{cls}}}}_{\text{class-conditional means}}\bigr],
 \end{equation}
-where $\bar x_k = \frac{1}{n}\sum_i x_i^{(k)} \in \R^d$ is the global feature mean computed over all $n$ local samples, $h_k \in \R^L$ is the normalised label histogram, and $\bar x_{k,\ell} = \frac{1}{n_\ell}\sum_{i:\,y_i=\ell} x_i^{(k)} \in \R^d$ is the mean feature vector for class~$\ell$ (zero-padded when class~$\ell$ is absent).
-For ResNet-18~\citep{he2016deep} frozen features with $d=128$ and $L=10$ classes, $p = d + L + L \cdot d = 1418$ floats ($\approx$5.5\,KB per client).
+where $\bar x_k = \frac{1}{n}\sum_i x_i^{(k)} \in \R^d$ is the global feature mean computed over all $n$ local samples, $h_k \in \R^{L_{\mathrm{cls}}}$ is the normalised label histogram ($L_{\mathrm{cls}}$ is the number of classes; notation distinct from the Lipschitz constant $L$ of (A1)), and $\bar x_{k,\ell} = \frac{1}{n_\ell}\sum_{i:\,y_i=\ell} x_i^{(k)} \in \R^d$ is the mean feature vector for class~$\ell$ (zero-padded when class~$\ell$ is absent).
+For ResNet-18~\citep{he2016deep} frozen features with $d=128$ and $L_{\mathrm{cls}}=10$ classes, $p = d + L_{\mathrm{cls}} + L_{\mathrm{cls}} \cdot d = 1418$ floats ($\approx$5.5\,KB per client).
 
 The fingerprint design is motivated by two properties.
 First, class-conditional means are \emph{sufficient statistics} for the concept identity under Gaussian class distributions---two clients sharing the same concept will produce similar $\bar x_{k,\ell}$ vectors, while clients with different class subsets or feature distributions will diverge.
@@ -544,7 +544,7 @@ The theorem assumes a Gaussian linear model; scaling to $K > 1000$ and broader d
 \label{app:proof_protocol}
 % =============================================================================
 
-We prove the two parts of the theorem separately. Part~(i) (Eq.~\ref{eq:amplification}) is unconditional; Part~(ii) (Eq.~\ref{eq:protocol}) additionally requires $\eta_C \le \eta_A^{(\mathrm{clean})}$.
+We prove the two parts of the theorem separately, under the regime stated in Theorem~\ref{thm:protocol} (one-step linearised Gaussian, pairwise / one-vs-rest reduction, isotropic perturbation). Part~(i) (Eq.~\ref{eq:amplification}) holds to first order in $\V(w^{(\mathrm{init})})$ under (A1--A4); Part~(ii) (Eq.~\ref{eq:protocol}) additionally invokes (A5).
 
 \textbf{Step 1: Decompose the Scheme A clustering input.}
 Under concept recurrence, client $k$ with true concept $c(k,t) = j$ loads initialization $w_k^{(\mathrm{init})}$ that was last trained on a different concept.
@@ -556,14 +556,14 @@ where $\|\nabla^2 L_j(\tilde w)\| \le L$ by (A1).
 The first term is the ``clean'' concept signal; the second is the stale-init bias, bounded by $\alpha L \|w_k^{(\mathrm{init})} - \wbar_j^{(t-1)}\|$.
 
 \textbf{Step 2: Bound the clustering error inflation (Part~i).}
-Under the norm-based clustering metric (A4), the stale-init bias adds variance $\V(w^{(\mathrm{init})})$ to the clustering input.
-By Lemma~\ref{lem:gaussian_clustering}, the Bayes-optimal clustering error for a $C$-class Gaussian mixture is monotonically increasing in input variance.
-This yields Part~(i):
+Under the norm-based clustering metric (A4) and the theorem's isotropic-perturbation premise, the stale-init bias contributes additive isotropic variance $\V(w^{(\mathrm{init})})$ to the clustering input.
+Reducing the $C$-class decision to a pairwise / one-vs-rest problem (each pair uses at least the minimum separation $\delta$ guaranteed by (A3)), Lemma~\ref{lem:gaussian_clustering} applies to each sub-problem: the Bayes-optimal two-class error is monotonically increasing in input variance, with first-order slope $\kappa_1 > 0$.
+Aggregating the pairwise lower bounds (the overall error is at least the worst pairwise error) yields Part~(i):
 \begin{equation}
-\eta_A \ge \eta_A^{(\mathrm{clean})} + \kappa_1 \cdot \V(w^{(\mathrm{init})}),
+\eta_A \ge \eta_A^{(\mathrm{clean})} + \kappa_1 \cdot \V(w^{(\mathrm{init})}) + o(\V),
 \end{equation}
-where $\kappa_1 > 0$ depends on $L$, $\delta$ (concept separation, A3), and the noise level.
-\emph{This inequality requires only (A1--A4) and makes no assumption about fingerprint quality.}
+where $\kappa_1 > 0$ depends on $L$ (Lipschitz constant, A1), $\delta$ (concept separation, A3), and the noise level of Lemma~\ref{lem:gaussian_clustering}.
+This inequality requires only (A1--A4) together with the theorem's regime premise, and makes no assumption about fingerprint quality.
 
 \textbf{Step 3: Compare to fingerprint clustering (Part~ii).}
 Since fingerprints depend on $P_{c(k,t)}$ alone, $\eta_C$ is independent of $\V(w^{(\mathrm{init})})$.
@@ -572,7 +572,7 @@ This is invoked as Assumption~(A5); Lemma~\ref{lem:info_indirectness} provides t
 We verify this empirically: on CIFAR-100, IFCA with Oracle-provided correct initialisation (eliminating $\V$ entirely) still has $\eta_A^{(\mathrm{clean})} = 0.40$ vs.\ FPT's $\eta_C = 0.002$ (Appendix~\ref{app:clean_eta}).
 Setting $\kappa = \kappa_1$ completes the proof.
 
-\textbf{Remark.} The theorem's primary contribution is Part~(i): the \emph{unconditional} stale-initialisation amplification.
+\textbf{Remark.} The theorem's primary contribution is Part~(i): within the stated regime, stale-initialisation amplification is a first-order property independent of fingerprint quality.
 When $\V(w^{(\mathrm{init})}) = 0$ (no recurrence), the amplification gap vanishes and the advantage of Scheme~C rests solely on the $\eta_C \le \eta_A^{(\mathrm{clean})}$ condition, whose practical magnitude depends on the specific data and clustering algorithm.
 
 \begin{lemma}[Gaussian Clustering Error Bound, two-class case]
@@ -612,35 +612,33 @@ We treat (A5) as an explicit assumption, supported by the theoretical calculatio
 We establish the population-level contamination identity underlying Corollary~\ref{cor:implicit}: under symmetric misassignment at rate $\eta$, the concept-level estimator's expected value equals a shrinkage of the true concept parameter toward the global mean, with coefficient $\lambda_{\mathrm{imp}} = \rho := \eta C/(C-1)$.
 
 \textbf{Setup.}
-Fix a round $t$ and a concept $j \in [C]$. Under balanced concepts ($|\cC_j| = K/C$) and symmetric misassignment at rate $\eta$, each client in the estimated cluster $\hat\cC_j$ has true concept $j$ with probability $1 - \eta$ and true concept $\ell \ne j$ with probability $\eta/(C-1)$, independently across clients. Each client's OLS estimate is, in the classical regime ($n \gg d$) and under the Gaussian linear model of Section~\ref{sec:prelim}, unbiased for its true concept parameter: $\E[\what_k \mid c(k,t) = \ell] = \wstar_\ell + O(\sigma^2 d / n)$.
+Fix a round $t$ and a concept $j \in [C]$. Under balanced concepts ($|\cC_j| = K/C$) and symmetric misassignment at rate $\eta$, each client's cluster label is drawn independently: given true concept $\ell$, the client is assigned to $\hat\cC_j$ with probability $1-\eta$ if $\ell = j$, and with probability $\eta/(C-1)$ otherwise. Let $N_{j,\ell} := |\{k \in \hat\cC_j : c(k,t) = \ell\}|$ be the (random) count of true-concept-$\ell$ clients inside $\hat\cC_j$, and let $N_j := \sum_\ell N_{j,\ell} = |\hat\cC_j|$. Each client's OLS estimate satisfies $\E[\what_k \mid c(k,t) = \ell] = \wstar_\ell + O(\sigma^2 d / n)$ under the Gaussian linear model of Section~\ref{sec:prelim}.
 
-\textbf{Step 1: Contamination in expectation.}
-The concept-$j$ estimator $\what_j := \frac{1}{|\hat\cC_j|}\sum_{k \in \hat\cC_j} \what_k$ satisfies, to leading order,
+\textbf{Step 1: Contamination in expectation (conditional on composition).}
+Write $\what_j := N_j^{-1}\sum_{k \in \hat\cC_j} \what_k$. Conditional on the composition $(N_{j,\ell})_{\ell}$ with $N_j > 0$,
+\begin{equation}
+\E\bigl[\what_j \,\big|\, (N_{j,\ell})_\ell\bigr] = \frac{1}{N_j}\sum_{\ell} N_{j,\ell}\,\wstar_\ell + O(\sigma^2 d/n).
+\label{eq:contam_cond}
+\end{equation}
+Taking expectation over $(N_{j,\ell})$ and using $\E[N_{j,\ell}/N_j \mid N_j > 0] \to (1-\eta)$ for $\ell = j$ and $\eta/(C-1)$ for $\ell \ne j$ in the limit $K \to \infty$ (a standard i.i.d.\ ratio-of-binomials convergence, with rate $O(K^{-1/2})$ by the delta method), we obtain
 \begin{align}
 \E[\what_j]
-&= (1-\eta)\,\wstar_j + \frac{\eta}{C-1}\sum_{\ell \ne j}\wstar_\ell \nonumber\\
-&= (1-\eta)\,\wstar_j + \frac{\eta}{C-1}\bigl(C\,\wbar^* - \wstar_j\bigr) \nonumber\\
-&= \left(1 - \eta - \frac{\eta}{C-1}\right)\wstar_j + \frac{\eta C}{C-1}\,\wbar^* \nonumber\\
-&= \left(1 - \frac{\eta C}{C-1}\right)\wstar_j + \frac{\eta C}{C-1}\,\wbar^* \nonumber\\
-&= (1-\rho)\,\wstar_j + \rho\,\wbar^*, \qquad \rho := \frac{\eta C}{C-1}.
+&= (1-\eta)\,\wstar_j + \frac{\eta}{C-1}\sum_{\ell \ne j}\wstar_\ell + O(K^{-1/2}) \nonumber\\
+&= (1-\eta)\,\wstar_j + \frac{\eta}{C-1}\bigl(C\,\wbar^* - \wstar_j\bigr) + O(K^{-1/2}) \nonumber\\
+&= (1-\rho)\,\wstar_j + \rho\,\wbar^* + O(K^{-1/2}), \qquad \rho := \frac{\eta C}{C-1}.
 \label{eq:contam_mean}
 \end{align}
-Equation~(\ref{eq:contam_mean}) is the contamination identity: $\E[\what_j]$ lies on the segment between $\wstar_j$ and $\wbar^*$ at a fraction $\rho$ of the way toward the global mean---precisely James--Stein--style shrinkage with coefficient $\lambda_{\mathrm{imp}} = \rho$ toward $\wbar^*$~\citep{james1961estimation, efron1973stein}.
+In the population limit $K \to \infty$ the remainder vanishes, giving the contamination identity: $\E[\what_j] = (1-\rho)\,\wstar_j + \rho\,\wbar^*$---precisely James--Stein--style shrinkage with coefficient $\lambda_{\mathrm{imp}} = \rho$ toward $\wbar^*$~\citep{james1961estimation, efron1973stein}.
 
-\textbf{Step 2: Bias contribution.}
-Under $\Sigma = I_d$, the squared bias of $\what_j$ is
+\textbf{Step 2: Bias contribution (population limit, $\Sigma = I_d$).}
+In the population limit, under $\Sigma = I_d$,
 \begin{equation}
 \|\E[\what_j] - \wstar_j\|^2 = \rho^2 \|\wstar_j - \wbar^*\|^2 = \rho^2 B_j^2.
 \label{eq:contam_bias}
 \end{equation}
-Combined with the leading-order variance $\sigma^2 C d / (Kn)$ of Proposition~\ref{prop:decomposition} (preserved to leading order since $\E[|\hat\cC_j|] = K/C$), the expected excess risk obeys
-\begin{equation}
-\E[\cE_j(\what_j)] \ge \rho^2 B_j^2 + \frac{\sigma^2 C d}{Kn}.
-\label{eq:contam_risk}
-\end{equation}
 
-\textbf{Step 3: Crossover under contamination.}
-Comparing~(\ref{eq:contam_risk}) with the global-estimator risk $B_j^2 + \sigma^2 d/(Kn)$ of Proposition~\ref{prop:decomposition}, concept-level aggregation dominates iff
+\textbf{Step 3: Asymptotic crossover under contamination.}
+In the population limit $K \to \infty$ with $Kn \to \infty$ and $d$ fixed, combining~(\ref{eq:contam_bias}) with the leading-order variance $\sigma^2 C d / (Kn)$ of Proposition~\ref{prop:decomposition} yields the asymptotic excess risk $\rho^2 B_j^2 + \sigma^2 C d/(Kn) + o(1)$; comparing with the global-estimator risk $B_j^2 + \sigma^2 d/(Kn) + o(1)$ of Proposition~\ref{prop:decomposition}, concept-level aggregation dominates iff
 \begin{equation}
 (1 - \rho^2)\,B_j^2 > \frac{\sigma^2 d (C-1)}{Kn},
 \qquad\text{equivalently}\qquad
@@ -649,8 +647,8 @@ Comparing~(\ref{eq:contam_risk}) with the global-estimator risk $B_j^2 + \sigma^
 \end{equation}
 recovering Eq.~(\ref{eq:noisy-crossover}) of Appendix~\ref{app:extensions}.
 
-\textbf{Scope.}
-Eq.~(\ref{eq:contam_mean}) is a population-level identity (requires only per-client OLS unbiasedness in expectation); Eq.~(\ref{eq:contam_bias}) additionally requires isotropy ($\Sigma = I_d$). Finite-sample corrections to $|\hat\cC_j|$ introduce $O(1/\sqrt{K})$ concentration terms that can be controlled via Bernstein's inequality on the binomial cluster-size counts; these are absorbed into the ``first-order characterisation'' qualifier of Corollary~\ref{cor:implicit}. The shrinkage identity $\lambda_{\mathrm{imp}} = \rho$ is exact at the population level; the finite-$Kn$ risk bound~(\ref{eq:contam_risk}) is a lower bound on the expected excess risk.
+\textbf{Scope and honest caveats.}
+Eq.~(\ref{eq:contam_mean}) is \emph{exact in the population limit} under per-client OLS unbiasedness and i.i.d.\ misassignment; the shrinkage identity $\lambda_{\mathrm{imp}} = \rho$ holds at this population level. Eq.~(\ref{eq:contam_bias}) additionally requires isotropy ($\Sigma = I_d$). Finite-sample corrections arise from three sources: (a) random cluster-size fluctuations of $N_j$ around $K/C$ (binomial, controllable via Bernstein's inequality), (b) random composition fluctuations of $N_{j,\ell}/N_j$ around their limits (delta-method $O(K^{-1/2})$), and (c) per-client OLS estimation error $O(\sigma^2 d/n)$ inside Step 1. Controlling all three to produce a tight finite-$Kn$ two-sided bound is beyond the scope of this corollary; we therefore state Corollary~\ref{cor:implicit} and Eq.~(\ref{eq:contam_cross}) as \emph{asymptotic / first-order characterisations}, and leave the fully finite-sample analysis to future work.
 
 
 % =============================================================================

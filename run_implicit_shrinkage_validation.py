@@ -68,10 +68,7 @@ def _run_one_config(
         run_oracle_baseline,
     )
     from fedprotrack.experiment.runner import ExperimentConfig
-    from fedprotrack.estimators.shrinkage import (
-        compute_effective_rank,
-        grid_search_lambda,
-    )
+    from fedprotrack.estimators.shrinkage import compute_effective_rank
 
     cfg = CIFAR100RecurrenceConfig(
         K=K,

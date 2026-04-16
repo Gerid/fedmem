@@ -21,7 +21,7 @@ from fedprotrack.experiments.cifar_overlap import (
 )
 from fedprotrack.metrics import compute_all_metrics
 
-os.environ.setdefault("FEDPROTRACK_GPU_THRESHOLD", "0")
+# GPU_THRESHOLD=0 removed: linear models stay on CPU (faster for <8192 params)
 
 CONCEPT_CLASSES = {
     0: [0, 1, 2, 3, 4],

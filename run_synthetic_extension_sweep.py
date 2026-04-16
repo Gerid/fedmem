@@ -201,8 +201,9 @@ def main() -> None:
                 for delta in [0.3, 1.0, 3.0]:
                     for d in d_values:
                         for n in n_values:
-                            gamma = d / (K * n)
-                            if gamma >= 1.0:
+                            gamma_G = d / (K * n)
+                            gamma_j = d * C / (K * n)
+                            if gamma_G >= 1.0 or gamma_j >= 1.0:
                                 continue  # skip interpolation boundary
                             for seed in args.seeds:
                                 row = _run_gaussian_experiment(

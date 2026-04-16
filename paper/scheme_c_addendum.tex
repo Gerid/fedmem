@@ -1,15 +1,23 @@
 % =============================================================================
-% Scheme C Addendum — Protocol Ordering Theorem + Mechanism Validation
-% =============================================================================
-% This addendum introduces the protocol-ordering contribution (TT-Protocol)
-% as a standalone section that extends the base paper. It is imported via
-% \input{scheme_c_addendum} at the bottom of main.tex, making it trivially
-% removable (delete the \input line) if the user wants to revert.
-%
-% Structure:
-%   §P.1 Protocol Ordering (main-text theorem + proof sketch)
-%   §P.2 Mechanism Validation (empirical confirmation on CIFAR-100 recurrence)
-%   §P.App Full Proof of Theorem P.1 (appendix)
+% *** DEPRECATED (2026-04-14) ***
+% This addendum is SUPERSEDED by the protocol-ordering material that is now
+% integrated directly into main.tex (Section 4.1, Theorem~\ref{thm:protocol},
+% Lemmas~\ref{lem:gaussian_clustering} and \ref{lem:info_indirectness}, and
+% Appendix A). In particular:
+%   - The unified (A1)–(A5) assumption block lives in main.tex. Any (A4),
+%     (A4'), (A5) definitions below are OUTDATED and DO NOT MATCH the paper.
+%   - The "explicit constant κ" / "inf g_1' > 0" proof line in §P.App is
+%     NOT rigorous (see NeurIPS theory review, 2026-04-14): g_1 monotone
+%     does not imply inf g_1' > 0, and the η_C spectral-clustering bound
+%     imports an SBM (Lei–Rinaldo 2015) result that does not apply to the
+%     Euclidean fingerprint + eigengap setting used here.
+%   - The "unconditional" / explicit-constant strengthening of Theorem 4 is
+%     retracted; the current main-paper statement is conditioned on the
+%     one-step linearised Gaussian regime of Lemma~\ref{lem:info_indirectness}
+%     and on Assumption (A5).
+% This file is retained for historical reference only. DO NOT \input it from
+% main.tex and DO NOT cite the assumption numbering or proof steps below in
+% any downstream work.
 % =============================================================================
 
 % =============================================================================

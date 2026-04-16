@@ -97,7 +97,7 @@ def _run_fedavg(
 
 def run_one(method: str, dataset, ground_truth, cfg: dict) -> dict:
     import os
-    os.environ.setdefault("FEDPROTRACK_GPU_THRESHOLD", "0")
+    # GPU_THRESHOLD=0 removed: linear models stay on CPU (faster for <8192 params)
 
     K, T = dataset.config.K, dataset.config.T
     n_features = cfg["n_features"]

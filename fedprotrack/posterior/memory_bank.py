@@ -491,6 +491,7 @@ class DynamicMemoryBank:
             self.n_features,
             self.n_classes,
             feature_groups=fp.feature_groups,
+            sim_weights=fp._sim_weights,
         )
         _merge_fingerprint_into(new_fp, fp)
         return MemorySlot(
