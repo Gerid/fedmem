@@ -144,6 +144,7 @@ class DriftResult:
 - **结论摘要沉淀**：agent 产出的 root-cause / finding / summary 不要只留在线程或 worktree 里，统一先落到共享 ledger，再把稳定结论 promote 到 `docs/findings/`。
 - **代码膨胀**：任何改动必须服务于论文主线，不做泛化重构；优先复用现有 pipeline、config 和日志系统。
 - **种子管理**：不要用全局 `np.random.seed()`；改动随机流程时必须保留可推导、可复现实验路径。
+- **实验可复现性（教训：fMoW 数据丢失）**：每次跑 paper-critical 实验必须执行 5 步——① `git tag exp/<name>-<date>` 固定 commit；② 保存完整 config.json（所有 defaults 展开）；③ 记录 feature cache key；④ 不依赖 dataclass 默认值，CLI 显式传所有关键参数（因为 `n_classes`、`eval_on_test_pool`、`drct_snr_gate` 等默认值都改过）；⑤ 保存完整 run command 到 `PROVENANCE.md`。
 
 ## Sync Notes (2026-03)
 

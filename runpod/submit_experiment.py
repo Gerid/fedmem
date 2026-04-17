@@ -147,8 +147,8 @@ def main():
                         help="Random seeds (each gets a parallel worker)")
     parser.add_argument("--fpt-mode", default="base",
                         help="FPT mode (base/calibrated/hybrid/...)")
-    parser.add_argument("--timeout", type=int, default=600,
-                        help="Per-job timeout in seconds")
+    parser.add_argument("--timeout", type=int, default=1800,
+                        help="Per-job timeout in seconds (default: 1800 = 30 min)")
     parser.add_argument("--extra-args", nargs="*", default=[],
                         help="Extra args passed to the experiment script")
     parser.add_argument("--out-file", default=None,

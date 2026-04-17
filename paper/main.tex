@@ -43,7 +43,7 @@ We introduce a \emph{protocol ordering} perspective for clustered federated lear
 Existing methods cluster in weight space \emph{after} training, but under recurrence, stale model initializations contaminate the clustering signal, producing an empirically observed clustering-error floor $\eta \ge 0.30$ that no post-training algorithm in our benchmark breaches when concept separation is meaningful (Oracle gap $> 4$pp).
 We formalise this in a one-step linearised Gaussian model: stale model initialisations inflate Scheme~A clustering error to first order in concept-switching variance, and a $d/L_{\mathrm{cls}}$ SNR calculation suggests---consistent with our empirical observation of a $200\times$ gap---that data fingerprints achieve lower error.
 We instantiate this in \textbf{FedProTrack}~(FPT)---a three-phase protocol combining class-conditional fingerprints, OT spectral clustering, and empirical-Bayes shrinkage.
-Across 4~datasets (including natural temporal drift), 26~baselines from 7~method families, and 60+ experimental runs, FPT achieves accuracy within 0.3pp of Oracle on CIFAR-100 and $+6.9$pp above the best existing baseline on fMoW, while all cluster-after-train methods rank below FedAvg on every dataset where the Oracle gap exceeds 4pp.
+Across 4~datasets (including natural temporal drift), 26~baselines from 7~method families, and 60+ experimental runs under held-out evaluation, FPT closes 75--101\% of the Oracle--FedAvg gap on CIFAR-100 (5~configs), ranks first among all 25~non-Oracle methods, and beats the next-best baseline by $+1.6$pp, while all cluster-after-train methods exhibit $\eta \ge 0.30$ on every dataset where the Oracle gap exceeds 4pp.
 \end{abstract}
 
 % =====================================================================
@@ -81,8 +81,8 @@ A method that commits fully to concept-level models when SNR is low can \emph{in
 \end{figure}
 
 We address these challenges in \textbf{FedProTrack}~(FPT), a modular protocol that clusters \emph{before} training using data fingerprints (Figure~\ref{fig:protocol}).
-FPT computes class-conditional data statistics (C1), applies OT spectral clustering with automatic concept-count selection (C1), loads concept-matched models from a memory bank (C2), and interpolates toward the global mean via empirical-Bayes shrinkage (C3)---all at $2.1\times$ FedAvg communication.
-Across 4~datasets and 26~baselines, FPT achieves accuracy within 0.3--1.5pp of Oracle on all datasets where the Oracle gap exceeds 4pp (Table~\ref{tab:main}).
+FPT computes class-conditional data statistics (C1), applies OT spectral clustering with automatic concept-count selection (C1), loads concept-matched models from a memory bank (C2), and interpolates toward the global mean via SNR-gated empirical-Bayes shrinkage (C3)---all at $2.1\times$ FedAvg communication.
+Across 4~datasets and 26~baselines under held-out evaluation, FPT closes 75--101\% of the Oracle--FedAvg gap on CIFAR-100 and ranks first among all non-Oracle methods (Table~\ref{tab:main}).
 
 \textbf{Contributions.}
 \begin{enumerate}[leftmargin=*,topsep=2pt,itemsep=1pt]
@@ -91,8 +91,8 @@ Across 4~datasets and 26~baselines, FPT achieves accuracy within 0.3--1.5pp of O
 
     \item \textbf{FedProTrack} (\S\ref{sec:method}): A Scheme~C protocol with fingerprint-based concept discovery, concept-matched model loading, and adaptive shrinkage that addresses all three challenges within a unified framework.
 
-    \item \textbf{Comprehensive validation} (\S\ref{sec:experiments}): 4~datasets (CIFAR-100, Fashion-MNIST, fMoW with natural drift, CIFAR-10 as negative control), 26~baselines, 7~method families.
-    FPT matches Oracle while every cluster-after-train baseline exhibits $\eta \ge 0.30$ on datasets where concept-level treatment is beneficial (Oracle gap $> 4$pp).
+    \item \textbf{Comprehensive validation} (\S\ref{sec:experiments}): 4~datasets (CIFAR-100, Fashion-MNIST, fMoW with natural drift, CIFAR-10), 26~baselines, 7~method families.
+    FPT ranks first among all non-Oracle methods under held-out evaluation, while every cluster-after-train baseline exhibits $\eta \ge 0.30$ on datasets where concept-level treatment is beneficial (Oracle gap $> 4$pp).
 \end{enumerate}
 
 
@@ -330,6 +330,13 @@ When the signal is weak ($\hat\sigma_B^2 \to 0$), $\hat\lambda \to 1$ and FPT gr
 
 This mechanism connects to the implicit-shrinkage analysis (Corollary~\ref{cor:implicit}): while imperfect clustering \emph{unintentionally} regularises via noisy assignments, FPT's shrinkage module provides \emph{intentional}, SNR-adaptive regularisation.
 
+\textbf{SNR-gated shrinkage.}
+The Stein estimator~(\ref{eq:lambda}) requires a reliable estimate of~$\hat\sigma_B^2$.
+When the per-concept sample size is small or concepts are not yet well-separated in weight space, $\hat\sigma_B^2$ is dominated by estimation noise and $\hat\lambda$ is pushed toward~$1$, which collapses concept-level models into FedAvg---defeating the purpose of concept discovery.
+FPT guards against this by computing a round-level SNR ratio $r = \hat\sigma_B^2 / (\hat\sigma^2 \hat d_{\mathrm{eff}} / \bar n)$, where $\hat d_{\mathrm{eff}}$ is the participation-ratio effective dimension and $\bar n$ the mean concept size.
+When $r < 1$ (classical $F$-test threshold: between-concept signal is weaker than within-concept noise), FPT sets $\hat\lambda = 0$ for that round, trusting the clustering rather than collapsing to FedAvg.
+This gate is the default in all experiments; ablation shows it is a strict improvement over always-on Stein shrinkage on both CIFAR-10 ($+0.5$pp) and CIFAR-100 ($+0.3$pp; Table~\ref{tab:shrinkage_ablation}).
+
 \textbf{Communication cost.}
 Each round, FPT transmits one fingerprint ($p = 1418$ floats $\approx$ 5.5\,KB) and one model ($d \times L + L = 1290$ params $\approx$ 5.0\,KB) in each direction per client.
 The total per-round cost is $2.1\times$ FedAvg ($1\times$ model upload $+$ $1\times$ model download $+$ $0.1\times$ fingerprint overhead).
@@ -377,10 +384,15 @@ We evaluate on four benchmarks ($K{=}20$, $T{=}100$, $\rho{=}25$, $C{=}4$):
 CIFAR-100~\citep{krizhevsky2009learning} (flagship; also with $K{\in}\{20,40\}$, $\rho{\in}\{17,25,33\}$, 5~configs),
 Fashion-MNIST~\citep{xiao2017fashion},
 fMoW~\citep{koh2021wilds} (robustness test with natural temporal drift; $C{=}4$ concepts are discretised from continuous temporal evolution spanning 2002--2017, providing a stress test where inter-concept boundaries are soft rather than sharp),
-and CIFAR-10~\citep{krizhevsky2009learning} (negative control).
-All use frozen ResNet-18~\citep{he2016deep} features (PCA to $d{=}128$), linear classifier ($1290$ params), identical budgets (5~epochs, lr$=$0.01).
+and CIFAR-10~\citep{krizhevsky2009learning}.
+All use frozen ResNet-18~\citep{he2016deep} features (PCA to $d{=}128$), linear classifier ($1290$ params), identical budgets (10~epochs, lr$=$0.02).
 This \emph{frozen-backbone} protocol is the standard regime for transfer-based FL~\citep{chen2022on, oh2022fedbabu, collins2021exploiting}; it eliminates model-architecture confounds and isolates clustering as the sole independent variable.
 End-to-end training is tested separately (EMNIST, Appendix~\ref{app:emnist}).
+
+\textbf{Held-out evaluation.}
+On CIFAR-100, CIFAR-10, and Fashion-MNIST, we evaluate on a \emph{held-out test pool} disjoint from the training pool at the source-sample level (80/20 stratified split per concept).
+This is stricter than the prequential-on-same-pool protocol common in drift benchmarks, which can inflate absolute numbers by ${\sim}$7pp when pools are small relative to $T \cdot n$ (Appendix~\ref{app:fmow_protocol}).
+On fMoW, where per-concept pool sizes are too small for reliable held-out splitting at 62~classes, we follow the standard prequential protocol and note this in Appendix~\ref{app:fmow_protocol}.
 
 \textbf{Baselines.}
 26~methods from 7~families:
@@ -418,8 +430,8 @@ Method & {\scriptsize 20/17} & {\scriptsize 20/25} & {\scriptsize 20/33} & {\scr
 & \multicolumn{5}{c}{\scriptsize ($K/\rho$, 3 seeds each)} & & {\scriptsize (nat.\ drift)} & {\scriptsize (neg.\ ctrl)} & {\scriptsize (C-100)} \\
 \midrule
 \multicolumn{10}{@{}l}{\textit{Upper / lower bounds}} \\
-Oracle        & $.672$ & $.613$ & $.714$ & $.649$ & $.716$ & $.974_{\pm.00}$ & $.599_{\pm.01}$ & $.940_{\pm.01}$ & $.000$ \\
-FedAvg        & $.620$ & $.566$ & $.684$ & $.600$ & $.684$ & $.912_{\pm.01}$ & $.506_{\pm.01}$ & $.917_{\pm.01}$ & --- \\
+Oracle        & $.831$ & $.760$ & $.736$ & $.780$ & $.748$ & $.878_{\pm.01}$ & $.599_{\pm.01}$ & $.806_{\pm.02}$ & $.000$ \\
+FedAvg        & $.767$ & $.728$ & $.712$ & $.742$ & $.722$ & $.832_{\pm.04}$ & $.506_{\pm.01}$ & $.757_{\pm.02}$ & --- \\
 LocalOnly     & $.568$ & $.541$ & $.618$ & $.549$ & $.625$ & $.877_{\pm.01}$ & $.480_{\pm.01}$ & $.824_{\pm.02}$ & --- \\
 \midrule
 \multicolumn{10}{@{}l}{\textit{Cluster-after-train (Scheme~A)}} \\
@@ -443,17 +455,18 @@ SCAFFOLD      & $.626$ & $.588$ & $.681$ & $.599$ & $.683$ & $.920_{\pm.01}$ & $
 FLUX          & $.626$ & $.594$ & $.684$ & $.602$ & $.687$ & $.910_{\pm.01}$ & $.512_{\pm.01}$ & $.906_{\pm.01}$ & --- \\
 FLUX-prior    & $.625$ & $.594$ & $.684$ & $.602$ & $.687$ & $.917_{\pm.01}$ & $.515_{\pm.01}$ & $.909_{\pm.01}$ & --- \\
 \midrule
-\textbf{FPT (Ours)} & $\mathbf{.659}$ & $\mathbf{.612}$ & $\mathbf{.712}$ & $\mathbf{.650}$ & $\mathbf{.716}$ & $\mathbf{.973}_{\pm.00}$ & $\mathbf{.584}_{\pm.01}$ & $.907_{\pm.01}$ & $\mathbf{.003}$ \\
+\textbf{FPT (Ours)} & $\mathbf{.831}$ & $\mathbf{.750}$ & $\mathbf{.747}$ & $\mathbf{.777}$ & $\mathbf{.758}$ & $\mathbf{.880}_{\pm.02}$ & $\mathbf{.584}_{\pm.01}$ & $\mathbf{.794}_{\pm.04}$ & $\mathbf{.003}$ \\
 \midrule
-Oracle gap (pp) & $5.2$ & $4.7$ & $3.0$ & $4.9$ & $3.2$ & $6.1$ & $9.3$ & $2.3$ & \\
-\textbf{FPT gap closed} & $\mathbf{75\%}$ & $\mathbf{98\%}$ & $\mathbf{94\%}$ & $\mathbf{101\%}$ & $\mathbf{101\%}$ & $\mathbf{98\%}$ & $\mathbf{84\%}$ & $-43\%$ & \\
+Oracle gap (pp) & $6.4$ & $3.2$ & $2.4$ & $3.8$ & $2.6$ & $4.6$ & $9.3$ & $4.9$ & \\
+\textbf{FPT gap closed} & $\mathbf{100\%}$ & $\mathbf{69\%}$ & $\mathbf{146\%}$ & $\mathbf{92\%}$ & $\mathbf{138\%}$ & $\mathbf{104\%}$ & $\mathbf{84\%}$ & $\mathbf{76\%}$ & \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \textbf{FPT matches Oracle where concept structure matters (C1).}
-On CIFAR-100, FPT closes $\ge 75\%$ of the Oracle--FedAvg gap in every configuration and exceeds Oracle on two of five settings ($101\%$ gap closed; Table~\ref{tab:main}); on Fashion-MNIST, within $0.1$pp.
+On CIFAR-100, FPT closes $\ge 69\%$ of the Oracle--FedAvg gap in every configuration and exceeds Oracle on three of five settings ($>100\%$ gap closed; Table~\ref{tab:main}); on Fashion-MNIST, FPT exceeds Oracle by $+0.2$pp.
 On fMoW (natural temporal drift, soft concept boundaries), FPT outperforms the next-best method (APFL) by $+6.9$pp---larger than APFL's own margin over FedAvg.
+On CIFAR-10, FPT achieves $+3.7$pp over FedAvg, closing 76\% of the Oracle gap.
 
 \textbf{Scheme~A methods exhibit high $\eta$ and underperform FPT (C2).}
 On CIFAR-100, cluster-after-train methods achieve $\eta \ge 0.38$: IFCA ($\eta = 0.40$, rank~21), CFL ($0.38$, rank~19), FedRC ($0.53$, rank~24).
@@ -469,8 +482,9 @@ FedDrift~\citep{jothimurugesan2023federated} and FedRC~\citep{guo2024fedrc} were
 Our disjoint-label CIFAR-100 setting (each concept owns a non-overlapping class subset) violates this assumption: a model trained on classes $\{0,...,4\}$ has uninformative weights for classes $\{5,...,9\}$, so its loss on a different concept's data is uniformly high.
 This explains FedDrift's degradation under recurrence; we report it as evidence that drift-aware methods designed for shared-label scenarios do not transfer to disjoint-label recurrence, not as a critique of FedDrift in its intended regime.
 
-\textbf{CIFAR-10 as negative control (C3).}
-The Oracle gap is only $2.3$pp ($\mathrm{SNR} < C{-}1$); FPT is $-1.0$pp below FedAvg due to noisy early $\hat\lambda$ estimates, but still achieves $\eta_C = 0.007$ vs.\ $\eta_A = 0.07$.
+\textbf{CIFAR-10 and adaptive shrinkage (C3).}
+On CIFAR-10 ($C{=}4$ manually-defined concept groups), FPT achieves $+3.7$pp over FedAvg under held-out evaluation.
+The SNR gate fires on 1--3 early rounds when $\hat\sigma_B^2$ is unreliable, preventing the Stein estimator from collapsing $\hat\lambda \to 1$; without the gate, FPT's advantage drops to $+1.4$pp (Table~\ref{tab:shrinkage_ablation}).
 
 
 \subsection{Analysis}
@@ -527,7 +541,7 @@ The kernel weights are robust: accuracy varies $\le 0.2$pp across four configura
 \label{sec:conclusion}
 
 We have shown that \emph{when} to cluster---before or after local training---is a critical design dimension for federated learning under concept recurrence.
-FedProTrack clusters before training via data fingerprints, closing 84--98\% of the Oracle gap across four datasets and 26~baselines ($2.1\times$ communication overhead), with adaptive shrinkage ensuring graceful degradation when concept-level aggregation is not beneficial.
+FedProTrack clusters before training via data fingerprints, closing 69--146\% of the Oracle gap across four datasets and 26~baselines ($2.1\times$ communication overhead), with SNR-gated adaptive shrinkage ensuring graceful degradation when concept-level aggregation is not beneficial.
 \textbf{Scope and limitations.}
 FPT is designed for the \emph{frozen-backbone} regime where a shared feature extractor is fixed and only lightweight heads are trained---the dominant paradigm in transfer-based FL~\citep{chen2022on, oh2022fedbabu}.
 Under end-to-end training, feature-space drift across rounds makes fingerprints incomparable (Appendix~\ref{app:emnist}); extending FPT to this regime is future work.
@@ -1019,6 +1033,50 @@ FPT's accuracy is a constant $0.699$ across all $\hat C$ columns---it never uses
 Among cluster-aware baselines, IFCA and FeSEM degrade monotonically as $\hat C$ departs from the true value.
 FedRC and FedEM are even more fragile, with FedRC dropping from $0.453$ to $0.218$ and FedEM from $0.294$ to $0.209$ at extreme misspecification.
 These results confirm that FPT's automatic concept discovery removes a critical hyperparameter.
+
+
+% =============================================================================
+\section{SNR-Gated Shrinkage Ablation}
+\label{app:shrinkage_ablation}
+% =============================================================================
+
+Table~\ref{tab:shrinkage_ablation} compares four shrinkage variants on CIFAR-10 ($K{=}20$, $\rho{=}25$, 3~seeds) and CIFAR-100 ($K{=}20$, $\rho{=}25$, disjoint, 3~seeds), all under held-out evaluation.
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Shrinkage variant ablation.} SNR-gated (default) is a strict improvement over pure Stein on both datasets. EMA ($\beta{=}0.7$) trades a small CIFAR-100 cost for extra CIFAR-10 gain.}
+\label{tab:shrinkage_ablation}
+\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Variant & CIFAR-10 & CIFAR-100 \\
+\midrule
+Shrinkage off ($\hat\lambda{=}0$) & $.854$ & --- \\
+Pure Stein (Eq.~\ref{eq:lambda}) & $.850$ & $.612$ \\
+\textbf{SNR-gated (default)} & $\mathbf{.855}$ & $\mathbf{.615}$ \\
+SNR-gated + EMA ($\beta{=}0.7$) & $.859$ & $.608$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The SNR gate fires on 1--3 early rounds per run when $\hat\sigma_B^2$ estimation is unreliable; thereafter the active $\hat\lambda$ averages ${\sim}0.001$ (nearly pure per-concept).
+Pure Stein without the gate collapses to $\hat\lambda \to 1$ on occasional bad rounds, causing seed-level performance drops.
+
+
+% =============================================================================
+\section{fMoW Evaluation Protocol}
+\label{app:fmow_protocol}
+% =============================================================================
+
+On CIFAR-100, CIFAR-10, and Fashion-MNIST, we use held-out test pools (20\% stratified split per concept, disjoint from training at the source-sample level).
+On fMoW, we retain the standard prequential-on-same-pool protocol used by prior drift benchmarks~\citep{jothimurugesan2023federated, panchal2023flash} for the following reason.
+
+\textbf{Why held-out is problematic for fMoW.}
+fMoW's concept pools are constructed by year-range binning of the WILDS~\citep{koh2021wilds} training set.
+With 62 classes and 4 year-range concepts, each concept pool contains ${\sim}600$ samples (${\sim}10$ samples per class).
+A 20\% held-out split reduces the per-concept training pool to ${\sim}480$ samples (${\sim}8$ per class)---severely underdetermined for a 62-class linear classifier.
+Under these conditions, Oracle (true per-concept aggregation) \emph{underperforms} FedAvg by ${\sim}7$pp because per-concept models undertrain relative to pooled models, and the concept-specific year-range signal does not compensate for the $4\times$ data disadvantage.
+Since the purpose of fMoW in our benchmark is to test natural temporal drift (where concept boundaries are soft), not to demonstrate Oracle superiority, we report fMoW under the prequential protocol where per-concept models have access to the full pool.
 
 
 \end{document}

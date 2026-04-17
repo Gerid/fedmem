@@ -575,6 +575,8 @@ def _run_single_seed(
     drct_snr_gate: bool = False,
     drct_snr_threshold: float = 1.0,
     drct_sigma_ema_beta: float = 0.0,
+    fmow_n_classes: int = 62,
+    eval_on_test_pool: bool = True,
 ) -> list[dict]:
     """Run all methods for one seed and return result rows.
 
@@ -611,6 +613,11 @@ def _run_single_seed(
         cfg_kwargs["samples_per_coarse_class"] = samples_per_coarse_class
     elif dataset_name in ("cifar10", "fmnist"):
         cfg_kwargs["samples_per_class"] = samples_per_coarse_class
+    elif dataset_name == "fmow":
+        cfg_kwargs["n_classes"] = fmow_n_classes
+    # eval_on_test_pool: held-out (True) vs prequential-on-same-pool (False).
+    # Exposed on every supported dataset.
+    cfg_kwargs["eval_on_test_pool"] = eval_on_test_pool
     # Dirichlet non-IID control (only CIFAR-100 currently supports it)
     if dirichlet_alpha is not None and dataset_name == "cifar100":
         cfg_kwargs["dirichlet_alpha"] = dirichlet_alpha
@@ -1067,6 +1074,14 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--out-dir", default="results_neurips_benchmark", help="Output directory")
     parser.add_argument("--model-type", choices=["linear", "small_cnn"], default="linear",
                         help="Model architecture for baselines (default: linear)")
+    parser.add_argument("--fmow-n-classes", type=int, default=62,
+                        help="fMoW: number of most-frequent classes to keep "
+                             "(default: 62, matching WILDS).")
+    parser.add_argument("--eval-on-test-pool", type=str, default="true",
+                        choices=["true", "false"],
+                        help="Use held-out test pool for evaluation (default: true). "
+                             "Set false to reproduce prequential-on-same-pool protocol "
+                             "used in e.g. fMoW where per-concept pool is small.")
     parser.add_argument(
         "--dirichlet-alpha", type=float, default=None,
         help="Dirichlet concentration for non-IID label distribution "
@@ -1244,6 +1259,8 @@ def _run_preset(preset_name: str, args: argparse.Namespace) -> list[dict]:
             drct_snr_gate=args.drct_snr_gate,
             drct_snr_threshold=args.drct_snr_threshold,
             drct_sigma_ema_beta=args.drct_sigma_ema_beta,
+            fmow_n_classes=args.fmow_n_classes,
+            eval_on_test_pool=(args.eval_on_test_pool == "true"),
         )
         all_rows.extend(seed_rows)
 
@@ -1409,6 +1426,8 @@ def main() -> None:
                 drct_snr_gate=args.drct_snr_gate,
                 drct_snr_threshold=args.drct_snr_threshold,
                 drct_sigma_ema_beta=args.drct_sigma_ema_beta,
+                fmow_n_classes=args.fmow_n_classes,
+                eval_on_test_pool=(args.eval_on_test_pool == "true"),
             )
             all_rows.extend(seed_rows)
 
