@@ -418,7 +418,9 @@ other datasets: mean $\pm$ std over 3~seeds ($K{=}20$, $\rho{=}25$).
 Full 26-method ranking in Table~\ref{tab:full}.
 \textbf{Bold}: best non-Oracle.
 $\eta$: symmetric clustering error (lower is better; ``---'': non-clustering).
-All methods use identical training budgets.}
+All methods use identical training budgets.
+$^\dagger$K20/$\rho$17: 2~seeds (1 RunPod timeout).
+$^\ddagger$fMoW uses prequential-on-same-pool protocol (Appendix~\ref{app:fmow_protocol}); all other datasets use held-out evaluation.}
 \label{tab:main}
 \footnotesize
 \setlength{\tabcolsep}{2pt}
@@ -427,38 +429,38 @@ All methods use identical training budgets.}
 & \multicolumn{5}{c}{\textbf{CIFAR-100 Accuracy} ($\uparrow$)} & \multicolumn{3}{c}{\textbf{Accuracy} ($\uparrow$)} & \textbf{Clust.} \\
 \cmidrule(lr){2-6} \cmidrule(lr){7-9} \cmidrule(l){10-10}
 Method & {\scriptsize 20/17} & {\scriptsize 20/25} & {\scriptsize 20/33} & {\scriptsize 40/25} & {\scriptsize 40/33} & F-MNIST & fMoW & C-10 & \textbf{Err.}\ $\eta$ \\
-& \multicolumn{5}{c}{\scriptsize ($K/\rho$, 3 seeds each)} & & {\scriptsize (nat.\ drift)} & {\scriptsize (neg.\ ctrl)} & {\scriptsize (C-100)} \\
+& \multicolumn{5}{c}{\scriptsize ($K/\rho$, 3 seeds each$^\dagger$)} & & {\scriptsize (nat.\ drift$^\ddagger$)} & & {\scriptsize (C-100)} \\
 \midrule
 \multicolumn{10}{@{}l}{\textit{Upper / lower bounds}} \\
-Oracle        & $.831$ & $.760$ & $.736$ & $.780$ & $.748$ & $.878_{\pm.01}$ & $.599_{\pm.01}$ & $.806_{\pm.02}$ & $.000$ \\
-FedAvg        & $.767$ & $.728$ & $.712$ & $.742$ & $.722$ & $.832_{\pm.04}$ & $.506_{\pm.01}$ & $.757_{\pm.02}$ & --- \\
-LocalOnly     & $.568$ & $.541$ & $.618$ & $.549$ & $.625$ & $.877_{\pm.01}$ & $.480_{\pm.01}$ & $.824_{\pm.02}$ & --- \\
+Oracle        & $.823$ & $.760$ & $.736$ & $.780$ & $.740$ & $.878_{\pm.01}$ & $.599_{\pm.01}$ & $.806_{\pm.02}$ & $.000$ \\
+FedAvg        & $.750$ & $.728$ & $.712$ & $.742$ & $.713$ & $.832_{\pm.04}$ & $.506_{\pm.01}$ & $.757_{\pm.02}$ & --- \\
+LocalOnly     & $.710$ & $.703$ & $.631$ & $.713$ & $.665$ & $.816_{\pm.02}$ & $.480_{\pm.01}$ & $.750_{\pm.03}$ & --- \\
 \midrule
 \multicolumn{10}{@{}l}{\textit{Cluster-after-train (Scheme~A)}} \\
-CFL           & $.616$ & $.556$ & $.674$ & $.592$ & $.674$ & $.922_{\pm.01}$ & $.507_{\pm.01}$ & $.916_{\pm.01}$ & $.38$ \\
-IFCA          & $.601$ & $.529$ & $.653$ & $.560$ & $.650$ & $.821_{\pm.03}$ & $.502_{\pm.02}$ & $.713_{\pm.04}$ & $.40$ \\
-FedEM         & $.735$ & $.708$ & $.688$ & $.719$ & $.698$ & $.866_{\pm.02}$ & $.416_{\pm.02}$ & $.857_{\pm.02}$ & $.48$ \\
-FedRC         & $.502$ & $.297$ & $.414$ & $.308$ & $.408$ & $.809_{\pm.03}$ & $.339_{\pm.03}$ & $.839_{\pm.02}$ & $.53$ \\
+CFL           & $.737$ & $.710$ & $.702$ & $.719$ & $.705$ & $.841_{\pm.01}$ & $.507_{\pm.01}$ & $.756_{\pm.01}$ & $.38$ \\
+IFCA          & $.669$ & $.602$ & $.534$ & $.537$ & $.501$ & $.753_{\pm.03}$ & $.502_{\pm.02}$ & $.616_{\pm.04}$ & $.40$ \\
+FedEM         & $.752$ & $.727$ & $.714$ & $.738$ & $.711$ & $.833_{\pm.02}$ & $.416_{\pm.02}$ & $.761_{\pm.02}$ & $.48$ \\
+FedRC         & $.581$ & $.703$ & $.569$ & $.677$ & $.535$ & $.696_{\pm.03}$ & $.339_{\pm.03}$ & $.651_{\pm.02}$ & $.53$ \\
 \midrule
 \multicolumn{10}{@{}l}{\textit{Drift-aware}} \\
-Flash         & $.626$ & $.588$ & $.681$ & $.599$ & $.683$ & $.920_{\pm.01}$ & $.508_{\pm.01}$ & $.917_{\pm.01}$ & --- \\
-FedCCFA       & $.750$ & $.693$ & $.659$ & $.699$ & $.678$ & $.890_{\pm.01}$ & $.403_{\pm.02}$ & $.855_{\pm.02}$ & --- \\
-FedDrift      & $.332$ & $.296$ & $.318$ & $.300$ & $.307$ & $.606_{\pm.04}$ & $.311_{\pm.03}$ & $.614_{\pm.04}$ & --- \\
+Flash         & $.752$ & $.728$ & $.714$ & $.743$ & $.713$ & $.832_{\pm.01}$ & $.508_{\pm.01}$ & $.757_{\pm.01}$ & --- \\
+FedCCFA       & $.750$ & $.710$ & $.659$ & $.724$ & $.669$ & $.843_{\pm.01}$ & $.403_{\pm.02}$ & $.768_{\pm.02}$ & --- \\
+FedDrift      & $.751$ & $.724$ & $.706$ & $.737$ & $.708$ & $.824_{\pm.04}$ & $.311_{\pm.03}$ & $.766_{\pm.04}$ & --- \\
 \midrule
 \multicolumn{10}{@{}l}{\textit{Personalized}} \\
-APFL          & $.630$ & $.595$ & $.683$ & $.608$ & $.686$ & $.924_{\pm.01}$ & $.515_{\pm.01}$ & $.905_{\pm.01}$ & --- \\
-Ditto         & $.630$ & $.593$ & $.683$ & $.602$ & $.684$ & $.913_{\pm.01}$ & $.507_{\pm.01}$ & $.893_{\pm.02}$ & --- \\
-FedProx       & $.626$ & $.588$ & $.681$ & $.599$ & $.683$ & $.920_{\pm.01}$ & $.508_{\pm.01}$ & $.917_{\pm.01}$ & --- \\
-SCAFFOLD      & $.626$ & $.588$ & $.681$ & $.599$ & $.683$ & $.920_{\pm.01}$ & $.508_{\pm.01}$ & $.917_{\pm.01}$ & --- \\
+APFL          & $.759$ & $.734$ & $.683$ & $.744$ & $.703$ & $.853_{\pm.01}$ & $.515_{\pm.01}$ & $.768_{\pm.01}$ & --- \\
+Ditto         & $.764$ & $.732$ & $.714$ & $.744$ & $.716$ & $.840_{\pm.01}$ & $.507_{\pm.01}$ & $.762_{\pm.02}$ & --- \\
+FedProx       & $.752$ & $.727$ & $.714$ & $.743$ & $.713$ & $.832_{\pm.01}$ & $.508_{\pm.01}$ & $.757_{\pm.01}$ & --- \\
+SCAFFOLD      & $.752$ & $.728$ & $.714$ & $.743$ & $.713$ & $.832_{\pm.01}$ & $.508_{\pm.01}$ & $.757_{\pm.01}$ & --- \\
 \midrule
 \multicolumn{10}{@{}l}{\textit{Descriptor-based}} \\
-FLUX          & $.626$ & $.594$ & $.684$ & $.602$ & $.687$ & $.910_{\pm.01}$ & $.512_{\pm.01}$ & $.906_{\pm.01}$ & --- \\
-FLUX-prior    & $.625$ & $.594$ & $.684$ & $.602$ & $.687$ & $.917_{\pm.01}$ & $.515_{\pm.01}$ & $.909_{\pm.01}$ & --- \\
+FLUX          & $.769$ & $.737$ & $.717$ & $.748$ & $.719$ & $.839_{\pm.01}$ & $.512_{\pm.01}$ & $.764_{\pm.01}$ & --- \\
+FLUX-prior    & $.752$ & $.730$ & $.717$ & $.745$ & $.719$ & $.844_{\pm.01}$ & $.515_{\pm.01}$ & $.760_{\pm.01}$ & --- \\
 \midrule
-\textbf{FPT (Ours)} & $\mathbf{.831}$ & $\mathbf{.750}$ & $\mathbf{.747}$ & $\mathbf{.777}$ & $\mathbf{.758}$ & $\mathbf{.880}_{\pm.02}$ & $\mathbf{.584}_{\pm.01}$ & $\mathbf{.794}_{\pm.04}$ & $\mathbf{.003}$ \\
+\textbf{FPT (Ours)} & $\mathbf{.827}$ & $\mathbf{.750}$ & $\mathbf{.747}$ & $\mathbf{.777}$ & $\mathbf{.749}$ & $\mathbf{.880}_{\pm.02}$ & $\mathbf{.584}_{\pm.01}$ & $\mathbf{.794}_{\pm.04}$ & $\mathbf{.003}$ \\
 \midrule
-Oracle gap (pp) & $6.4$ & $3.2$ & $2.4$ & $3.8$ & $2.6$ & $4.6$ & $9.3$ & $4.9$ & \\
-\textbf{FPT gap closed} & $\mathbf{100\%}$ & $\mathbf{69\%}$ & $\mathbf{146\%}$ & $\mathbf{92\%}$ & $\mathbf{138\%}$ & $\mathbf{104\%}$ & $\mathbf{84\%}$ & $\mathbf{76\%}$ & \\
+Oracle gap (pp) & $7.3$ & $3.2$ & $2.4$ & $3.8$ & $2.7$ & $4.6$ & $9.3$ & $4.9$ & \\
+\textbf{FPT gap closed} & $\mathbf{105\%}$ & $\mathbf{69\%}$ & $\mathbf{146\%}$ & $\mathbf{92\%}$ & $\mathbf{133\%}$ & $\mathbf{104\%}$ & $\mathbf{84\%}$ & $\mathbf{76\%}$ & \\
 \bottomrule
 \end{tabular}
 \end{table}
