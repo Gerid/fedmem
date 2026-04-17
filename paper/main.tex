@@ -682,8 +682,9 @@ Eq.~(\ref{eq:contam_mean}) is \emph{exact in the population limit} under per-cli
 \label{app:clean_eta}
 % =============================================================================
 
-To empirically validate (A5), we run IFCA with Oracle-provided concept-matched initialisation on CIFAR-100 recurrence using the \emph{same data configuration} as the main table ($K{=}20$, $T{=}100$, $\rho{=}25$, $\text{samples\_per\_class}{=}120$, $\alpha{=}0.75$, $\delta{=}0.85$, lr${=}0.01$, 5~epochs, 3~seeds).
+To empirically validate (A5), we run IFCA with Oracle-provided concept-matched initialisation on CIFAR-100 recurrence ($K{=}20$, $T{=}100$, $\rho{=}25$, $\alpha{=}0.75$, $\delta{=}0.85$, lr${=}0.01$, 5~epochs, prequential protocol, 3~seeds).
 This eliminates the stale-initialisation variance $\V(w^{(\mathrm{init})})$, isolating the ``clean'' Scheme~A clustering quality.
+\emph{Note: absolute accuracy numbers in this appendix use an earlier protocol (lr$=$0.01, 5~epochs, prequential evaluation) and are not directly comparable to Table~\ref{tab:main}; the clustering-error comparison ($\eta_A$ vs.\ $\eta_C$) is protocol-independent.}
 
 \begin{center}
 \small
@@ -702,7 +703,7 @@ Oracle & $.506 \pm .045$ & $.000$ \\
 \noindent Even with Oracle-provided correct initialisation (eliminating $\V(w^{(\mathrm{init})})$ entirely), IFCA's weight-space clustering error $\eta_A^{(\mathrm{clean})} = 0.40$ remains $200\times$ higher than FPT's fingerprint-space error $\eta_C = 0.002$.
 This is consistent with Assumption~(A5): weight-space signals encode concept identity far less directly than data fingerprints, even when the stale-initialisation confound is removed.
 Note that the standard IFCA error ($\eta = 0.45$) is only marginally higher, showing that the stale-init term from Theorem~\ref{thm:protocol} accounts for a relatively small $+0.05$ of additional clustering error in this configuration---the dominant source of error is information indirectness itself.
-These accuracy numbers ($0.492$ for FPT, $0.506$ for Oracle) correspond to the $K{=}20$, $\rho{=}25$ configuration; the main table reports the cross-configuration mean over all 5~configs.
+These accuracy numbers ($0.492$ for FPT, $0.506$ for Oracle) correspond to the $K{=}20$, $\rho{=}25$ configuration under the earlier protocol; Table~\ref{tab:main} reports held-out numbers under the current protocol.
 
 \paragraph{The IFCA paradox: why higher $\eta$ can yield higher accuracy.}
 A notable feature of the table above is that IFCA-Standard ($\eta = 0.45$, acc $= 0.45$) \emph{outperforms} IFCA-Clean ($\eta = 0.40$, acc $= 0.39$) despite having higher clustering error.
@@ -785,41 +786,41 @@ Full per-dataset breakdowns with per-configuration and per-seed results are avai
 
 \begin{table}[h]
 \centering
-\caption{\textbf{Full 26-method accuracy ranking across 4~datasets.} CIFAR-100 reports cross-configuration mean (5~configs $\times$ 3~seeds); others use $K{=}20$, $\rho{=}25$, 3~seeds. Ranked by CIFAR-100. \textbf{Bold}: best non-Oracle.}
+\caption{\textbf{Full 26-method accuracy ranking (held-out evaluation).} CIFAR-100 reports cross-configuration mean (5~configs); others use $K{=}20$, $\rho{=}25$. All 3~seeds. Ranked by CIFAR-100. \textbf{Bold}: best non-Oracle. fMoW omitted (different protocol; see Table~\ref{tab:main}).}
 \label{tab:full}
 \small
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}rlcccc@{}}
+\begin{tabular}{@{}rlccc@{}}
 \toprule
-\# & Method & \textbf{CIFAR-100} & \textbf{F-MNIST} & \textbf{fMoW} & \textbf{CIFAR-10} \\
+\# & Method & \textbf{CIFAR-100} & \textbf{F-MNIST} & \textbf{CIFAR-10} \\
 \midrule
-1  & Oracle & $.673$ & $.974$ & $.599$ & $.940$ \\
-2  & \textbf{FPT (Ours)} & $\mathbf{.670}$ & $\mathbf{.973}$ & $\mathbf{.584}$ & $.907$ \\
+1  & Oracle & $.759$ & $.878$ & $.806$ \\
+2  & \textbf{FPT (Ours)} & $\mathbf{.750}$ & $\mathbf{.880}$ & $\mathbf{.794}$ \\
 \midrule
-3  & FedEM & $.710$ & $.866$ & $.416$ & $.857$ \\
-4  & FedCCFA & $.696$ & $.890$ & $.403$ & $.855$ \\
-5  & APFL & $.640$ & $.924$ & $.515$ & $.905$ \\
-6  & FLUX & $.639$ & $.910$ & $.512$ & $.906$ \\
-7  & FLUX-prior & $.638$ & $.917$ & $.515$ & $.909$ \\
-8  & Ditto & $.638$ & $.913$ & $.507$ & $.893$ \\
-9  & TrackedSummary & $.636$ & $.918$ & $.508$ & $.916$ \\
-10 & FedCCFA-Impl & $.636$ & $.920$ & $.513$ & $.881$ \\
-11 & FedGWC & $.635$ & $.920$ & $.508$ & $.917$ \\
-12 & Flash & $.635$ & $.920$ & $.508$ & $.917$ \\
-13 & SCAFFOLD & $.635$ & $.920$ & $.508$ & $.917$ \\
-14 & FedProx & $.635$ & $.920$ & $.508$ & $.917$ \\
-15 & CompressedFedAvg & $.635$ & $.919$ & $.509$ & $.917$ \\
-16 & HCFL & $.635$ & $.918$ & $.508$ & $.916$ \\
-17 & FedAvg & $.631$ & $.912$ & $.506$ & $.917$ \\
-18 & FedAvg-FPTTrain & $.631$ & $.912$ & $.506$ & $.917$ \\
-19 & CFL & $.623$ & $.922$ & $.507$ & $.916$ \\
-20 & ATP & $.601$ & $.900$ & $.484$ & $.884$ \\
-21 & IFCA & $.599$ & $.821$ & $.502$ & $.713$ \\
-22 & LocalOnly & $.580$ & $.877$ & $.480$ & $.824$ \\
-23 & Adaptive-FedAvg & $.555$ & $.875$ & $.446$ & $.864$ \\
-24 & FedRC & $.386$ & $.809$ & $.339$ & $.839$ \\
-25 & pFedMe & $.362$ & $.528$ & $.344$ & $.526$ \\
-26 & FedDrift & $.310$ & $.606$ & $.311$ & $.614$ \\
+3  & FLUX & $.737$ & $.839$ & $.763$ \\
+4  & APFL & $.734$ & $.852$ & $.768$ \\
+5  & Ditto & $.731$ & $.840$ & $.762$ \\
+6  & FLUX-prior & $.730$ & $.843$ & $.760$ \\
+7  & TrackedSummary & $.728$ & $.831$ & $.759$ \\
+8  & FedGWC & $.728$ & $.832$ & $.757$ \\
+9  & Flash & $.728$ & $.832$ & $.757$ \\
+10 & SCAFFOLD & $.728$ & $.832$ & $.757$ \\
+11 & FedAvg & $.727$ & $.832$ & $.757$ \\
+12 & FedAvg-FPTTrain & $.727$ & $.832$ & $.757$ \\
+13 & HCFL & $.727$ & $.826$ & $.767$ \\
+14 & CompressedFedAvg & $.727$ & $.832$ & $.757$ \\
+15 & FedProx & $.727$ & $.832$ & $.757$ \\
+16 & FedEM & $.726$ & $.833$ & $.761$ \\
+17 & FedCCFA-Impl & $.725$ & $.851$ & $.774$ \\
+18 & FedDrift & $.724$ & $.824$ & $.766$ \\
+19 & ATP & $.716$ & $.828$ & $.767$ \\
+20 & CFL & $.709$ & $.841$ & $.756$ \\
+21 & FedCCFA & $.709$ & $.842$ & $.767$ \\
+22 & FedRC & $.703$ & $.695$ & $.650$ \\
+23 & LocalOnly & $.703$ & $.815$ & $.750$ \\
+24 & Adaptive-FedAvg & $.681$ & $.807$ & $.772$ \\
+25 & IFCA & $.602$ & $.752$ & $.616$ \\
+26 & pFedMe & $.244$ & $.410$ & $.391$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -844,6 +845,8 @@ FPT achieves $\eta_C = 0.003 \pm 0.002$ on the same configurations.
 \label{app:nonrecurrence}
 % =============================================================================
 
+\emph{Note: this section uses the earlier protocol (lr$=$0.01, 5~epochs, prequential); relative conclusions hold under the current protocol.}
+
 On CIFAR-100 with sudden drift and no recurrence ($K{=}12$, $T{=}30$, $\rho{=}15$, 5~seeds), FPT achieves $0.651 \pm 0.056$ vs.\ FedAvg $0.653 \pm 0.050$ ($\Delta = -0.1$pp).
 When $\V(w^{(\mathrm{init})}) = 0$, the protocol ordering gap vanishes and FPT degrades to FedAvg via its shrinkage mechanism ($\hat\lambda \to 1$).
 
@@ -852,6 +855,8 @@ When $\V(w^{(\mathrm{init})}) = 0$, the protocol ordering gap vanishes and FPT d
 \section{EMNIST End-to-End CNN}
 \label{app:emnist}
 % =============================================================================
+
+\emph{Note: this section uses the earlier protocol (lr$=$0.01, 5~epochs, prequential).}
 
 EMNIST digits, LeNet-style CNN (end-to-end, not frozen features), $C{=}4$ concepts, $K \in \{4, 8, 12, 20, 32\}$, 5~seeds.
 FPT achieves $89$--$90\%$ across all $K$ values, competitive with FedAvg ($89$--$91\%$) but below Oracle ($91$--$93\%$).
@@ -862,6 +867,8 @@ The cause is feature-space drift: end-to-end training changes pre-logit represen
 \section{K-Scaling on CIFAR-100}
 \label{app:kscaling}
 % =============================================================================
+
+\emph{Note: this section uses the earlier protocol (lr$=$0.01, 5~epochs, prequential); the scaling trend is protocol-independent.}
 
 On CIFAR-100 non-recurrence ($K \in \{4,8,12,16,20\}$, 5~seeds), the CFL-Oracle gap shrinks from $+17$pp at $K{=}4$ to $+3.7$pp at $K{=}20$.
 This confirms the implicit-shrinkage prediction: as $K/C$ grows, the regularisation benefit of imperfect clustering diminishes.
@@ -887,11 +894,11 @@ $\hat\lambda$ (last 5 rounds) & $0.156$ & --- & --- \\
 \end{tabular}
 \end{center}
 
-\noindent The moderate $\hat\lambda \approx 0.18$ (not near $1.0$) indicates that even on CIFAR-10, the per-concept models develop measurable between-concept variance $\hat\sigma_B^2$ during training, preventing full collapse to FedAvg.
+\noindent \emph{Note: this diagnostic was run under the earlier protocol (lr$=$0.01, 5~epochs, prequential evaluation).}
+The moderate $\hat\lambda \approx 0.18$ (not near $1.0$) indicates that even on CIFAR-10, the per-concept models develop measurable between-concept variance $\hat\sigma_B^2$ during training, preventing full collapse to FedAvg.
 Early rounds show higher $\hat\lambda \approx 0.37$ (more shrinkage) as expected---initial models are nearly identical.
 As training progresses, concept models diverge and $\hat\lambda$ decreases to ${\sim}0.16$.
-This confirms that FPT's shrinkage mechanism operates as designed but does not perfectly replicate FedAvg behaviour.
-The $-1.0$pp gap in the main table reflects this moderate (not full) shrinkage combined with the $0.1\times$ fingerprint communication overhead.
+Under the current protocol (lr$=$0.02, 10~epochs, held-out, SNR-gated shrinkage), FPT achieves $+3.7$pp over FedAvg on CIFAR-10 (Table~\ref{tab:main}); the SNR gate prevents $\hat\lambda$ collapse in early rounds (Table~\ref{tab:shrinkage_ablation}).
 
 
 % =============================================================================
@@ -900,6 +907,8 @@ The $-1.0$pp gap in the main table reflects this moderate (not full) shrinkage c
 % =============================================================================
 
 The composite similarity kernel (Eq.~8) uses fixed weights $(\alpha_1, \alpha_2, \alpha_3) = (0.25, 0.30, 0.45)$.
+\emph{Note: weight-sensitivity experiments use the earlier protocol (lr$=$0.01, 5~epochs, prequential).}
+
 These weights were set based on pilot experiments on a held-out synthetic dataset and fixed before any benchmark evaluation.
 The dominant weight on $\mathrm{sim}_{\mathrm{cc}}$ reflects that class-conditional means carry the most discriminative signal for concept identity.
 
@@ -930,6 +939,8 @@ This confirms the weights are not overfit to the evaluation datasets---any reaso
 \section{Partial Fine-Tuning and Fingerprint Stability}
 \label{app:partial_finetune}
 % =============================================================================
+
+\emph{Note: partial fine-tuning experiments use the earlier protocol (lr$=$0.01, 5~epochs, prequential).}
 
 A natural question is whether FPT requires \emph{strictly} frozen features or merely \emph{approximately stable} features.
 The sufficient condition for fingerprint-based clustering is that per-round feature drift is small relative to inter-concept fingerprint separation~$\beta$:
@@ -965,6 +976,8 @@ We view this as evidence that \emph{moderate feature perturbation} does not brea
 \section{Concept-Count Sensitivity}
 \label{app:concept_count}
 % =============================================================================
+
+\emph{Note: concept-count and misspecified-$C$ experiments use the earlier protocol (lr$=$0.01, 5~epochs, prequential); the relative trends are protocol-independent.}
 
 We evaluate FPT's robustness to the number of latent concepts $C$.
 On CIFAR-100 with disjoint label splits ($K{=}20$, $T{=}30$, $d{=}128$, frozen ResNet-18, 3~seeds), we vary the recurrence period $\rho$ to produce $C \in \{2,4,6,8\}$ ground-truth concepts.
