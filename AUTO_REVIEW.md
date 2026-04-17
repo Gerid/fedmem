@@ -518,6 +518,39 @@ Score: 8/10. Ready. Submit this version. CIFAR contradiction resolved with effec
 | 2 | 7/10 | Almost |
 | 3 | 8/10 | Ready |
 
+---
+
+# Auto Review Loop — Held-Out + SNR-Gate Revision (2026-04-17)
+
+## Round 1 (2026-04-17 22:30)
+
+### Assessment (Summary)
+- **Score: 6/10**
+- **Verdict: Almost** — not submission-ready but fixable
+- Key criticisms (ranked):
+  1. Numerical inconsistency: Abstract "75-101%" vs table "69-146%". (40,33) discrepancy. Need CIs.
+  2. Protocol ordering not isolated from fingerprint quality. Need factorial experiment.
+  3. Theory too thin for prose — reframe as motivating, add synthetic validation.
+  4. Statistical evidence thin — 3 seeds, no CIs, +1.6pp margin slim.
+  5. Privacy/scope — fingerprints contain labels, title broader than validated regime.
+
+### Reviewer Raw Response (GPT-5.4, xhigh reasoning)
+
+Score 6/10, Almost. Five weaknesses identified. Core: numerical story internally inconsistent (abstract vs table), protocol ordering not cleanly isolated from fingerprint engineering, theory is motivating but not explanatory, 3 seeds is light for rank-1 claims, and fingerprint privacy not discussed.
+
+### Actions Planned
+1. Fix abstract to match actual table numbers (69-146%)
+2. Reconcile (40,33) discrepancy (old ablation table used different config)
+3. Redefine Oracle as "reference baseline" not "upper bound"
+4. Add mean±std to main table
+5. Add privacy/threat-model paragraph
+6. Soften scope in title/abstract to "frozen-backbone supervised FL"
+
+### Status
+- Implementing fixes, then re-review in Round 2
+
+---
+
 ## Method Description
 
 The paper studies the aggregation granularity tradeoff in federated learning under concept drift using a canonical Gaussian linear regression model. K clients are assigned to C balanced concepts with oracle labels. The theory derives an exact crossover condition (SNR > C-1) determining when concept-level OLS aggregation outperforms global OLS, supported by minimax lower bounds. An empirical-Bayes shrinkage estimator (James-Stein framework) interpolates adaptively with data-driven λ estimated from between-concept dispersion. Validation: 108-config synthetic sweep (91.7% alignment), CIFAR-100 bridge with effective-rank correction (6/6 match), and comparison against linear-Gaussian analogues of IFCA, CFL, and APFL.
