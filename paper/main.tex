@@ -787,7 +787,7 @@ Full per-dataset breakdowns with per-configuration and per-seed results are avai
 
 \begin{table}[h]
 \centering
-\caption{\textbf{Full 26-method accuracy ranking (held-out evaluation, correct disjoint protocol).} CIFAR-100 reports cross-configuration mean (5~configs, mixed $n{=}3$/$n{=}6$); F-MNIST and CIFAR-10 use $K{=}20$, $\rho{=}25$, $n{=}6$. Ranked by CIFAR-100. \textbf{Bold}: FPT (ranks first overall including Oracle). fMoW omitted (different protocol; see Table~\ref{tab:main}).}
+\caption{\textbf{Full 26-method accuracy ranking (held-out evaluation, correct disjoint protocol).} CIFAR-100 ranking uses the \emph{unweighted mean of five per-config mean accuracies} (configs at mixed $n{=}3$/$n{=}6$; additional seeds affect only the variance estimate within a config, not its weight in the cross-config mean). F-MNIST and CIFAR-10 use $K{=}20$, $\rho{=}25$, $n{=}6$. Ranked by CIFAR-100. \textbf{Bold}: FPT (ranks first overall including Oracle). fMoW omitted (prequential protocol, not directly comparable; see Table~\ref{tab:main}).}
 \label{tab:full}
 \small
 \setlength{\tabcolsep}{4pt}

@@ -3,7 +3,8 @@
 Provides simplified runners for:
   - LocalOnly: Each client trains independently, no federation
   - FedAvgBaseline: Standard FedAvg, no drift detection
-  - OracleBaseline: Uses ground-truth concept IDs (upper bound)
+  - OracleBaseline: Uses ground-truth concept IDs (reference baseline;
+    not a strict upper bound --- see run_oracle_baseline docstring)
 """
 
 from __future__ import annotations

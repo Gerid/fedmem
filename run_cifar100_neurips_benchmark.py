@@ -1477,6 +1477,7 @@ def main() -> None:
         "model_type": getattr(args, "model_type", None),
         "ot_affinity_scale": getattr(args, "ot_affinity_scale", None),
         "ot_eigengap_method": getattr(args, "ot_eigengap_method", None),
+        "drct_snr_gate": getattr(args, "drct_snr_gate", None),
         "drct_snr_threshold": getattr(args, "drct_snr_threshold", None),
         "drct_sigma_ema_beta": getattr(args, "drct_sigma_ema_beta", None),
         "drct_warmup_rounds": getattr(args, "drct_warmup_rounds", None),
