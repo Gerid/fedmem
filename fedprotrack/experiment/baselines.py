@@ -225,9 +225,16 @@ def run_oracle_baseline(
     """Oracle baseline: uses ground-truth concept IDs.
 
     Maintains one federated model per true concept and aggregates across
-    all clients currently assigned to that concept. This is an upper bound
-    for concept-aware clustering methods because it assumes access to the
-    true concept identity at every step.
+    all clients currently assigned to that concept. This is a **reference
+    baseline** for concept-aware clustering methods: it assumes access to
+    the true concept identity at every step and performs per-concept
+    aggregation under the shared training budget. It is *not* a strict
+    upper bound --- fewer samples per concept group (K/C vs K) makes it
+    possible for methods with implicit shrinkage (Corollary "Implicit
+    Shrinkage") or memory reuse (FedProTrack) to match or exceed Oracle
+    when K/C is small, and Oracle can underperform FedAvg when per-concept
+    sample sizes are too small for the per-concept task complexity (see
+    fMoW 62-class discussion in the paper).
 
     Parameters
     ----------

@@ -43,7 +43,7 @@ We introduce a \emph{protocol ordering} perspective for clustered federated lear
 Existing methods cluster in weight space \emph{after} training, but under recurrence, stale model initializations contaminate the clustering signal, producing an empirically observed clustering-error floor $\eta \ge 0.30$ that no post-training algorithm in our benchmark breaches when concept separation is meaningful (Oracle gap $> 4$pp).
 We formalise this in a one-step linearised Gaussian model: stale model initialisations inflate Scheme~A clustering error to first order in concept-switching variance, and a $d/L_{\mathrm{cls}}$ SNR calculation suggests---consistent with our empirical observation of a $200\times$ gap---that data fingerprints achieve lower error.
 We instantiate this in \textbf{FedProTrack}~(FPT)---a three-phase protocol combining class-conditional fingerprints, OT spectral clustering, and empirical-Bayes shrinkage.
-Across 3~held-out-evaluated datasets (CIFAR-100, Fashion-MNIST, CIFAR-10), 26~baselines from 7~method families, and 60+ experimental runs, FPT closes 92--146\% of the Oracle--FedAvg gap on CIFAR-100 (5~configs, all $p<0.05$ by paired $t$-test), ranks first among all 25~non-Oracle methods, and beats the next-best baseline by $+1.6$pp; on fMoW (natural temporal drift, prequential protocol), FPT outperforms the next-best method by $+6.9$pp.
+Across 3~held-out-evaluated datasets (CIFAR-100, Fashion-MNIST, CIFAR-10), 26~baselines from 7~method families, and 60+ experimental runs, FPT closes 92--146\% of the Oracle--FedAvg gap on CIFAR-100 (5~configs, all $p<0.05$ by paired $t$-test), ranks first overall (above Oracle in cross-config mean, $+0.3$pp), and beats the best non-Oracle baseline by $+3.1$pp; on fMoW (natural temporal drift, prequential protocol), FPT outperforms the next-best method by $+6.9$pp.
 All cluster-after-train methods exhibit $\eta \ge 0.30$ on every dataset where the Oracle gap exceeds 4pp.
 \end{abstract}
 
@@ -787,7 +787,7 @@ Full per-dataset breakdowns with per-configuration and per-seed results are avai
 
 \begin{table}[h]
 \centering
-\caption{\textbf{Full 26-method accuracy ranking (held-out evaluation).} CIFAR-100 reports cross-configuration mean (5~configs); others use $K{=}20$, $\rho{=}25$. All 3~seeds. Ranked by CIFAR-100. \textbf{Bold}: best non-Oracle. fMoW omitted (different protocol; see Table~\ref{tab:main}).}
+\caption{\textbf{Full 26-method accuracy ranking (held-out evaluation, correct disjoint protocol).} CIFAR-100 reports cross-configuration mean (5~configs, mixed $n{=}3$/$n{=}6$); F-MNIST and CIFAR-10 use $K{=}20$, $\rho{=}25$, $n{=}6$. Ranked by CIFAR-100. \textbf{Bold}: FPT (ranks first overall including Oracle). fMoW omitted (different protocol; see Table~\ref{tab:main}).}
 \label{tab:full}
 \small
 \setlength{\tabcolsep}{4pt}
@@ -795,33 +795,33 @@ Full per-dataset breakdowns with per-configuration and per-seed results are avai
 \toprule
 \# & Method & \textbf{CIFAR-100} & \textbf{F-MNIST} & \textbf{CIFAR-10} \\
 \midrule
-1  & Oracle & $.759$ & $.878$ & $.806$ \\
-2  & \textbf{FPT (Ours)} & $\mathbf{.750}$ & $\mathbf{.880}$ & $\mathbf{.794}$ \\
+1  & \textbf{FPT (Ours)} & $\mathbf{.770}$ & $\mathbf{.885}$ & $\mathbf{.796}$ \\
+2  & Oracle & $.767$ & $.884$ & $.804$ \\
 \midrule
-3  & FLUX & $.737$ & $.839$ & $.763$ \\
-4  & APFL & $.734$ & $.852$ & $.768$ \\
-5  & Ditto & $.731$ & $.840$ & $.762$ \\
-6  & FLUX-prior & $.730$ & $.843$ & $.760$ \\
-7  & TrackedSummary & $.728$ & $.831$ & $.759$ \\
-8  & FedGWC & $.728$ & $.832$ & $.757$ \\
-9  & Flash & $.728$ & $.832$ & $.757$ \\
-10 & SCAFFOLD & $.728$ & $.832$ & $.757$ \\
-11 & FedAvg & $.727$ & $.832$ & $.757$ \\
-12 & FedAvg-FPTTrain & $.727$ & $.832$ & $.757$ \\
-13 & HCFL & $.727$ & $.826$ & $.767$ \\
-14 & CompressedFedAvg & $.727$ & $.832$ & $.757$ \\
-15 & FedProx & $.727$ & $.832$ & $.757$ \\
-16 & FedEM & $.726$ & $.833$ & $.761$ \\
-17 & FedCCFA-Impl & $.725$ & $.851$ & $.774$ \\
-18 & FedDrift & $.724$ & $.824$ & $.766$ \\
-19 & ATP & $.716$ & $.828$ & $.767$ \\
-20 & CFL & $.709$ & $.841$ & $.756$ \\
-21 & FedCCFA & $.709$ & $.842$ & $.767$ \\
-22 & FedRC & $.703$ & $.695$ & $.650$ \\
-23 & LocalOnly & $.703$ & $.815$ & $.750$ \\
-24 & Adaptive-FedAvg & $.681$ & $.807$ & $.772$ \\
-25 & IFCA & $.602$ & $.752$ & $.616$ \\
-26 & pFedMe & $.244$ & $.410$ & $.391$ \\
+3  & FLUX & $.739$ & $.843$ & $.766$ \\
+4  & Ditto & $.735$ & $.845$ & $.766$ \\
+5  & FLUX-prior & $.735$ & $.842$ & $.763$ \\
+6  & FedGWC & $.731$ & $.833$ & $.760$ \\
+7  & Flash & $.731$ & $.833$ & $.760$ \\
+8  & SCAFFOLD & $.731$ & $.833$ & $.760$ \\
+9  & CompressedFedAvg & $.731$ & $.833$ & $.760$ \\
+10 & FedProx & $.731$ & $.833$ & $.760$ \\
+11 & TrackedSummary & $.731$ & $.833$ & $.761$ \\
+12 & FedAvg & $.730$ & $.833$ & $.760$ \\
+13 & FedAvg-FPTTrain & $.730$ & $.833$ & $.760$ \\
+14 & HCFL & $.730$ & $.830$ & $.765$ \\
+15 & FedEM & $.729$ & $.834$ & $.764$ \\
+16 & APFL & $.727$ & $.853$ & $.769$ \\
+17 & FedDrift & $.726$ & $.829$ & $.765$ \\
+18 & ATP & $.719$ & $.833$ & $.767$ \\
+19 & CFL & $.716$ & $.843$ & $.758$ \\
+20 & FedCCFA-Impl & $.713$ & $.847$ & $.772$ \\
+21 & FedCCFA & $.704$ & $.840$ & $.768$ \\
+22 & LocalOnly & $.686$ & $.822$ & $.754$ \\
+23 & Adaptive-FedAvg & $.686$ & $.814$ & $.768$ \\
+24 & FedRC & $.615$ & $.694$ & $.654$ \\
+25 & IFCA & $.572$ & $.749$ & $.596$ \\
+26 & pFedMe & $.226$ & $.372$ & $.349$ \\
 \bottomrule
 \end{tabular}
 \end{table}
