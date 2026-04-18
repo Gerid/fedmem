@@ -1463,6 +1463,23 @@ def main() -> None:
         "methods": args.methods,
         "feature_seed": args.feature_seed,
         "n_samples": args.n_samples,
+        # Protocol-defining fields (hidden globals / per-dataset behaviors).
+        # fMoW path honours fmow_n_classes; CIFAR-100 path honours label_split
+        # and label_permutation. Persisting all of them makes the resolved
+        # protocol reproducible from this file alone.
+        "dataset": args.dataset,
+        "label_split": args.label_split,
+        "label_permutation": args.label_permutation,
+        "label_permutation_type": args.label_permutation_type,
+        "dirichlet_alpha": args.dirichlet_alpha,
+        "eval_on_test_pool": args.eval_on_test_pool,
+        "fmow_n_classes": getattr(args, "fmow_n_classes", None),
+        "model_type": getattr(args, "model_type", None),
+        "ot_affinity_scale": getattr(args, "ot_affinity_scale", None),
+        "ot_eigengap_method": getattr(args, "ot_eigengap_method", None),
+        "drct_snr_threshold": getattr(args, "drct_snr_threshold", None),
+        "drct_sigma_ema_beta": getattr(args, "drct_sigma_ema_beta", None),
+        "drct_warmup_rounds": getattr(args, "drct_warmup_rounds", None),
     }
     with open(out_dir / "config.json", "w", encoding="utf-8") as f:
         json.dump(config_dump, f, indent=2)
