@@ -1,5 +1,0 @@
-\beamer@sectionintoc {1}{Background \& Motivation}{3}{0}{1}
-\beamer@sectionintoc {2}{Core Problem: Scheme A Is Broken}{5}{0}{2}
-\beamer@sectionintoc {3}{Method: FedProTrack}{9}{0}{3}
-\beamer@sectionintoc {4}{Experiments}{17}{0}{4}
-\beamer@sectionintoc {5}{Conclusion}{21}{0}{5}

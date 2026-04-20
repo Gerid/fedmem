@@ -55,3 +55,19 @@ docs/PHASE4_FAILURE_ANALYSIS_AND_TARGETED_FIX_PLAN.md
 docs/fedprotracker_theory_md_and_tex.md
 docs/neurips_theory_experiment_bridge_section.md
 tools/PaperBanana/
+
+# Shell logs and codex ephemeral state
+runpod_log_*.txt
+.codex/
+
+# LaTeX build artifacts (keep main.tex and main.pdf, drop transient files)
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.log
+paper/*.out
+paper/*.toc
+paper/*.nav
+paper/*.snm

@@ -1,5 +1,0 @@
-\beamer@sectionintoc {1}{背景与动机}{3}{0}{1}
-\beamer@sectionintoc {2}{理论基础}{5}{0}{2}
-\beamer@sectionintoc {3}{方法：FedProTrack}{10}{0}{3}
-\beamer@sectionintoc {4}{实验}{17}{0}{4}
-\beamer@sectionintoc {5}{总结}{21}{0}{5}
